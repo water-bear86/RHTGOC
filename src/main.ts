@@ -14,7 +14,7 @@ import {
   type CharacterId,
   type Vec2,
 } from "./simulation"
-import { loadLeaderboard, submitLeaderboardEntry } from "./leaderboard"
+import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard } from "./leaderboard"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -70,6 +70,7 @@ let toastTimer = 0
 let ended = false
 let lastPlayerPosition = { ...state.player.position }
 let resultSubmitted = false
+let unsubscribeLeaderboard: (() => void) | null = null
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
@@ -411,6 +412,11 @@ async function openLeaderboard(): Promise<void> {
     item.append(identity, score)
     leaderboardList.append(item)
   }
+  if (!unsubscribeLeaderboard) {
+    unsubscribeLeaderboard = subscribeToLeaderboard(() => {
+      if (!leaderboardPanel.classList.contains("hidden")) void openLeaderboard()
+    })
+  }
 }
 
 function updateUI(): void {
@@ -590,6 +596,7 @@ window.addEventListener("resize", () => {
 })
 
 window.addEventListener("blur", () => keys.clear())
+window.addEventListener("beforeunload", () => unsubscribeLeaderboard?.())
 renderer.domElement.addEventListener("webglcontextlost", (event) => {
   event.preventDefault()
   showToast("Graphics paused — restoring Sherwood")

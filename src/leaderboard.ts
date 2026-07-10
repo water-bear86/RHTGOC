@@ -1,4 +1,5 @@
 import type { CharacterId, MasteryResult } from "./simulation"
+import { getSupabase } from "./supabase"
 
 export interface LeaderboardEntry {
   id: string
@@ -34,11 +35,29 @@ function saveLocal(entries: LeaderboardEntry[]): void {
 }
 
 export async function loadLeaderboard(): Promise<{ entries: LeaderboardEntry[]; global: boolean }> {
+  const supabase = getSupabase()
+  if (!supabase) return { entries: localEntries().sort((a, b) => b.score - a.score), global: false }
   try {
-    const response = await fetch("/api/leaderboard", { headers: { Accept: "application/json" } })
-    if (!response.ok) throw new Error(`Leaderboard returned ${response.status}`)
-    const payload = await response.json() as { entries: LeaderboardEntry[] }
-    return { entries: payload.entries, global: true }
+    const { data, error } = await supabase
+      .from("leaderboard_entries")
+      .select("id, player_name, character_id, score, grade, mission_seconds, delivered, verified, created_at")
+      .eq("verified", true)
+      .order("score", { ascending: false })
+      .order("mission_seconds", { ascending: true })
+      .limit(50)
+    if (error) throw error
+    const entries: LeaderboardEntry[] = data.map((entry) => ({
+      id: entry.id,
+      playerName: entry.player_name,
+      characterId: entry.character_id as CharacterId,
+      score: entry.score,
+      grade: entry.grade as MasteryResult["grade"],
+      missionSeconds: entry.mission_seconds,
+      delivered: entry.delivered,
+      verified: entry.verified,
+      createdAt: entry.created_at,
+    }))
+    return { entries, global: true }
   } catch {
     return { entries: localEntries().sort((a, b) => b.score - a.score), global: false }
   }
@@ -64,17 +83,19 @@ export async function submitLeaderboardEntry(input: {
     createdAt: new Date().toISOString(),
   }
 
-  try {
-    const response = await fetch("/api/leaderboard", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(localEntry),
-    })
-    if (!response.ok) throw new Error(`Leaderboard returned ${response.status}`)
-    return await response.json() as LeaderboardEntry
-  } catch {
-    const entries = [localEntry, ...localEntries()].sort((a, b) => b.score - a.score)
-    saveLocal(entries)
-    return localEntry
-  }
+  // Clients never write ranked results directly. The authoritative mission
+  // server will submit verified scores with server-only credentials.
+  const entries = [localEntry, ...localEntries()].sort((a, b) => b.score - a.score)
+  saveLocal(entries)
+  return localEntry
+}
+
+export function subscribeToLeaderboard(onChange: () => void): () => void {
+  const supabase = getSupabase()
+  if (!supabase) return () => undefined
+  const channel = supabase
+    .channel("leaderboard-season-zero")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "leaderboard_entries" }, onChange)
+    .subscribe()
+  return () => { void supabase.removeChannel(channel) }
 }
