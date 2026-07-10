@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#13291f" />
+    <title>Sherwood Rebellion</title>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="hud">
+      <div class="brand">
+        <span class="brand-mark">SR</span>
+        <span><b>SHERWOOD</b><small>REBELLION</small></span>
+      </div>
+      <div class="objective">
+        <span>THE PEOPLE'S PURSE</span>
+        <strong id="objective-text">Find the Sheriff's tax cart</strong>
+        <div class="progress"><i id="progress-fill"></i></div>
+      </div>
+      <div class="status">
+        <span title="Health"><i class="heart"></i><b id="health">3</b></span>
+        <span title="Arrows"><i class="arrow">➶</i><b id="arrows">5</b></span>
+        <span title="Stolen coin"><i class="coin"></i><b id="loot">0</b></span>
+        <span class="signature-status" title="Signature ability"><i>Q</i><b id="signature">READY</b></span>
+      </div>
+      <div class="heat" id="heat-wrap">
+        <span>WANTED</span>
+        <div><i id="heat-fill"></i></div>
+      </div>
+      <button class="help-button" id="help-button" aria-label="Open controls">?</button>
+      <button class="leaderboard-button" id="leaderboard-button" aria-label="Open leaderboard">♜</button>
+      <div class="prompt" id="prompt">Click the ground or use WASD to move</div>
+      <div class="toast" id="toast"></div>
+    </div>
+    <div class="intro" id="intro">
+      <div class="intro-card">
+        <span class="eyebrow">A 3D SHERWOOD PROTOTYPE</span>
+        <h1>Take from the crown.<br /><em>Return it to the people.</em></h1>
+        <p>Ambush the Sheriff's tax cart, outwit his guards, and carry the coin home before they catch you.</p>
+        <div class="character-select" aria-label="Choose an outlaw">
+          <button class="character-option selected" data-character="robin" aria-pressed="true">
+            <b>ROBIN HOOD</b><span>Marksman</span><small>Six arrows · Q: Twin Shot</small>
+          </button>
+          <button class="character-option" data-character="marian" aria-pressed="false">
+            <b>MAID MARIAN</b><span>Scout</span><small>Faster · Q: Veil</small>
+          </button>
+        </div>
+        <button id="start-button">ENTER SHERWOOD <span>→</span></button>
+        <small>WASD / CLICK TO MOVE · E TO INTERACT · SPACE TO FIRE · Q SIGNATURE</small>
+      </div>
+    </div>
+    <div class="panel hidden" id="help-panel">
+      <button id="close-help" aria-label="Close controls">×</button>
+      <span class="eyebrow">FIELD NOTES</span>
+      <h2>How to rebel</h2>
+      <dl>
+        <dt>Move</dt><dd>WASD, arrow keys, or click the ground</dd>
+        <dt>Steal / give</dt><dd>Press E near the cart or village fire</dd>
+        <dt>Loose arrow</dt><dd>Space stuns the nearest guard in range</dd>
+        <dt>Signature</dt><dd>Q uses Robin's Twin Shot or Marian's Veil</dd>
+        <dt>Survive</dt><dd>Break line of pursuit among the trees</dd>
+      </dl>
+    </div>
+    <div class="panel leaderboard-panel hidden" id="leaderboard-panel">
+      <button id="close-leaderboard" aria-label="Close leaderboard">×</button>
+      <span class="eyebrow">SEASON ZERO</span>
+      <h2>Master Outlaws</h2>
+      <p class="board-state" id="leaderboard-state">Loading the global board…</p>
+      <ol class="leaderboard-list" id="leaderboard-list"></ol>
+      <small class="board-note">Only server-validated missions will receive a verified mark. Prototype runs remain unverified.</small>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
