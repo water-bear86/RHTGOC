@@ -1,5 +1,7 @@
 import { createServer } from "node:http"
 import { randomInt } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import { extname, join, normalize } from "node:path"
 import { WebSocket, WebSocketServer } from "ws"
 import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "../shared/protocol"
 import { Room } from "./room"
@@ -20,14 +22,47 @@ function send(socket: WebSocket, message: ServerMessage): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
 }
 
-const httpServer = createServer((request, response) => {
+const contentTypes: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".json": "application/json; charset=utf-8",
+}
+
+const httpServer = createServer(async (request, response) => {
   if (request.url === "/health") {
     response.writeHead(200, { "Content-Type": "application/json" })
     response.end(JSON.stringify({ ok: true, rooms: rooms.size, protocolVersion: PROTOCOL_VERSION }))
     return
   }
-  response.writeHead(404, { "Content-Type": "application/json" })
-  response.end(JSON.stringify({ error: "Not found" }))
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    response.writeHead(405, { "Content-Type": "application/json" })
+    response.end(JSON.stringify({ error: "Method not allowed" }))
+    return
+  }
+  const pathname = new URL(request.url ?? "/", "http://localhost").pathname
+  const requested = pathname === "/" ? "index.html" : normalize(pathname).replace(/^(\.\.(\/|\\|$))+/, "")
+  const filePath = join(process.cwd(), "dist", requested)
+  try {
+    const body = await readFile(filePath)
+    response.writeHead(200, {
+      "Content-Type": contentTypes[extname(filePath)] ?? "application/octet-stream",
+      "Cache-Control": filePath.endsWith("index.html") ? "no-cache" : "public, max-age=31536000, immutable",
+    })
+    if (request.method === "HEAD") response.end()
+    else response.end(body)
+  } catch {
+    try {
+      const body = await readFile(join(process.cwd(), "dist", "index.html"))
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" })
+      response.end(body)
+    } catch {
+      response.writeHead(404, { "Content-Type": "application/json" })
+      response.end(JSON.stringify({ error: "Not found" }))
+    }
+  }
 })
 
 const sockets = new WebSocketServer({ server: httpServer, path: "/rooms" })

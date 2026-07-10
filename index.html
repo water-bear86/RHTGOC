@@ -46,6 +46,18 @@
             <b>MAID MARIAN</b><span>Scout</span><small>Faster · Q: Veil</small>
           </button>
         </div>
+        <div class="band-setup">
+          <input id="player-name" maxlength="20" value="Greenhood" aria-label="Outlaw name" />
+          <button id="create-room">FORM A MERRY BAND</button>
+          <input id="room-code" maxlength="6" placeholder="ROOM CODE" aria-label="Room code" />
+          <button id="join-room">JOIN BAND</button>
+        </div>
+        <div class="room-lobby hidden" id="room-lobby">
+          <span class="eyebrow">MERRY BAND <b id="lobby-code">------</b></span>
+          <ul id="party-list"></ul>
+          <p id="lobby-status">Waiting for outlaws…</p>
+          <button id="ready-button">READY UP</button>
+        </div>
         <button id="start-button">ENTER SHERWOOD <span>→</span></button>
         <small>WASD / CLICK TO MOVE · E TO INTERACT · SPACE TO FIRE · Q SIGNATURE</small>
       </div>

@@ -11,16 +11,15 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "postgres": "^3.4.7",
+    "@supabase/supabase-js": "2.110.2",
     "three": "^0.178.0",
+    "tsx": "^4.20.3",
     "ws": "^8.18.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/three": "^0.178.1",
-    "@vercel/node": "^5.3.7",
     "@types/ws": "^8.18.1",
-    "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",
     "vitest": "^3.2.4"

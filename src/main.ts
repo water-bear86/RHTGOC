@@ -14,7 +14,9 @@ import {
   type CharacterId,
   type Vec2,
 } from "./simulation"
-import { loadLeaderboard, submitLeaderboardEntry } from "./leaderboard"
+import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard } from "./leaderboard"
+import { MultiplayerClient } from "./multiplayer"
+import type { RoomPlayer } from "../shared/protocol"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -38,6 +40,16 @@ const closeLeaderboard = document.querySelector<HTMLButtonElement>("#close-leade
 const leaderboardList = document.querySelector<HTMLOListElement>("#leaderboard-list")!
 const leaderboardState = document.querySelector<HTMLElement>("#leaderboard-state")!
 const characterButtons = [...document.querySelectorAll<HTMLButtonElement>(".character-option")]
+const playerNameInput = document.querySelector<HTMLInputElement>("#player-name")!
+const roomCodeInput = document.querySelector<HTMLInputElement>("#room-code")!
+const createRoomButton = document.querySelector<HTMLButtonElement>("#create-room")!
+const joinRoomButton = document.querySelector<HTMLButtonElement>("#join-room")!
+const roomLobby = document.querySelector<HTMLDivElement>("#room-lobby")!
+const lobbyCode = document.querySelector<HTMLElement>("#lobby-code")!
+const lobbyStatus = document.querySelector<HTMLElement>("#lobby-status")!
+const partyList = document.querySelector<HTMLUListElement>("#party-list")!
+const readyButton = document.querySelector<HTMLButtonElement>("#ready-button")!
+playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x91aa83)
@@ -70,9 +82,13 @@ let toastTimer = 0
 let ended = false
 let lastPlayerPosition = { ...state.player.position }
 let resultSubmitted = false
+let unsubscribeLeaderboard: (() => void) | null = null
+let multiplayerActive = false
+let localReady = false
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
+const remoteViews = new Map<string, { view: THREE.Group; target: THREE.Vector3 }>()
 
 const palette = {
   grass: 0x506e40,
@@ -316,6 +332,74 @@ destinationMarker.position.y = 0.08
 destinationMarker.visible = false
 scene.add(destinationMarker)
 
+const multiplayer = new MultiplayerClient({
+  onWelcome: (_playerId, roomCode) => {
+    lobbyCode.textContent = roomCode
+    roomCodeInput.value = roomCode
+    roomLobby.classList.remove("hidden")
+    lobbyStatus.textContent = "Share this code, then ready up together."
+  },
+  onRoomState: (_roomCode, phase, players) => {
+    renderParty(players)
+    const localPlayer = players.find((player) => player.id === multiplayer.playerId)
+    localReady = localPlayer?.ready ?? false
+    readyButton.textContent = localReady ? "NOT READY" : "READY UP"
+    if (phase === "mission") {
+      multiplayerActive = true
+      running = true
+      intro.classList.add("closed")
+      lobbyStatus.textContent = "Mission started"
+      ensureRemotePlayers(players)
+      clock.getDelta()
+    }
+  },
+  onSnapshot: (_tick, players) => {
+    for (const player of players) {
+      if (player.id === multiplayer.playerId) {
+        state.player.position.x = player.position.x
+        state.player.position.z = player.position.z
+      } else {
+        const remote = remoteViews.get(player.id)
+        remote?.target.set(player.position.x, 0, player.position.z)
+      }
+    }
+  },
+  onError: (message) => {
+    lobbyStatus.textContent = message
+    showToast(message)
+  },
+  onConnection: (connected) => {
+    lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
+  },
+})
+
+function renderParty(players: RoomPlayer[]): void {
+  partyList.replaceChildren()
+  for (const player of players) {
+    const item = document.createElement("li")
+    item.classList.toggle("ready", player.ready)
+    item.textContent = `${player.ready ? "✓" : "○"} ${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}${player.connected ? "" : " · reconnecting"}`
+    partyList.append(item)
+  }
+  lobbyStatus.textContent = players.length < 2 ? "Waiting for another outlaw…" : "Ready together to begin."
+}
+
+function ensureRemotePlayers(players: RoomPlayer[]): void {
+  const activeIds = new Set(players.filter((player) => player.id !== multiplayer.playerId).map((player) => player.id))
+  for (const player of players) {
+    if (player.id === multiplayer.playerId || remoteViews.has(player.id)) continue
+    const view = createCharacter(player.characterId)
+    view.position.set(player.position.x, 0, player.position.z)
+    scene.add(view)
+    remoteViews.set(player.id, { view, target: new THREE.Vector3(player.position.x, 0, player.position.z) })
+  }
+  for (const [id, remote] of remoteViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(remote.view)
+    remoteViews.delete(id)
+  }
+}
+
 function getMoveInput(): Vec2 {
   let x = 0
   let z = 0
@@ -411,6 +495,11 @@ async function openLeaderboard(): Promise<void> {
     item.append(identity, score)
     leaderboardList.append(item)
   }
+  if (!unsubscribeLeaderboard) {
+    unsubscribeLeaderboard = subscribeToLeaderboard(() => {
+      if (!leaderboardPanel.classList.contains("hidden")) void openLeaderboard()
+    })
+  }
 }
 
 function updateUI(): void {
@@ -479,6 +568,14 @@ function syncViews(elapsed: number, dt: number): void {
     view.rotation.z = guard.stunnedFor > 0 ? Math.sin(elapsed * 14) * 0.1 : 0
   })
 
+  for (const remote of remoteViews.values()) {
+    const previous = remote.view.position.clone()
+    remote.view.position.lerp(remote.target, 1 - Math.pow(0.0005, dt))
+    const remoteDx = remote.view.position.x - previous.x
+    const remoteDz = remote.view.position.z - previous.z
+    if (Math.hypot(remoteDx, remoteDz) > 0.0001) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
+  }
+
   cartView.children.forEach((child) => {
     if (child.userData.coin) child.visible = state.cartCoin > 0
   })
@@ -508,7 +605,9 @@ function animate(): void {
     return
   }
   if (running) {
-    const events = updateSimulation(state, { move: getMoveInput() }, dt)
+    const move = getMoveInput()
+    if (multiplayerActive) multiplayer.sendInput(move)
+    const events = updateSimulation(state, { move }, dt)
     for (const event of events) {
       if (event === "player-hit") showToast("The Sheriff strikes!")
       if (event === "cart-ready") showToast("A new tax cart has entered Sherwood")
@@ -530,6 +629,30 @@ startButton.addEventListener("click", () => {
   clock.getDelta()
 })
 
+createRoomButton.addEventListener("click", () => {
+  const displayName = playerNameInput.value.trim().slice(0, 20)
+  if (!displayName) {
+    lobbyStatus.textContent = "Choose an outlaw name first"
+    return
+  }
+  localStorage.setItem("sherwood-rebellion:player-name", displayName)
+  multiplayer.createRoom(displayName, selectedCharacter)
+})
+
+joinRoomButton.addEventListener("click", () => {
+  const displayName = playerNameInput.value.trim().slice(0, 20)
+  const code = roomCodeInput.value.trim().toUpperCase()
+  if (!displayName || code.length !== 6) {
+    lobbyStatus.textContent = "Enter an outlaw name and six-character room code"
+    roomLobby.classList.remove("hidden")
+    return
+  }
+  localStorage.setItem("sherwood-rebellion:player-name", displayName)
+  multiplayer.joinRoom(code, displayName, selectedCharacter)
+})
+
+readyButton.addEventListener("click", () => multiplayer.setReady(!localReady))
+
 characterButtons.forEach((button) => {
   button.addEventListener("click", () => {
     if (running) return
@@ -544,6 +667,7 @@ characterButtons.forEach((button) => {
     scene.remove(playerView)
     playerView = createCharacter(selectedCharacter)
     scene.add(playerView)
+    if (multiplayer.playerId) multiplayer.selectCharacter(selectedCharacter)
     updateUI()
   })
 })
@@ -590,6 +714,7 @@ window.addEventListener("resize", () => {
 })
 
 window.addEventListener("blur", () => keys.clear())
+window.addEventListener("beforeunload", () => unsubscribeLeaderboard?.())
 renderer.domElement.addEventListener("webglcontextlost", (event) => {
   event.preventDefault()
   showToast("Graphics paused — restoring Sherwood")

@@ -15,5 +15,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["src", "api", "server", "shared"]
+  "include": ["src", "server", "shared"]
 }
