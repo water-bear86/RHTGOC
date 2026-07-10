@@ -2,6 +2,14 @@
 
 A true 3D browser-game prototype inspired by Kintara's approachable isometric world loop and rebuilt around the Robin Hood fantasy.
 
+## Playtest
+
+The permanent multiplayer playtest is hosted on AWS Lightsail:
+
+**[Play Sherwood Rebellion](https://sherwood-rebellion.16h6bw5cfk6jc.ca-central-1.cs.amazonlightsail.com/)**
+
+The same HTTPS origin serves the 3D client, health endpoint, and secure Merry Band WebSocket rooms.
+
 ## Run
 
 ```bash
