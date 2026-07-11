@@ -14,6 +14,12 @@ describe("render profile", () => {
     })
   })
 
+  it("allows the documented degraded profile to be exercised on capable hardware", () => {
+    expect(chooseRenderProfile({ maxTextureSize: 8192, maxTextures: 32, devicePixelRatio: 2, reducedMotion: false }, true)).toEqual({
+      tier: "degraded", pixelRatio: 1, shadows: false, motionScale: 1,
+    })
+  })
+
   it("honors reduced motion independently of GPU tier", () => {
     expect(chooseRenderProfile({ maxTextureSize: 8192, maxTextures: 32, devicePixelRatio: 1, reducedMotion: true }).motionScale).toBe(0)
   })

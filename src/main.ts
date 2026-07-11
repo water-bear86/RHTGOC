@@ -20,6 +20,14 @@ import { loadLeaderboard, loadLeaderboardSeasons, submitLeaderboardEntry, subscr
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
+import {
+  cloneObjectMaterialsForInstance,
+  convertObjectToToon,
+  createToonMaterial,
+  disposeObjectInstanceMaterials,
+  setMeshColor,
+  setObjectOpacityFactor,
+} from "./toon-materials"
 import type { BandContribution, ContributionType, LastMissionResult, LoadoutId, MerryBandState, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionPreparation, MissionSnapshot, MissionTrap, PingKind, PublicHubPlayer, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
@@ -201,7 +209,7 @@ const renderProfile = chooseRenderProfile({
   maxTextures: renderer.capabilities.maxTextures,
   devicePixelRatio: window.devicePixelRatio,
   reducedMotion: inputSettings.reducedMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-})
+}, new URLSearchParams(location.search).get("render") === "degraded")
 renderer.setPixelRatio(renderProfile.pixelRatio)
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.shadowMap.enabled = renderProfile.shadows
@@ -209,6 +217,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.outputColorSpace = THREE.SRGBColorSpace
 renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.toneMappingExposure = 1.05
+renderer.setClearColor(0x91aa83, 1)
 container.appendChild(renderer.domElement)
 
 let selectedCharacter: CharacterId = "robin"
@@ -287,6 +296,7 @@ const lootCacheViews = new Map<string, THREE.Group>()
 const preparationViews = new Map<string, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
 const authoredGroveViews: THREE.Group[] = []
+const cameraOccluders: Array<{ view: THREE.Group; radius: number }> = []
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
@@ -325,8 +335,8 @@ function characterName(characterId: CharacterId): string {
   return characterNames[characterId]
 }
 
-function material(color: number, roughness = 0.9): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness, metalness: 0 })
+function material(color: number): THREE.MeshToonMaterial {
+  return createToonMaterial({ color })
 }
 
 function mesh(
@@ -342,10 +352,10 @@ function mesh(
 }
 
 function addLighting(): void {
-  const hemisphere = new THREE.HemisphereLight(0xe9efce, 0x243823, 2.2)
+  const hemisphere = new THREE.HemisphereLight(0xe9efce, 0x243823, 1.35)
   scene.add(hemisphere)
 
-  const sun = new THREE.DirectionalLight(0xffedc8, 4.2)
+  const sun = new THREE.DirectionalLight(0xffedc8, 2.8)
   sun.position.set(-18, 28, 14)
   sun.castShadow = true
   sun.shadow.mapSize.set(2048, 2048)
@@ -356,6 +366,7 @@ function addLighting(): void {
   sun.shadow.camera.near = 1
   sun.shadow.camera.far = 70
   sun.shadow.bias = -0.0004
+  sun.shadow.intensity = 0.3
   scene.add(sun)
 }
 
@@ -374,6 +385,7 @@ function createTree(x: number, z: number, scale = 1): THREE.Group {
   crownB.rotation.y = z * 0.12
   tree.add(crownA, crownB)
   scene.add(tree)
+  cameraOccluders.push({ view: tree, radius: 1.2 * scale })
   return tree
 }
 
@@ -390,6 +402,7 @@ function createHut(x: number, z: number, rotation = 0): THREE.Group {
   door.position.set(0, 0.65, 1.34)
   hut.add(walls, roof, door)
   scene.add(hut)
+  cameraOccluders.push({ view: hut, radius: 2.2 })
   return hut
 }
 
@@ -527,12 +540,13 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
 
 function loadRobinRanger(): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
   rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb")
-    .then((asset) => ({ scene: asset.scene, animations: asset.animations }))
+    .then((asset) => ({ scene: convertObjectToToon(asset.scene), animations: asset.animations }))
   return rangerAssetPromise
 }
 
 function loadTreeGrove(): Promise<THREE.Group> {
-  treeGroveAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-tree-grove.glb").then((asset) => asset.scene)
+  treeGroveAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-tree-grove.glb")
+    .then((asset) => convertObjectToToon(asset.scene))
   return treeGroveAssetPromise
 }
 
@@ -553,7 +567,11 @@ function attachTreeGroves(): void {
       grove.userData.authoredTreeGrove = true
       grove.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return
-        child.castShadow = renderProfile.shadows
+        // The authored grove is scaled as distant perimeter dressing. Casting
+        // that scaled silhouette into the shared shadow map produces enormous
+        // near-black toon bands across the playfield, so only nearby procedural
+        // trees and gameplay actors cast dynamic shadows.
+        child.castShadow = false
         child.receiveShadow = true
         child.frustumCulled = true
       })
@@ -565,6 +583,7 @@ function attachTreeGroves(): void {
 
 function prepareRangerInstance(source: THREE.Group): THREE.Group {
   const ranger = cloneSkeleton(source) as THREE.Group
+  cloneObjectMaterialsForInstance(ranger)
   ranger.scale.setScalar(2.15)
   ranger.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return
@@ -578,6 +597,7 @@ function prepareRangerInstance(source: THREE.Group): THREE.Group {
 function attachRobinRanger(view: THREE.Group): void {
   void loadRobinRanger().then((asset) => {
     if (playerView !== view || selectedCharacter !== "robin") return
+    disposeObjectInstanceMaterials(view)
     view.clear()
     const ranger = prepareRangerInstance(asset.scene)
     view.add(ranger)
@@ -1440,6 +1460,7 @@ function updateMissionDebug(): void {
     `ROTATION ${mission?.rotationId ?? "standard"} · modifiers=${mission?.rotationModifierIds.join(",") || "seeded"}`,
     `RESCUE CHAIN ${mission?.rescueOfferId ?? "none"} · source=${mission?.rescueSourceMissionId ?? "none"}`,
     `PREPARATION ${(mission?.preparations ?? []).map((preparation) => `${preparation.type}:${preparation.status}:${preparation.contributorLabel}`).join(" · ") || "none"}`,
+    `RENDER   ${renderProfile.tier} · calls=${renderer.info.render.calls} · triangles=${renderer.info.render.triangles}`,
   ].join("\n")
 }
 
@@ -1531,7 +1552,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   signalView.visible = mission.missionKind !== "storehouse"
   signalView.rotation.z = mission.signalSabotaged ? Math.PI / 2.8 : 0
   signalView.traverse((child) => {
-    if (child instanceof THREE.Mesh && child.userData.signalFlag) (child.material as THREE.MeshStandardMaterial).color.setHex(mission.signalSabotaged ? 0x5f5b45 : 0xa94132)
+    if (child instanceof THREE.Mesh && child.userData.signalFlag) setMeshColor(child, mission.signalSabotaged ? 0x5f5b45 : 0xa94132)
   })
   applyVillageState(visibleVillageState(mission.village))
   renderMissionResolution(mission)
@@ -1691,12 +1712,7 @@ function syncPreparationViews(preparations: MissionPreparation[]): void {
     }
     view.position.set(preparation.position.x, 0, preparation.position.z)
     view.visible = true
-    view.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
-        child.material.transparent = preparation.status === "consumed"
-        child.material.opacity = preparation.status === "consumed" ? 0.45 : 1
-      }
-    })
+    setObjectOpacityFactor(view, preparation.status === "consumed" ? 0.45 : 1)
   }
   for (const [id, view] of preparationViews) {
     if (activeIds.has(id)) continue
@@ -2251,6 +2267,7 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
   }
   for (const [id, remote] of remoteViews) {
     if (activeIds.has(id)) continue
+    disposeObjectInstanceMaterials(remote.view)
     scene.remove(remote.view)
     remoteViews.delete(id)
   }
@@ -2557,6 +2574,18 @@ function syncViews(elapsed: number, dt: number): void {
   const groveDistance = renderProfile.tier === "degraded" ? 30 : 38
   const cameraToPlayer = { x: player.x - camera.position.x, z: player.z - camera.position.z }
   const cameraToPlayerLengthSquared = cameraToPlayer.x ** 2 + cameraToPlayer.z ** 2
+  for (const occluder of cameraOccluders) {
+    const cameraToOccluder = { x: occluder.view.position.x - camera.position.x, z: occluder.view.position.z - camera.position.z }
+    const segmentPosition = cameraToPlayerLengthSquared > 0
+      ? Math.max(0, Math.min(1, (cameraToOccluder.x * cameraToPlayer.x + cameraToOccluder.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
+      : 0
+    const sightline = {
+      x: camera.position.x + cameraToPlayer.x * segmentPosition,
+      z: camera.position.z + cameraToPlayer.z * segmentPosition,
+    }
+    occluder.view.visible = !(segmentPosition > 0.05 && segmentPosition < 0.95
+      && Math.hypot(occluder.view.position.x - sightline.x, occluder.view.position.z - sightline.z) < occluder.radius)
+  }
   for (const grove of authoredGroveViews) {
     const playerDistance = Math.hypot(grove.position.x - player.x, grove.position.z - player.z)
     const cameraToGrove = { x: grove.position.x - camera.position.x, z: grove.position.z - camera.position.z }
@@ -2577,12 +2606,7 @@ function syncViews(elapsed: number, dt: number): void {
     view.scale.setScalar(pulse)
   }
   playerView.position.set(player.x, Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale, player.z)
-  playerView.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
-      child.material.transparent = state.player.veilFor > 0
-      child.material.opacity = state.player.veilFor > 0 ? 0.48 : 1
-    }
-  })
+  setObjectOpacityFactor(playerView, state.player.veilFor > 0 ? 0.48 : 1)
   const dx = player.x - lastPlayerPosition.x
   const dz = player.z - lastPlayerPosition.z
   const playerMoving = Math.hypot(dx, dz) > 0.001
@@ -2878,6 +2902,7 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   })
   state = createInitialState(selectedCharacter)
   lastPlayerPosition = { ...state.player.position }
+  disposeObjectInstanceMaterials(playerView)
   scene.remove(playerView)
   robinRangerMixer = null
   robinRangerActions = new Map()

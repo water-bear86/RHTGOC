@@ -79,6 +79,8 @@ Before accepting a new artifact, place it in the gameplay scene and record stand
 - LOD transitions, fallback silhouette, instancing/culling, draw calls, texture requests, and estimated GPU memory;
 - resize plus WebGL context loss/restoration with no console, shader, page, or asset-request error.
 
+Append `?render=degraded` to a local or deployed game URL to exercise the degraded profile deterministically on capable test hardware. This override can only lower quality; it cannot force the standard profile onto a constrained device.
+
 An environment asset is not accepted if its render mesh silently becomes collision. Decorative vines, trim, roofs, and other non-blocking dressing must say so explicitly. Blocking geometry requires simple shared collision data on the server and client before it enters a multiplayer route.
 
 ## LOD policy
