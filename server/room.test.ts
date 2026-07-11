@@ -102,6 +102,23 @@ describe("Merry Band room", () => {
     expect(room.lastResult).toEqual({ score: 4200, grade: "C", status: "failed", rescuedCaptives: 1, totalCaptives: 3 })
   })
 
+  it("launches the selected storehouse package with mission-owned alarm and cache state", () => {
+    const room = new Room("LEDGER")
+    const leader = room.addPlayer(fakeSocket(), "Marian", "marian")
+    const member = room.addPlayer(fakeSocket(), "Much", "much")
+    expect(room.selectMission(leader.id, "royal-storehouse")).toBe(true)
+    room.setReady(leader.id, true)
+    room.setReady(member.id, true)
+    const snapshot = room.mission!.snapshot()
+    expect(snapshot).toMatchObject({
+      missionId: "royal-storehouse@1.0.0",
+      missionKind: "storehouse",
+    })
+    expect(snapshot.alarms).toEqual(expect.arrayContaining([expect.objectContaining({ id: "alarm.front-gate", status: "active" })]))
+    expect(snapshot.lootCaches).toHaveLength(4)
+    expect(leader.position).toEqual({ x: -12, z: 9 })
+  })
+
   it("keeps deterministic, collision-free spawns when a slot is pruned", () => {
     const room = new Room("ABC234")
     const first = room.addPlayer(fakeSocket(), "First", "robin")

@@ -13,6 +13,20 @@ const PrisonWagonScenario = z.object({
   reinforcementSeconds: z.number().positive().max(300),
   failureSeconds: z.number().positive().max(3_600),
 })
+const StorehouseScenario = z.object({
+  kind: z.literal("storehouse"),
+  alarmPanels: z.array(z.object({ id: StableId, position: Vec2 })).min(2).max(6),
+  lootCaches: z.array(z.object({
+    id: StableId,
+    kind: z.enum(["coin", "intel", "ledger"]),
+    position: Vec2,
+    value: z.number().int().nonnegative().max(1_000),
+  })).min(4).max(12),
+  disguisePosition: Vec2,
+  extractionRadius: z.number().positive().max(10),
+  reinforcementSeconds: z.number().positive().max(300),
+  failureSeconds: z.number().positive().max(3_600),
+})
 
 export const MissionDefinitionSchema = z.object({
   schemaVersion: z.literal(1),
@@ -64,7 +78,7 @@ export const MissionDefinitionSchema = z.object({
     armoredAmbushStuns: z.number().int().positive(),
     trapLifetimeTicks: z.number().int().positive(),
   }),
-  scenario: PrisonWagonScenario.optional(),
+  scenario: z.discriminatedUnion("kind", [PrisonWagonScenario, StorehouseScenario]).optional(),
 }).superRefine((mission, context) => {
   const objectiveIds = mission.objectives.map((objective) => objective.id)
   if (new Set(objectiveIds).size !== objectiveIds.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ["objectives"], message: "objective IDs must be unique" })

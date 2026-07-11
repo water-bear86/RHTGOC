@@ -20,7 +20,7 @@ import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type L
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
-import type { LastMissionResult, LoadoutId, MissionCaptive, MissionEvent, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import {
   ACTION_LABELS,
@@ -210,10 +210,14 @@ const remoteViews = new Map<string, RemoteView>()
 const pingViews = new Map<number, THREE.Group>()
 const trapViews = new Map<number, THREE.Group>()
 const captiveViews = new Map<number, THREE.Group>()
+const alarmViews = new Map<string, THREE.Group>()
+const lootCacheViews = new Map<string, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
+const authoredGroveViews: THREE.Group[] = []
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
+let treeGroveAssetPromise: Promise<THREE.Group> | null = null
 let robinRangerMixer: THREE.AnimationMixer | null = null
 let robinRangerActions = new Map<string, THREE.AnimationAction>()
 let robinRangerMotion = ""
@@ -365,7 +369,7 @@ function createWorld(): void {
     seed = (seed * 16807) % 2147483647
     return (seed - 1) / 2147483646
   }
-  for (let i = 0; i < 90; i += 1) {
+  for (let i = 0; i < 58; i += 1) {
     const x = random() * 48 - 24
     const z = random() * 48 - 24
     const nearVillage = Math.hypot(x - VILLAGE_POSITION.x, z - VILLAGE_POSITION.z) < 6.5
@@ -452,6 +456,38 @@ function loadRobinRanger(): Promise<{ scene: THREE.Group; animations: THREE.Anim
   rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb")
     .then((asset) => ({ scene: asset.scene, animations: asset.animations }))
   return rangerAssetPromise
+}
+
+function loadTreeGrove(): Promise<THREE.Group> {
+  treeGroveAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-tree-grove.glb").then((asset) => asset.scene)
+  return treeGroveAssetPromise
+}
+
+function attachTreeGroves(): void {
+  const placements = renderProfile.tier === "degraded"
+    ? [{ x: -18, z: -15, scale: 10, rotation: 0.35 }]
+    : [
+        { x: -18, z: -15, scale: 10, rotation: 0.35 },
+        { x: 17, z: 15, scale: 9, rotation: -1.1 },
+        { x: 18, z: -15, scale: 8, rotation: 1.7 },
+      ]
+  void loadTreeGrove().then((source) => {
+    for (const placement of placements) {
+      const grove = source.clone(true)
+      grove.position.set(placement.x, 0, placement.z)
+      grove.rotation.y = placement.rotation
+      grove.scale.setScalar(placement.scale)
+      grove.userData.authoredTreeGrove = true
+      grove.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return
+        child.castShadow = renderProfile.shadows
+        child.receiveShadow = true
+        child.frustumCulled = true
+      })
+      authoredGroveViews.push(grove)
+      scene.add(grove)
+    }
+  }).catch(() => showToast("The authored tree grove could not be loaded; procedural forest remains active"))
 }
 
 function prepareRangerInstance(source: THREE.Group): THREE.Group {
@@ -568,8 +604,66 @@ function createMissionBoard(): THREE.Group {
   return board
 }
 
+function createRoyalStorehouse(): THREE.Group {
+  const storehouse = new THREE.Group()
+  const floor = mesh(new THREE.BoxGeometry(7.2, 0.12, 6.2), 0x765d3b)
+  floor.position.y = 0.06
+  const wallSpecs = [
+    { size: [7.2, 1.6, 0.22], position: [0, 0.8, -3.1] },
+    { size: [2.25, 1.6, 0.22], position: [-2.48, 0.8, 3.1] },
+    { size: [2.25, 1.6, 0.22], position: [2.48, 0.8, 3.1] },
+    { size: [0.22, 1.6, 6.2], position: [-3.6, 0.8, 0] },
+    { size: [0.22, 1.6, 4.1], position: [3.6, 0.8, 1.05] },
+  ]
+  for (const spec of wallSpecs) {
+    const wall = mesh(new THREE.BoxGeometry(...spec.size as [number, number, number]), 0x8f7447)
+    wall.position.set(...spec.position as [number, number, number])
+    storehouse.add(wall)
+  }
+  for (const [x, z] of [[-3.45, -2.95], [3.45, -2.95], [-3.45, 2.95], [3.45, 2.95]] as const) {
+    const post = mesh(new THREE.CylinderGeometry(0.11, 0.14, 2.7, 7), 0x4d382d)
+    post.position.set(x, 1.35, z)
+    storehouse.add(post)
+  }
+  const roofBeamA = mesh(new THREE.BoxGeometry(7.1, 0.16, 0.18), 0x4d382d)
+  roofBeamA.position.set(0, 2.62, -2.95)
+  const roofBeamB = roofBeamA.clone()
+  roofBeamB.position.z = 2.95
+  const gate = mesh(new THREE.BoxGeometry(1.9, 1.45, 0.16), 0x3e2d22)
+  gate.position.set(0, 0.72, 3.12)
+  gate.rotation.y = -0.62
+  const canalDoor = mesh(new THREE.BoxGeometry(1.5, 1.45, 0.16), 0x3e2d22)
+  canalDoor.position.set(3.62, 0.72, -1.9)
+  canalDoor.rotation.y = Math.PI / 2 + 0.62
+  const crest = mesh(new THREE.CircleGeometry(0.48, 18), palette.gold, { cast: false })
+  crest.position.set(0, 1.75, 3.22)
+  storehouse.add(floor, roofBeamA, roofBeamB, gate, canalDoor, crest)
+  storehouse.position.set(7, 0, -7)
+  storehouse.visible = false
+  scene.add(storehouse)
+  return storehouse
+}
+
+function createDisguiseRack(): THREE.Group {
+  const rack = new THREE.Group()
+  const beam = mesh(new THREE.BoxGeometry(1.7, 0.1, 0.12), 0x4f3522)
+  beam.position.y = 1.75
+  for (const x of [-0.72, 0.72]) {
+    const post = mesh(new THREE.CylinderGeometry(0.055, 0.07, 1.8, 6), 0x4f3522)
+    post.position.set(x, 0.9, 0)
+    rack.add(post)
+  }
+  const cloak = mesh(new THREE.ConeGeometry(0.48, 1.35, 7, 1, true), 0x8c3430)
+  cloak.position.set(0, 1.05, 0)
+  rack.add(beam, cloak)
+  rack.visible = false
+  scene.add(rack)
+  return rack
+}
+
 addLighting()
 createWorld()
+attachTreeGroves()
 
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
@@ -582,6 +676,8 @@ state.guards.forEach(() => {
 const cartView = createCart()
 const signalView = createSignalPost()
 const missionBoardView = createMissionBoard()
+const storehouseView = createRoyalStorehouse()
+const disguiseRackView = createDisguiseRack()
 
 const destinationMarker = new THREE.Mesh(
   new THREE.RingGeometry(0.42, 0.56, 24),
@@ -687,6 +783,10 @@ function setMissionWorldVisible(visible: boolean): void {
   if (!visible) {
     syncTrapViews([])
     syncCaptiveViews([])
+    syncAlarmViews([])
+    syncLootCacheViews([])
+    storehouseView.visible = false
+    disguiseRackView.visible = false
   }
 }
 
@@ -947,6 +1047,17 @@ function missionPromptForPhase(phase: MissionSnapshot["phase"]): string {
     }
     return prompts[phase]
   }
+  if (latestMissionSnapshot?.missionKind === "storehouse") {
+    const prompts: Record<MissionSnapshot["phase"], string> = {
+      scout: `Case the tally gate or canal roofline · ${keyLabel(key.pingRoute)} signals the approach`,
+      ambush: `${keyLabel(key.interact)} disguises, sabotages, or forces entry · ${keyLabel(key.fire)} opens loudly`,
+      robbery: `${keyLabel(key.interact)} opens nearby caches or cuts an alarm`,
+      pursuit: `Carry the levy to either extraction · ${keyLabel(key.pingLoot)} marks the carrier`,
+      escape: `${keyLabel(key.interact)} settles secured coin at extraction`,
+      extraction: "Review alarms, intelligence, ledger, and mastery conditions",
+    }
+    return prompts[phase]
+  }
   const prompts: Record<MissionSnapshot["phase"], string> = {
     scout: `Reach the forest edge or river crossing · ${keyLabel(key.pingRoute)} signals a route`,
     ambush: `${keyLabel(key.fire)} or ${keyLabel(key.signature)} stuns escorts · ${keyLabel(key.pingDanger)} warns the band`,
@@ -976,6 +1087,7 @@ function updateMissionDebug(): void {
     `MODIFIERS ${(mission?.modifiers ?? []).map((modifier) => modifier.id).join(", ") || "pending"}`,
     `TRAPS    ${mission?.traps.length ?? 0} · SIGNAL ${mission?.signalSabotaged ? "cut" : "active"}`,
     `RESCUE   ${mission?.captives.filter((captive) => captive.rewarded).length ?? 0}/${mission?.captives.length ?? 0} · LOCK ${mission?.lockProgress ?? 0}/${mission?.lockTarget ?? 0}`,
+    `INFILTRATION alarms=${mission?.alarmLevel ?? 0} waves=${mission?.reinforcementWave ?? 0} intel=${mission?.intelFound ? "yes" : "no"} ledger=${mission?.ledgerStolen ? "yes" : "no"}`,
   ].join("\n")
 }
 
@@ -1001,6 +1113,13 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
     pursuit: "Escort the freed captives toward either refuge",
     escape: `Protect and extract every captive · ${mission.captives.filter((captive) => captive.rewarded).length}/${mission.captives.length}`,
     extraction: "Every rescued villager is accounted for",
+  } : mission.missionKind === "storehouse" ? {
+    scout: "Case the tally gate or canal roofline",
+    ambush: "Disguise, sabotage, or force an entry",
+    robbery: `Secure the royal levy · ${mission.delivered + currentRoomPlayers.reduce((sum, player) => sum + player.loot, 0)}/${mission.target}`,
+    pursuit: "Break contact and choose an extraction route",
+    escape: `Extract the levy · alarms ${mission.alarmLevel}/3`,
+    extraction: `Infiltration accounted · intel ${mission.intelFound ? "secured" : "missed"} · ledger ${mission.ledgerStolen ? "secured" : "missed"}`,
   } : {
     scout: `Scout the forest or river approach · shipment ${mission.cycle}`,
     ambush: "Stun the escort guards",
@@ -1042,11 +1161,19 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   syncPingViews(mission.pings)
   syncTrapViews(mission.traps)
   syncCaptiveViews(mission.captives)
+  syncAlarmViews(mission.alarms)
+  syncLootCacheViews(mission.lootCaches)
   cartView.position.set(mission.cartPosition.x, 0, mission.cartPosition.z)
   signalView.position.set(definition.spawns.reinforcementSignal.x, 0, definition.spawns.reinforcementSignal.z)
   cartView.children.forEach((child) => {
     if (child.userData.prison) child.visible = mission.missionKind === "prison-wagon"
   })
+  cartView.visible = mission.missionKind !== "storehouse"
+  storehouseView.visible = mission.missionKind === "storehouse"
+  storehouseView.position.set(definition.spawns.cart.x, 0, definition.spawns.cart.z)
+  disguiseRackView.visible = mission.missionKind === "storehouse" && mission.disguisePlayerId === null
+  if (definition.scenario?.kind === "storehouse") disguiseRackView.position.set(definition.scenario.disguisePosition.x, 0, definition.scenario.disguisePosition.z)
+  signalView.visible = mission.missionKind !== "storehouse"
   signalView.rotation.z = mission.signalSabotaged ? Math.PI / 2.8 : 0
   signalView.traverse((child) => {
     if (child instanceof THREE.Mesh && child.userData.signalFlag) (child.material as THREE.MeshStandardMaterial).color.setHex(mission.signalSabotaged ? 0x5f5b45 : 0xa94132)
@@ -1064,6 +1191,13 @@ function showMissionEvent(event: MissionEvent): void {
     lock_breached: "THE CAGE LOCK IS GIVING WAY",
     captives_freed: "THE CAPTIVES ARE FREE — PROTECT THEM",
     captive_extracted: "A VILLAGER REACHED SAFETY",
+    alarm_triggered: "THE ALARM BELLS ARE RINGING",
+    alarm_sabotaged: "ALARM LINE CUT",
+    disguise_acquired: "MARIAN HAS A ROYAL DISGUISE",
+    cache_looted: "ROYAL LEVY SECURED",
+    intel_found: "PATROL INTELLIGENCE FOUND",
+    ledger_stolen: "THE NOTTINGHAM LEDGER IS OURS",
+    extraction_reached: "SECURED VALUE REACHED EXTRACTION",
     reinforcement_arrived: "SHERIFF'S RELIEF PATROL ARRIVED",
     guard_stunned: "Guard stunned",
     crowd_controlled: "OAK SWEEP — ESCORT SCATTERED",
@@ -1185,6 +1319,79 @@ function syncCaptiveViews(captives: MissionCaptive[]): void {
   }
 }
 
+function createAlarmView(alarm: MissionAlarm): THREE.Group {
+  const group = new THREE.Group()
+  const post = mesh(new THREE.CylinderGeometry(0.055, 0.075, 2.3, 6), 0x4f3522)
+  post.position.y = 1.15
+  const bell = mesh(new THREE.ConeGeometry(0.34, 0.5, 10), 0xc79d42)
+  bell.position.y = 2.35
+  bell.rotation.z = Math.PI
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.62, 0.78, 28),
+    new THREE.MeshBasicMaterial({ color: 0xb43e32, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+  )
+  ring.rotation.x = -Math.PI / 2
+  ring.position.y = 0.08
+  ring.userData.alarmPulse = true
+  group.add(post, bell, ring)
+  group.position.set(alarm.position.x, 0, alarm.position.z)
+  return group
+}
+
+function syncAlarmViews(alarms: MissionAlarm[], elapsed = clock.elapsedTime): void {
+  const activeIds = new Set(alarms.map((alarm) => alarm.id))
+  for (const alarm of alarms) {
+    let view = alarmViews.get(alarm.id)
+    if (!view) {
+      view = createAlarmView(alarm)
+      alarmViews.set(alarm.id, view)
+      scene.add(view)
+    }
+    view.position.set(alarm.position.x, 0, alarm.position.z)
+    view.userData.alarmStatus = alarm.status
+    const ring = view.children.find((child) => child.userData.alarmPulse) as THREE.Mesh | undefined
+    if (ring) {
+      const material = ring.material as THREE.MeshBasicMaterial
+      material.color.setHex(alarm.status === "triggered" ? 0xc94a3d : alarm.status === "sabotaged" ? 0x56644a : 0xe3b54a)
+      material.opacity = alarm.status === "triggered" ? 0.58 + Math.sin(elapsed * 8) * 0.3 : alarm.status === "sabotaged" ? 0.22 : 0.72
+    }
+    view.rotation.z = alarm.status === "sabotaged" ? Math.PI / 2.7 : 0
+  }
+  for (const [id, view] of alarmViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(view)
+    alarmViews.delete(id)
+  }
+}
+
+function createLootCacheView(cache: MissionLootCache): THREE.Group {
+  const group = new THREE.Group()
+  const color = cache.kind === "coin" ? 0x7e532e : cache.kind === "intel" ? 0x38556b : 0x6c3431
+  const chest = mesh(new THREE.BoxGeometry(cache.kind === "coin" ? 1.35 : 0.9, 0.72, cache.kind === "coin" ? 0.95 : 0.65), color)
+  chest.position.y = 0.36
+  const band = mesh(new THREE.BoxGeometry(0.16, 0.82, cache.kind === "coin" ? 1 : 0.7), 0xb28c48)
+  band.position.y = 0.4
+  group.add(chest, band)
+  group.position.set(cache.position.x, 0, cache.position.z)
+  return group
+}
+
+function syncLootCacheViews(caches: MissionLootCache[]): void {
+  const secured = caches.filter((cache) => cache.status === "secured")
+  const activeIds = new Set(secured.map((cache) => cache.id))
+  for (const cache of secured) {
+    if (lootCacheViews.has(cache.id)) continue
+    const view = createLootCacheView(cache)
+    lootCacheViews.set(cache.id, view)
+    scene.add(view)
+  }
+  for (const [id, view] of lootCacheViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(view)
+    lootCacheViews.delete(id)
+  }
+}
+
 function renderSafetyPanel(players: RoomPlayer[]): void {
   safetyPartyList.replaceChildren()
   for (const player of players) {
@@ -1286,6 +1493,19 @@ function renderMissionResolution(mission: MissionSnapshot): void {
     detail.textContent = `${localPlayer.trapHits} traps triggered · ${localPlayer.sabotageCount} signals cut`
     resultBreakdown.append(term, detail)
   }
+  if (mission.missionKind === "storehouse") {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = "Infiltration"
+    const triggered = mission.alarms.filter((alarm) => alarm.status === "triggered").map((alarm) => alarm.id.replace("alarm.", "")).join(", ") || "none"
+    detail.textContent = `${mission.alarmLevel} alarms (${triggered}) · ${mission.reinforcementWave} relief waves · intel ${mission.intelFound ? "secured" : "missed"} · ledger ${mission.ledgerStolen ? "secured" : "missed"}`
+    resultBreakdown.append(term, detail)
+  }
+  const optionalTerm = document.createElement("dt")
+  const optionalDetail = document.createElement("dd")
+  optionalTerm.textContent = "Optional"
+  optionalDetail.textContent = mission.optionalObjectives.map((objective) => `${objective.completed ? "✓" : objective.failed ? "×" : "○"} ${objective.label}`).join(" · ")
+  resultBreakdown.append(optionalTerm, optionalDetail)
   const voteChoices = resultsPanel.querySelector<HTMLElement>(".vote-choices")!
   const voteEyebrow = voteChoices.previousElementSibling as HTMLElement
   if (!mission.vote) {
@@ -1645,7 +1865,7 @@ function updateUI(): void {
     return
   }
   const signalPosition = getMissionDefinition(currentMissionSlug).spawns.reinforcementSignal
-  const atSignal = multiplayerActive && selectedCharacter === "much" && !signalSabotaged && Math.hypot(state.player.position.x - signalPosition.x, state.player.position.z - signalPosition.z) < 3.2
+  const atSignal = multiplayerActive && latestMissionSnapshot?.missionKind !== "storehouse" && selectedCharacter === "much" && !signalSabotaged && Math.hypot(state.player.position.x - signalPosition.x, state.player.position.z - signalPosition.z) < 3.2
   promptElement.textContent = isMobileSpectator()
     ? "Spectating the Merry Band · disable spectator mode in accessibility settings to play"
     : atSignal
@@ -1700,6 +1920,13 @@ function syncViews(elapsed: number, dt: number): void {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
   }
   const player = state.player.position
+  const groveDistance = renderProfile.tier === "degraded" ? 30 : 38
+  for (const grove of authoredGroveViews) grove.visible = Math.hypot(grove.position.x - player.x, grove.position.z - player.z) <= groveDistance
+  for (const view of alarmViews.values()) {
+    if (view.userData.alarmStatus !== "triggered") continue
+    const pulse = 1 + Math.sin(elapsed * 8) * 0.14 * renderProfile.motionScale
+    view.scale.setScalar(pulse)
+  }
   playerView.position.set(player.x, Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale, player.z)
   playerView.traverse((child) => {
     if (child instanceof THREE.Mesh) {

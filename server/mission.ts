@@ -1,4 +1,4 @@
-import type { CharacterId, LoadoutId, MissionCaptive, MissionEvent, MissionKind, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { CharacterId, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionKind, MissionLootCache, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 
@@ -74,6 +74,8 @@ export class Mission {
   readonly traps: MissionTrap[] = []
   readonly missionKind: MissionKind
   readonly captives: MissionCaptive[] = []
+  readonly alarms: MissionAlarm[] = []
+  readonly lootCaches: MissionLootCache[] = []
   status: "active" | "succeeded" | "failed" = "active"
   phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction" = "scout"
   entryRoute: "forest" | "river" | null = null
@@ -104,6 +106,11 @@ export class Mission {
   cartPosition: { x: number; z: number }
   wagonMoving = false
   lockProgress = 0
+  alarmLevel = 0
+  disguisePlayerId: string | null = null
+  intelFound = false
+  ledgerStolen = false
+  reinforcementWave = 0
   failureReason: MissionSnapshot["failureReason"] = null
   delivered = 0
   tick = 0
@@ -122,12 +129,13 @@ export class Mission {
     this.missionKind = definition.scenario?.kind ?? "tax-cart"
     this.cartPosition = { ...definition.spawns.cart }
     if (definition.scenario?.kind === "prison-wagon") {
-      this.cartPosition = { ...definition.scenario.wagonPath[0] }
+      const scenario = definition.scenario
+      this.cartPosition = { ...scenario.wagonPath[0] }
       this.wagonMoving = true
-      this.captives.push(...Array.from({ length: definition.scenario.captiveCount }, (_, id) => ({
+      this.captives.push(...Array.from({ length: scenario.captiveCount }, (_, id) => ({
         id,
         status: "locked" as const,
-        position: { x: this.cartPosition.x + (id - (definition.scenario!.captiveCount - 1) / 2) * 0.55, z: this.cartPosition.z },
+        position: { x: this.cartPosition.x + (id - (scenario.captiveCount - 1) / 2) * 0.55, z: this.cartPosition.z },
         rewarded: false,
       })))
     }
@@ -140,6 +148,18 @@ export class Mission {
     this.deliveryTarget = this.modifiers.some((modifier) => modifier.id === "double-tithe") ? definition.rewards.doubleTitheTarget : definition.rewards.deliveryTarget
     this.ambushTarget = this.modifiers.some((modifier) => modifier.id === "armored-escort") ? definition.rules.armoredAmbushStuns : definition.rules.baseAmbushStuns
     this.cartCoin = this.missionKind === "prison-wagon" ? 0 : this.cartValue
+    if (definition.scenario?.kind === "storehouse") {
+      const scale = this.cartValue / definition.rewards.baseCartValue
+      this.alarms.push(...definition.scenario.alarmPanels.map((alarm) => ({ id: alarm.id, status: "active" as const, position: { ...alarm.position } })))
+      this.lootCaches.push(...definition.scenario.lootCaches.map((cache) => ({
+        id: cache.id,
+        kind: cache.kind,
+        status: "secured" as const,
+        position: { ...cache.position },
+        value: Math.round(cache.value * scale),
+      })))
+      this.cartCoin = this.lootCaches.reduce((sum, cache) => sum + cache.value, 0)
+    }
     if (this.modifiers.some((modifier) => modifier.id === "scarce-quivers")) {
       for (const player of players.values()) player.arrows = Math.max(1, player.arrows - 1)
     }
@@ -249,6 +269,7 @@ export class Mission {
 
     const activePlayers = [...this.players.values()].filter((player) => player.connected && player.health > 0 && !player.captured)
     if (this.missionKind === "prison-wagon") this.updatePrisonWagon(activePlayers, dt)
+    if (this.missionKind === "storehouse") this.updateStorehouse(activePlayers, dt)
     if (this.phase === "scout") this.detectRoute(activePlayers, routeMap(this.definition.routes.entry), "entry")
     if (this.phase === "pursuit") this.detectRoute(this.missionKind === "prison-wagon" ? activePlayers : activePlayers.filter((player) => player.loot > 0), routeMap(this.definition.routes.escape), "escape")
     const hidden = activePlayers.every((player) => Math.abs(player.position.x) > 13 || Math.abs(player.position.z) > 13 || player.veilFor > 0)
@@ -259,6 +280,7 @@ export class Mission {
 
     if (this.players.size > 0 && [...this.players.values()].every((player) => player.captured)) this.failMission("captured")
     if (this.definition.scenario?.kind === "prison-wagon" && this.elapsedSeconds >= this.definition.scenario.failureSeconds) this.failMission("timeout")
+    if (this.definition.scenario?.kind === "storehouse" && this.elapsedSeconds >= this.definition.scenario.failureSeconds) this.failMission("timeout")
   }
 
   snapshot(): MissionSnapshot {
@@ -298,11 +320,19 @@ export class Mission {
       lockProgress: this.lockProgress,
       lockTarget: this.definition.scenario?.kind === "prison-wagon" ? this.definition.scenario.lockStrength : 0,
       failureReason: this.failureReason,
+      alarms: this.alarms.map((alarm) => ({ ...alarm, position: { ...alarm.position } })),
+      lootCaches: this.lootCaches.map((cache) => ({ ...cache, position: { ...cache.position } })),
+      alarmLevel: this.alarmLevel,
+      disguisePlayerId: this.disguisePlayerId,
+      intelFound: this.intelFound,
+      ledgerStolen: this.ledgerStolen,
+      reinforcementWave: this.reinforcementWave,
     }
   }
 
   private interact(player: MissionPlayer): boolean {
     if (this.missionKind === "prison-wagon") return this.interactPrisonWagon(player)
+    if (this.missionKind === "storehouse") return this.interactStorehouse(player)
     if (player.characterId === "much" && !this.signalSabotaged && this.phase !== "extraction" && distance(player.position, this.definition.spawns.reinforcementSignal) < 3.2) {
       this.signalSabotaged = true
       this.reinforcementDelaySeconds = 30
@@ -404,6 +434,107 @@ export class Mission {
     return true
   }
 
+  private interactStorehouse(player: MissionPlayer): boolean {
+    const scenario = this.definition.scenario
+    if (!scenario || scenario.kind !== "storehouse") return false
+    if (player.characterId === "marian" && this.disguisePlayerId === null && distance(player.position, scenario.disguisePosition) < 2.8 && (this.phase === "ambush" || this.phase === "robbery")) {
+      this.disguisePlayerId = player.id
+      this.heat = Math.max(0, this.heat - 15)
+      this.record("disguise_acquired", player.id)
+      if (this.phase === "ambush") this.setPhase("robbery", player.id)
+      return true
+    }
+    const nearbyAlarm = this.alarms
+      .filter((alarm) => alarm.status === "active")
+      .sort((left, right) => distance(left.position, player.position) - distance(right.position, player.position))[0]
+    if (player.characterId === "much" && nearbyAlarm && distance(nearbyAlarm.position, player.position) < 3) {
+      nearbyAlarm.status = "sabotaged"
+      player.sabotageCount += 1
+      this.reinforcementDelaySeconds = Math.max(this.reinforcementDelaySeconds, 30)
+      this.heat = Math.max(0, this.heat - 12)
+      this.record("alarm_sabotaged", player.id, undefined, nearbyAlarm.id)
+      if (this.phase === "ambush") this.setPhase("robbery", player.id)
+      return true
+    }
+    if (this.phase === "ambush" && this.entryRoute) {
+      const entrance = routeMap(this.definition.routes.entry)[this.entryRoute]
+      if (distance(player.position, entrance) >= 3.5) return false
+      if (this.disguisePlayerId !== player.id) this.triggerAlarm(nearbyAlarm, player.id, `${this.entryRoute}-forced-entry`)
+      if (player.characterId === "little-john") player.protectionScore += 125
+      this.setPhase("robbery", player.id)
+      return true
+    }
+    if (this.phase === "robbery") {
+      const cache = this.lootCaches
+        .filter((candidate) => candidate.status === "secured")
+        .sort((left, right) => distance(left.position, player.position) - distance(right.position, player.position))[0]
+      if (!cache || distance(cache.position, player.position) >= 2.7) return false
+      cache.status = "looted"
+      if (cache.kind === "coin") {
+        player.loot += cache.value
+        this.cartCoin = Math.max(0, this.cartCoin - cache.value)
+        if (player.characterId === "little-john") player.heavyCarryPeak = Math.max(player.heavyCarryPeak, player.loot)
+        this.record("cache_looted", player.id, cache.value, cache.id)
+      } else if (cache.kind === "intel") {
+        this.intelFound = true
+        this.record("intel_found", player.id, undefined, cache.id)
+      } else {
+        this.ledgerStolen = true
+        this.record("ledger_stolen", player.id, undefined, cache.id)
+      }
+      if (this.disguisePlayerId !== player.id && player.veilFor <= 0 && player.characterId !== "much") {
+        const alarm = this.alarms
+          .filter((candidate) => candidate.status === "active")
+          .sort((left, right) => distance(left.position, cache.position) - distance(right.position, cache.position))[0]
+        this.triggerAlarm(alarm, player.id, `cache:${cache.id}`)
+      }
+      const carried = [...this.players.values()].reduce((sum, candidate) => sum + candidate.loot, 0)
+      if (carried >= this.deliveryTarget) this.setPhase("pursuit", player.id)
+      return true
+    }
+    if (this.phase !== "escape" || !this.escapeRoute || player.loot <= 0) return false
+    const extraction = routeMap(this.definition.routes.escape)[this.escapeRoute]
+    if (distance(player.position, extraction) > scenario.extractionRadius) return false
+    const value = player.loot
+    player.loot = 0
+    this.delivered += value
+    this.heat = Math.max(0, this.heat - 30)
+    this.record("extraction_reached", player.id, value, this.escapeRoute)
+    if (this.delivered >= this.deliveryTarget) this.succeedMission(player.id)
+    return true
+  }
+
+  private updateStorehouse(players: MissionPlayer[], dt: number): void {
+    const scenario = this.definition.scenario
+    if (!scenario || scenario.kind !== "storehouse") return
+    if (this.phase === "robbery" || this.phase === "pursuit" || this.phase === "escape") {
+      for (const alarm of this.alarms.filter((candidate) => candidate.status === "active")) {
+        const intruder = players.find((player) => player.id !== this.disguisePlayerId && player.veilFor <= 0 && distance(player.position, alarm.position) < 2.1)
+        if (intruder) this.triggerAlarm(alarm, intruder.id, "proximity")
+      }
+    }
+    if (this.alarmLevel > 0 && this.phase !== "extraction") {
+      this.reinforcementClock += dt * this.alarmLevel
+      if (this.reinforcementClock >= scenario.reinforcementSeconds && this.reinforcementDelaySeconds <= 0) {
+        this.reinforcementClock = 0
+        const existing = new Set(this.guards.map((guard) => guard.id))
+        const start = this.definition.spawns.guards.find((guard) => !existing.has(guard.id))
+        if (start) this.guards.push({ id: start.id, position: { ...start.position }, home: { ...start.position }, patrolAngle: 0, stunnedFor: 0 })
+        this.reinforcementWave += 1
+        this.heat = Math.min(100, this.heat + 12)
+        this.record("reinforcement_arrived", undefined, this.reinforcementWave, `alarm:${this.alarmLevel}`)
+      }
+    }
+  }
+
+  private triggerAlarm(alarm: MissionAlarm | undefined, playerId?: string, detail?: string): void {
+    if (!alarm || alarm.status !== "active") return
+    alarm.status = "triggered"
+    this.alarmLevel = Math.min(3, this.alarmLevel + 1)
+    this.heat = Math.max(this.heat, 35 + this.alarmLevel * 20)
+    this.record("alarm_triggered", playerId, this.alarmLevel, detail ?? alarm.id)
+  }
+
   private updatePrisonWagon(players: MissionPlayer[], dt: number): void {
     const scenario = this.definition.scenario
     if (!scenario || scenario.kind !== "prison-wagon") return
@@ -487,6 +618,13 @@ export class Mission {
         { id: "no-civilian-harm", label: "Bring every villager through unharmed", completed: this.status === "succeeded" && !this.capturedOccurred, failed: this.capturedOccurred },
       ]
     }
+    if (this.missionKind === "storehouse") {
+      return [
+        { id: "clean-infiltration", label: `Leave every alarm quiet (${this.alarmLevel}/3 raised)`, completed: this.status === "succeeded" && this.alarmLevel === 0, failed: this.alarmLevel > 0 },
+        { id: "patrol-intelligence", label: "Steal the patrol intelligence", completed: this.intelFound, failed: this.status !== "active" && !this.intelFound },
+        { id: "nottingham-ledger", label: "Take the Sheriff's ledger", completed: this.ledgerStolen, failed: this.status !== "active" && !this.ledgerStolen },
+      ]
+    }
     return [
       { id: "no-captures", label: "Leave no outlaw behind", completed: this.status === "succeeded" && !this.capturedOccurred, failed: this.capturedOccurred },
       { id: "share-the-wealth", label: "Transfer 120 coin between outlaws", completed: [...this.players.values()].reduce((sum, player) => sum + player.totalTransferred, 0) >= 120, failed: false },
@@ -499,6 +637,10 @@ export class Mission {
     this.shotsFired += 1
     player.arrows -= 1
     player.bowCooldown = 0.7
+    if (this.missionKind === "storehouse") {
+      const alarm = this.alarms.find((candidate) => candidate.status === "active")
+      this.triggerAlarm(alarm, player.id, "bow-shot")
+    }
     const target = this.guards
       .filter((guard) => guard.stunnedFor <= 0 && distance(guard.position, player.position) < 9)
       .sort((a, b) => distance(a.position, player.position) - distance(b.position, player.position))[0]
@@ -519,6 +661,7 @@ export class Mission {
       player.veilFor = 5
       this.heat = Math.max(0, this.heat - 30)
     } else if (player.characterId === "little-john") {
+      if (this.missionKind === "storehouse") this.triggerAlarm(this.alarms.find((candidate) => candidate.status === "active"), player.id, "oak-sweep")
       const targets = this.guards.filter((guard) => guard.stunnedFor <= 0 && distance(guard.position, player.position) < 6)
       const allies = [...this.players.values()].filter((candidate) => candidate.id !== player.id && candidate.connected && !candidate.captured && distance(candidate.position, player.position) < 6)
       if (targets.length === 0 && allies.length === 0) return false
@@ -535,6 +678,7 @@ export class Mission {
     } else if (player.characterId === "much") {
       if (!this.placeTrap(player)) return false
     } else {
+      if (this.missionKind === "storehouse") this.triggerAlarm(this.alarms.find((candidate) => candidate.status === "active"), player.id, "twin-shot")
       const targets = this.guards
         .filter((guard) => distance(guard.position, player.position) < 11)
         .sort((a, b) => distance(a.position, player.position) - distance(b.position, player.position))

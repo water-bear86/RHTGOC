@@ -4,7 +4,7 @@ import { Mission, SIGNAL_POSITION, missionSeed } from "./mission"
 import type { CharacterId } from "../shared/protocol"
 import referencePackage from "../missions/peoples-purse.v1.json"
 import { missionContentHash, parseMissionDefinition } from "../shared/mission-definition"
-import { PRISON_WAGON_MISSION } from "../shared/mission-catalog"
+import { PRISON_WAGON_MISSION, ROYAL_STOREHOUSE_MISSION } from "../shared/mission-catalog"
 
 function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer {
   return {
@@ -416,5 +416,107 @@ describe("authoritative mission", () => {
     expect([mission.phase, mission.escapeRoute]).toEqual(["escape", "forest"])
     expect(mission.action(marian.id, "interact")).toBe(true)
     expect(mission.snapshot().optionalObjectives.find((objective) => objective.id === "clean-release")).toMatchObject({ completed: true, failed: false })
+  })
+
+  it("completes a clean storehouse infiltration through disguise, sabotage, intelligence, and split extraction", () => {
+    const scenario = ROYAL_STOREHOUSE_MISSION.scenario
+    if (!scenario || scenario.kind !== "storehouse") throw new Error("storehouse scenario missing")
+    const marian = player("marian", "marian")
+    const much = player("much", "much")
+    const mission = new Mission("LEDGER", new Map([[marian.id, marian], [much.id, much]]), ROYAL_STOREHOUSE_MISSION)
+    const roof = ROYAL_STOREHOUSE_MISSION.routes.entry.find((route) => route.id === "river")!.position
+    much.position = { ...roof }
+    mission.update(0.05)
+    expect([mission.phase, mission.entryRoute]).toEqual(["ambush", "river"])
+    much.position = { ...mission.alarms.find((alarm) => alarm.id === "alarm.canal-roof")!.position }
+    expect(mission.action(much.id, "interact")).toBe(true)
+    expect(mission.phase).toBe("robbery")
+    marian.position = { ...scenario.disguisePosition }
+    expect(mission.action(marian.id, "interact")).toBe(true)
+    expect(mission.disguisePlayerId).toBe(marian.id)
+
+    for (const kind of ["intel", "ledger"] as const) {
+      const cache = mission.lootCaches.find((candidate) => candidate.kind === kind)!
+      marian.position = { ...cache.position }
+      expect(mission.action(marian.id, "interact")).toBe(true)
+    }
+    const coins = mission.lootCaches.filter((cache) => cache.kind === "coin")
+    marian.position = { ...coins[0].position }
+    much.position = { ...coins[1].position }
+    expect(mission.action(marian.id, "interact")).toBe(true)
+    expect(mission.action(much.id, "interact")).toBe(true)
+    if (coins[1].status === "secured") expect(mission.action(much.id, "interact")).toBe(true)
+    expect(mission.phase).toBe("pursuit")
+    expect(mission.alarmLevel).toBe(0)
+
+    const extraction = ROYAL_STOREHOUSE_MISSION.routes.escape.find((route) => route.id === "forest")!.position
+    marian.position = { ...extraction }
+    much.position = { ...extraction }
+    mission.update(0.05)
+    expect([mission.phase, mission.escapeRoute]).toEqual(["escape", "forest"])
+    expect(mission.action(marian.id, "interact")).toBe(true)
+    expect(mission.status).toBe("active")
+    expect(mission.action(much.id, "interact")).toBe(true)
+    expect(mission.status).toBe("succeeded")
+    expect(mission.snapshot()).toMatchObject({ intelFound: true, ledgerStolen: true, alarmLevel: 0, delivered: 300 })
+    expect(mission.snapshot().optionalObjectives.every((objective) => objective.completed)).toBe(true)
+  })
+
+  it("makes loud storehouse entry readable and scales relief waves with alarm pressure", () => {
+    const scenario = ROYAL_STOREHOUSE_MISSION.scenario
+    if (!scenario || scenario.kind !== "storehouse") throw new Error("storehouse scenario missing")
+    const john = player("john", "little-john")
+    const robin = player("robin", "robin")
+    const mission = new Mission("LOUD22", new Map([[john.id, john], [robin.id, robin]]), ROYAL_STOREHOUSE_MISSION)
+    const gate = ROYAL_STOREHOUSE_MISSION.routes.entry.find((route) => route.id === "forest")!.position
+    john.position = { ...gate }
+    mission.update(0.05)
+    expect(mission.action(john.id, "interact")).toBe(true)
+    expect(mission.phase).toBe("robbery")
+    expect(mission.alarmLevel).toBe(1)
+    expect(john.protectionScore).toBe(125)
+    const beforeGuards = mission.guards.length
+    robin.veilFor = 100
+    john.veilFor = 100
+    mission.update(scenario.reinforcementSeconds + 1)
+    expect(mission.reinforcementWave).toBeGreaterThanOrEqual(1)
+    expect(mission.guards.length).toBeGreaterThanOrEqual(beforeGuards)
+    expect(mission.events.some((event) => event.type === "reinforcement_arrived" && event.detail?.startsWith("alarm:"))).toBe(true)
+  })
+
+  it("supports Robin's ranged storehouse opening with an explicit alarm cost", () => {
+    const robin = player("robin", "robin")
+    const marian = player("marian", "marian")
+    const mission = new Mission("ARROW2", new Map([[robin.id, robin], [marian.id, marian]]), ROYAL_STOREHOUSE_MISSION)
+    mission.phase = "ambush"
+    robin.position = { ...mission.guards[0].position }
+    expect(mission.action(robin.id, "signature")).toBe(true)
+    if (mission.snapshot().phase !== "robbery") {
+      mission.update(18)
+      robin.position = { ...mission.guards.find((guard) => guard.stunnedFor <= 0)!.position }
+      expect(mission.action(robin.id, "shoot")).toBe(true)
+    }
+    expect(mission.phase).toBe("robbery")
+    expect(mission.alarmLevel).toBeGreaterThanOrEqual(1)
+    expect(mission.events.some((event) => event.type === "alarm_triggered" && event.detail === "twin-shot")).toBe(true)
+  })
+
+  it("keeps secured-cache state idempotent across a storehouse reconnect", () => {
+    const marian = player("marian", "marian")
+    const much = player("much", "much")
+    const mission = new Mission("CACHE2", new Map([[marian.id, marian], [much.id, much]]), ROYAL_STOREHOUSE_MISSION)
+    mission.phase = "robbery"
+    mission.disguisePlayerId = marian.id
+    const cache = mission.lootCaches.find((candidate) => candidate.kind === "coin")!
+    marian.position = { ...cache.position }
+    expect(mission.action(marian.id, "interact")).toBe(true)
+    const carried = marian.loot
+    marian.connected = false
+    expect(mission.action(marian.id, "interact")).toBe(false)
+    marian.connected = true
+    expect(mission.action(marian.id, "interact")).toBe(false)
+    expect(marian.loot).toBe(carried)
+    expect(mission.snapshot().lootCaches.find((candidate) => candidate.id === cache.id)?.status).toBe("looted")
+    expect(mission.events.filter((event) => event.type === "cache_looted" && event.detail === cache.id)).toHaveLength(1)
   })
 })

@@ -21,14 +21,32 @@
         { "level": 1, "maxDistance": 48, "asset": "procedural hero silhouette" },
         { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
       ]
+    },
+    {
+      "id": "environment.sherwood.tree-grove",
+      "uri": "/assets/environment/sherwood-tree-grove.glb",
+      "format": "glTF 2.0 GLB",
+      "bytesMax": 450000,
+      "renderVertices": 15264,
+      "uploadVertices": 11107,
+      "drawCalls": 8,
+      "texture": { "format": "none", "width": 0, "height": 0, "gpuBytesApprox": 0 },
+      "clips": [],
+      "pivot": "grove center at origin, lowest root at Y=0, normalized height 1m",
+      "collision": { "type": "none", "reason": "decorative perimeter grove; gameplay bounds remain authoritative" },
+      "lod": [
+        { "level": 0, "maxDistance": 38, "asset": "self" },
+        { "level": 1, "maxDistance": 48, "asset": "procedural perimeter trees" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden in fog" }
+      ]
     }
   ],
   "catalog": {
     "characters": ["character.robin.ranger", "character.marian.scout", "character.little-john.vanguard", "character.much.saboteur", "character.sheriff.guard", "character.villager.captive"],
-    "environments": ["environment.sherwood.common"],
-    "props": ["prop.tax-cart", "prop.prison-wagon", "prop.wagon-lock", "prop.extraction-beacon", "prop.reinforcement-signal", "prop.road-snare", "prop.village-fire"],
-    "audio": ["audio.mission.forest-bed", "audio.fx.bow", "audio.fx.impact", "audio.fx.wagon", "audio.fx.lock-break"],
-    "effects": ["fx.ping.symbols", "fx.vanguard.oak-sweep", "fx.saboteur.road-snare"]
+    "environments": ["environment.sherwood.common", "environment.sherwood.tree-grove"],
+    "props": ["prop.tax-cart", "prop.prison-wagon", "prop.wagon-lock", "prop.extraction-beacon", "prop.royal-storehouse", "prop.alarm-bell", "prop.secured-cache", "prop.disguise-rack", "prop.ledger", "prop.reinforcement-signal", "prop.road-snare", "prop.village-fire"],
+    "audio": ["audio.mission.forest-bed", "audio.fx.bow", "audio.fx.impact", "audio.fx.wagon", "audio.fx.lock-break", "audio.fx.alarm-bell", "audio.fx.cache-open"],
+    "effects": ["fx.ping.symbols", "fx.vanguard.oak-sweep", "fx.saboteur.road-snare", "fx.alarm.pulse"]
   },
   "budgets": {
     "heroGlbBytes": 1600000,

@@ -90,7 +90,7 @@ export interface MissionGuard {
 export interface MissionEvent {
   sequence: number
   tick: number
-  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "wagon_intercepted" | "lock_breached" | "captives_freed" | "captive_extracted" | "reinforcement_arrived" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "trap_placed" | "trap_triggered" | "reinforcement_sabotaged" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
+  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "wagon_intercepted" | "lock_breached" | "captives_freed" | "captive_extracted" | "alarm_triggered" | "alarm_sabotaged" | "disguise_acquired" | "cache_looted" | "intel_found" | "ledger_stolen" | "extraction_reached" | "reinforcement_arrived" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "trap_placed" | "trap_triggered" | "reinforcement_sabotaged" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
   playerId?: string
   value?: number
   detail?: string
@@ -120,6 +120,20 @@ export interface MissionCaptive {
   status: "locked" | "following" | "extracted"
   position: { x: number; z: number }
   rewarded: boolean
+}
+
+export interface MissionAlarm {
+  id: string
+  status: "active" | "sabotaged" | "triggered"
+  position: { x: number; z: number }
+}
+
+export interface MissionLootCache {
+  id: string
+  kind: "coin" | "intel" | "ledger"
+  status: "secured" | "looted"
+  position: { x: number; z: number }
+  value: number
 }
 
 export interface MissionSnapshot {
@@ -157,7 +171,14 @@ export interface MissionSnapshot {
   captives: MissionCaptive[]
   lockProgress: number
   lockTarget: number
-  failureReason: "captured" | "timeout" | "wagon-escaped" | null
+  failureReason: "captured" | "timeout" | "wagon-escaped" | "alarm-lockdown" | null
+  alarms: MissionAlarm[]
+  lootCaches: MissionLootCache[]
+  alarmLevel: number
+  disguisePlayerId: string | null
+  intelFound: boolean
+  ledgerStolen: boolean
+  reinforcementWave: number
 }
 
 export type VoteChoice = "granary" | "infirmary" | "watchtower"
