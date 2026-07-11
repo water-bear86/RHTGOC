@@ -33,7 +33,7 @@ describe("authoritative mission", () => {
     const second = new Mission("ABC234", new Map([["robin", player()]]))
     expect(first.seed).toBe(missionSeed("ABC234"))
     expect(first.snapshot()).toEqual(second.snapshot())
-    expect(first.events).toEqual([{ sequence: 1, tick: 0, type: "mission_started", playerId: undefined, value: undefined }])
+    expect(first.events).toEqual([{ sequence: 1, tick: 0, type: "mission_started", playerId: undefined, value: undefined, detail: undefined }])
   })
 
   it("rejects replayed, over-rate, and post-completion inputs", () => {
@@ -60,11 +60,13 @@ describe("authoritative mission", () => {
   it("records robbery, extraction, and one idempotent completion", () => {
     const robin = player()
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]))
+    mission.phase = "robbery"
     robin.position = { x: 10, z: -8 }
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(robin.loot).toBe(120)
+    mission.phase = "escape"
     robin.position = { x: -11, z: 9 }
-    mission.delivered = 240
+    mission.delivered = 540
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(mission.status).toBe("succeeded")
     expect(mission.action(robin.id, "interact")).toBe(false)
@@ -120,5 +122,40 @@ describe("authoritative mission", () => {
     mission.update(0.05)
     expect(mission.status).toBe("failed")
     expect(mission.events.filter((event) => event.type === "mission_failed")).toHaveLength(1)
+  })
+
+  it("runs the full forest heist phase loop and starts the next shipment", () => {
+    const robin = player("robin", "robin")
+    const marian = player("marian", "marian")
+    const mission = new Mission("ABC234", new Map([[robin.id, robin], [marian.id, marian]]))
+    marian.position = { x: -16, z: -4 }
+    mission.update(0.05)
+    expect([mission.phase, mission.entryRoute]).toEqual(["ambush", "forest"])
+    robin.position = { x: 8, z: -6 }
+    expect(mission.action(robin.id, "signature")).toBe(true)
+    expect(mission.phase).toBe("robbery")
+    robin.position = { x: 10, z: -8 }
+    expect(mission.action(robin.id, "interact")).toBe(true)
+    expect(mission.phase).toBe("pursuit")
+    robin.position = { x: -18, z: 15 }
+    mission.update(0.05)
+    expect([mission.phase, mission.escapeRoute]).toEqual(["escape", "forest"])
+    robin.position = { x: -11, z: 9 }
+    expect(mission.action(robin.id, "interact")).toBe(true)
+    expect([mission.phase, mission.cycle, mission.delivered]).toEqual(["scout", 2, 120])
+  })
+
+  it("supports the river route and scales escorts for four players", () => {
+    const players = new Map([
+      ["r1", player("r1", "robin")],
+      ["r2", player("r2", "robin")],
+      ["m1", player("m1", "marian")],
+      ["m2", player("m2", "marian")],
+    ])
+    const mission = new Mission("ABC234", players)
+    players.get("m1")!.position = { x: 16, z: 2 }
+    mission.update(0.05)
+    expect(mission.entryRoute).toBe("river")
+    expect(mission.guards).toHaveLength(5)
   })
 })

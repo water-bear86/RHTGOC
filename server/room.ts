@@ -158,6 +158,7 @@ export class Room {
       arrows: player.arrows,
       loot: player.loot,
       downedFor: player.downedFor,
+      signatureCooldown: player.signatureCooldown,
       position: player.position,
       lastInputSequence: player.lastInputSequence,
     }
@@ -177,7 +178,7 @@ export class Room {
     this.broadcast({
       type: "snapshot",
       tick: this.tick,
-      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor })),
+      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown })),
       mission: this.mission.snapshot(),
     })
   }

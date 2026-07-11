@@ -32,7 +32,15 @@ interface MissionGuardState {
 
 const CART_POSITION = { x: 10, z: -8 }
 const VILLAGE_POSITION = { x: -11, z: 9 }
-export const DELIVERY_TARGET = 300
+export const DELIVERY_TARGET = 600
+export const ENTRY_ROUTES = {
+  forest: { x: -16, z: -4 },
+  river: { x: 16, z: 2 },
+} as const
+export const ESCAPE_ROUTES = {
+  forest: { x: -18, z: 15 },
+  river: { x: 18, z: 15 },
+} as const
 
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }): number => Math.hypot(a.x - b.x, a.z - b.z)
 
@@ -56,6 +64,12 @@ export class Mission {
   readonly guards: MissionGuardState[]
   readonly pings: WorldPing[] = []
   status: "active" | "succeeded" | "failed" = "active"
+  phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction" = "scout"
+  entryRoute: "forest" | "river" | null = null
+  escapeRoute: "forest" | "river" | null = null
+  cycle = 1
+  elapsedSeconds = 0
+  ambushStuns = 0
   heat = 0
   cartCoin = 120
   cartRefill = 0
@@ -119,6 +133,7 @@ export class Mission {
   update(dt: number): void {
     if (this.status !== "active") return
     this.tick += 1
+    this.elapsedSeconds += dt
     for (let index = this.pings.length - 1; index >= 0; index -= 1) {
       if (this.pings[index].expiresAtTick <= this.tick) this.pings.splice(index, 1)
     }
@@ -150,6 +165,8 @@ export class Mission {
     }
 
     const activePlayers = [...this.players.values()].filter((player) => player.connected && player.health > 0)
+    if (this.phase === "scout") this.detectRoute(activePlayers, ENTRY_ROUTES, "entry")
+    if (this.phase === "pursuit") this.detectRoute(activePlayers.filter((player) => player.loot > 0), ESCAPE_ROUTES, "escape")
     const hidden = activePlayers.every((player) => Math.abs(player.position.x) > 13 || Math.abs(player.position.z) > 13 || player.veilFor > 0)
     this.heat = Math.max(0, this.heat - (hidden ? 7 : 1.2) * dt)
     for (const guard of this.guards) this.updateGuard(guard, activePlayers, dt)
@@ -164,6 +181,12 @@ export class Mission {
     return {
       seed: this.seed,
       status: this.status,
+      phase: this.phase,
+      entryRoute: this.entryRoute,
+      escapeRoute: this.escapeRoute,
+      cycle: this.cycle,
+      elapsedSeconds: this.elapsedSeconds,
+      parSeconds: 900,
       heat: this.heat,
       cartCoin: this.cartCoin,
       delivered: this.delivered,
@@ -177,16 +200,18 @@ export class Mission {
 
   private interact(player: MissionPlayer): boolean {
     if (distance(player.position, CART_POSITION) < 3) {
-      if (this.cartCoin === 0) return false
+      if (this.phase !== "robbery" || this.cartCoin === 0) return false
       const stolen = this.cartCoin
       player.loot += stolen
       this.cartCoin = 0
       this.cartRefill = 28
       this.heat = 100
       this.record("cart_robbed", player.id, stolen)
+      this.setPhase("pursuit", player.id)
       return true
     }
-    if (distance(player.position, VILLAGE_POSITION) >= 3.2 || player.loot <= 0) return false
+    if (this.phase !== "escape" || distance(player.position, VILLAGE_POSITION) >= 3.2 || player.loot <= 0) return false
+    this.setPhase("extraction", player.id)
     const delivered = player.loot
     player.loot = 0
     player.arrows = player.characterId === "robin" ? 6 : 4
@@ -196,6 +221,12 @@ export class Mission {
     if (this.delivered >= DELIVERY_TARGET && this.status === "active") {
       this.status = "succeeded"
       this.record("mission_succeeded", player.id, this.delivered)
+    } else {
+      this.cycle += 1
+      this.entryRoute = null
+      this.escapeRoute = null
+      this.ambushStuns = 0
+      this.setPhase("scout", player.id)
     }
     return true
   }
@@ -210,6 +241,10 @@ export class Mission {
     player.arrows -= 1
     player.bowCooldown = 0.7
     this.record("guard_stunned", player.id, target.id)
+    if (this.phase === "ambush") {
+      this.ambushStuns += 1
+      if (this.ambushStuns >= 2) this.setPhase("robbery", player.id)
+    }
     return true
   }
 
@@ -225,6 +260,10 @@ export class Mission {
         .slice(0, 2)
       if (targets.length === 0) return false
       for (const target of targets) target.stunnedFor = 3.2
+      if (this.phase === "ambush") {
+        this.ambushStuns += targets.length
+        if (this.ambushStuns >= 2) this.setPhase("robbery", player.id)
+      }
     }
     player.signatureCooldown = 18
     this.record("signature_used", player.id)
@@ -279,6 +318,32 @@ export class Mission {
     }, 1.5, dt)
   }
 
+  private detectRoute(
+    players: MissionPlayer[],
+    routes: typeof ENTRY_ROUTES | typeof ESCAPE_ROUTES,
+    kind: "entry" | "escape",
+  ): void {
+    for (const route of ["forest", "river"] as const) {
+      const scout = players.find((player) => distance(player.position, routes[route]) < 3)
+      if (!scout) continue
+      if (kind === "entry") {
+        this.entryRoute = route
+        this.setPhase("ambush", scout.id)
+      } else {
+        this.escapeRoute = route
+        this.setPhase("escape", scout.id)
+      }
+      this.record("route_selected", scout.id, undefined, `${kind}:${route}`)
+      return
+    }
+  }
+
+  private setPhase(phase: Mission["phase"], playerId?: string): void {
+    if (this.phase === phase) return
+    this.phase = phase
+    this.record("phase_changed", playerId, undefined, phase)
+  }
+
   private moveToward(position: { x: number; z: number }, target: { x: number; z: number }, speed: number, dt: number): void {
     const dx = target.x - position.x
     const dz = target.z - position.z
@@ -289,7 +354,7 @@ export class Mission {
     position.z += (dz / length) * step
   }
 
-  private record(type: MissionEvent["type"], playerId?: string, value?: number): void {
-    this.events.push({ sequence: this.events.length + 1, tick: this.tick, type, playerId, value })
+  private record(type: MissionEvent["type"], playerId?: string, value?: number, detail?: string): void {
+    this.events.push({ sequence: this.events.length + 1, tick: this.tick, type, playerId, value, detail })
   }
 }

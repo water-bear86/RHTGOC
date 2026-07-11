@@ -94,6 +94,9 @@ let localReady = false
 let currentRoomPlayers: RoomPlayer[] = []
 let lastMissionEventSequence = 0
 let localDownedFor = 0
+let missionTarget = DELIVERY_TARGET
+let missionObjective = "Find the Sheriff's tax cart"
+let missionPrompt = "Scout together and signal a route"
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
@@ -439,6 +442,7 @@ const multiplayer = new MultiplayerClient({
         state.player.health = player.health
         state.player.arrows = player.arrows
         state.player.loot = player.loot
+        state.player.signatureCooldown = player.signatureCooldown
         localDownedFor = player.downedFor
       } else {
         const remote = remoteViews.get(player.id)
@@ -468,6 +472,25 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   state.delivered = mission.delivered
   state.won = mission.status === "succeeded"
   state.lost = mission.status === "failed"
+  missionTarget = mission.target
+  const objectives: Record<MissionSnapshot["phase"], string> = {
+    scout: `Scout the forest or river approach · shipment ${mission.cycle}`,
+    ambush: "Stun two escort guards",
+    robbery: "Rob the Sheriff's tax cart",
+    pursuit: "Carry the coin to a forest or river escape",
+    escape: "Break pursuit and reach the village fire",
+    extraction: "Return the taxes to the people",
+  }
+  missionObjective = objectives[mission.phase]
+  const prompts: Record<MissionSnapshot["phase"], string> = {
+    scout: "Reach the forest edge or river crossing · 3 places a route ping",
+    ambush: "SPACE or Q stuns escorts · 1 warns the band",
+    robbery: "Press E beside the tax cart",
+    pursuit: "Carry coin to the forest north or river east · 4 marks loot",
+    escape: "Reach the village fire · R rescues · T shares coin",
+    extraction: "Press E at the village fire",
+  }
+  missionPrompt = prompts[mission.phase]
   while (guardViews.length < mission.guards.length) {
     const guardState = mission.guards[guardViews.length]
     state.guards.push({
@@ -505,6 +528,8 @@ function showMissionEvent(event: MissionEvent): void {
     player_captured: "AN OUTLAW WAS CAPTURED",
     loot_transferred: "COIN HANDED OFF",
     ping_sent: "SIGNAL PLACED",
+    route_selected: "ROUTE CHOSEN",
+    phase_changed: "THE HEIST ADVANCES",
     signature_used: "SIGNATURE UNLEASHED",
     mission_succeeded: "SHERWOOD RISES",
     mission_failed: "THE BAND HAS FALLEN",
@@ -764,8 +789,16 @@ function updateUI(): void {
   signatureElement.textContent = state.player.signatureCooldown > 0 ? `${Math.ceil(state.player.signatureCooldown)}s` : "READY"
   heatElement.style.width = `${state.heat}%`
   heatWrap.classList.toggle("visible", state.heat > 3)
-  progressElement.style.width = `${Math.min(100, (state.delivered / DELIVERY_TARGET) * 100)}%`
-  promptElement.textContent = localDownedFor > 0 ? `DOWNED · ${Math.ceil(localDownedFor)}s for a teammate to revive you` : getContextPrompt(state)
+  progressElement.style.width = `${Math.min(100, (state.delivered / missionTarget) * 100)}%`
+  promptElement.textContent = localDownedFor > 0
+    ? `DOWNED · ${Math.ceil(localDownedFor)}s for a teammate to revive you`
+    : multiplayerActive
+      ? missionPrompt
+      : getContextPrompt(state)
+  if (multiplayerActive) {
+    objectiveElement.textContent = missionObjective
+    return
+  }
   if (state.player.loot > 0) objectiveElement.textContent = "Return the coin to the village"
   else if (state.heat > 10) objectiveElement.textContent = "Disappear into the deep woods"
   else objectiveElement.textContent = state.delivered > 0 ? "Strike the tax cart again" : "Find the Sheriff's tax cart"
