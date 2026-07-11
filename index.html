@@ -72,7 +72,8 @@
           <p id="lobby-status">Waiting for outlaws…</p>
           <button id="ready-button">READY UP</button>
         </div>
-        <button id="start-button">ENTER SHERWOOD <span>→</span></button>
+        <button class="hidden" id="rejoin-room">REJOIN LAST BAND</button>
+        <button id="start-button">ENTER THE CAMPFIRE <span>→</span></button>
         <small id="intro-controls">WASD / CLICK TO MOVE · E TO INTERACT · SPACE TO FIRE · Q SIGNATURE</small>
       </div>
     </div>
@@ -137,6 +138,7 @@
         <button data-vote="watchtower">WATCHTOWER <b>0</b></button>
       </div>
       <p class="board-state" id="vote-state">The band decides together.</p>
+      <button class="return-hub" id="return-hub" disabled>RETURN TO CAMPFIRE</button>
     </div>
     <div class="panel safety-panel hidden" id="safety-panel" role="dialog" aria-modal="true" aria-labelledby="safety-title" tabindex="-1">
       <button id="close-safety" aria-label="Close band safety">×</button>
@@ -175,6 +177,24 @@
       <p class="settings-note" id="settings-status" role="status" aria-live="polite">Changes save on this device.</p>
     </div>
     <pre class="mission-debug hidden" id="mission-debug" role="status" aria-live="polite"></pre>
+    <section class="hub-panel hidden" id="hub-panel" aria-label="Campfire mission board">
+      <span class="eyebrow">SHERWOOD CAMPFIRE</span>
+      <div class="hub-heading"><h2>Mission board</h2><b id="hub-room-code">SOLO</b></div>
+      <p id="hub-recent">Choose the band's next target.</p>
+      <div class="hub-missions" id="hub-missions"></div>
+      <span class="hub-label">YOUR ROLE</span>
+      <div class="hub-roles" id="hub-roles">
+        <button data-hub-character="robin">ROBIN</button><button data-hub-character="marian">MARIAN</button>
+        <button data-hub-character="little-john">LITTLE JOHN</button><button data-hub-character="much">MUCH</button>
+      </div>
+      <label class="hub-loadout">FIELD KIT
+        <select id="hub-loadout">
+          <option value="balanced">Balanced kit</option><option value="bandage">Extra bandage</option><option value="smoke">Smoke pouch</option>
+        </select>
+      </label>
+      <div class="hub-actions"><button id="hub-copy-code">COPY INVITE CODE</button><button id="hub-ready">START SOLO</button></div>
+      <small id="hub-state">Move around the fire. The board keeps the playfield clear.</small>
+    </section>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

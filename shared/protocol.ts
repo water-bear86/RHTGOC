@@ -6,6 +6,8 @@ export const RECONNECT_GRACE_MS = 30_000
 
 export const CharacterIdSchema = z.enum(["robin", "marian", "little-john", "much"])
 export type CharacterId = z.infer<typeof CharacterIdSchema>
+export const LoadoutIdSchema = z.enum(["balanced", "bandage", "smoke"])
+export type LoadoutId = z.infer<typeof LoadoutIdSchema>
 
 const DisplayNameSchema = z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9 _-]+$/)
 const RoomCodeSchema = z.string().trim().length(6).regex(/^[A-Z2-9]+$/)
@@ -27,6 +29,9 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("set_ready"), ready: z.boolean() }),
   z.object({ type: z.literal("select_character"), characterId: CharacterIdSchema }),
+  z.object({ type: z.literal("select_mission"), missionSlug: z.string().regex(/^[a-z0-9-]{1,60}$/) }),
+  z.object({ type: z.literal("select_loadout"), loadoutId: LoadoutIdSchema }),
+  z.object({ type: z.literal("return_to_hub") }),
   z.object({
     type: z.literal("input"),
     sequence: z.number().int().nonnegative(),
@@ -59,6 +64,7 @@ export interface RoomPlayer {
   id: string
   displayName: string
   characterId: CharacterId
+  loadoutId: LoadoutId
   ready: boolean
   connected: boolean
   health: number
@@ -173,7 +179,7 @@ export interface VillageState {
 
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
-  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; players: RoomPlayer[] }
+  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; players: RoomPlayer[]; village: VillageState; lastResult: Pick<MissionResult, "score" | "grade"> | null }
   | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string }

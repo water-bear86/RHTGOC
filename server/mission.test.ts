@@ -9,6 +9,7 @@ function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer
   return {
     id,
     characterId,
+    loadoutId: "balanced",
     connected: true,
     position: { x: -8, z: 7 },
     health: 3,
@@ -133,6 +134,21 @@ describe("authoritative mission", () => {
     expect(marian.health).toBe(1)
     expect(marian.downedFor).toBe(0)
     expect(mission.snapshot().supportScore).toBe(450)
+  })
+
+  it("applies synchronized field-kit rules without trusting the renderer", () => {
+    const rescuer = player("rescuer", "robin")
+    rescuer.loadoutId = "bandage"
+    const target = player("target", "marian")
+    target.health = 0
+    target.downedFor = 10
+    target.position = { ...rescuer.position }
+    const smoker = player("smoker", "much")
+    smoker.loadoutId = "smoke"
+    const mission = new Mission("ABC234", new Map([[rescuer.id, rescuer], [target.id, target], [smoker.id, smoker]]))
+    expect(smoker.veilFor).toBe(2)
+    expect(mission.action(rescuer.id, "revive", target.id)).toBe(true)
+    expect(target.health).toBe(2)
   })
 
   it("validates Little John's crowd-control signature and cooldown on the server", () => {

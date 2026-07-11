@@ -1,10 +1,11 @@
-import type { CharacterId, MissionEvent, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { CharacterId, LoadoutId, MissionEvent, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 
 export interface MissionPlayer {
   id: string
   characterId: CharacterId
+  loadoutId: LoadoutId
   connected: boolean
   position: { x: number; z: number }
   health: number
@@ -120,6 +121,7 @@ export class Mission {
     if (this.modifiers.some((modifier) => modifier.id === "scarce-quivers")) {
       for (const player of players.values()) player.arrows = Math.max(1, player.arrows - 1)
     }
+    for (const player of players.values()) if (player.loadoutId === "smoke") player.veilFor = Math.max(player.veilFor, 2)
     const guardStarts = definition.spawns.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 }))
     const modifierGuard = this.modifiers.some((modifier) => modifier.id === "watchful-sheriff") ? 1 : 0
     this.guards = guardStarts.slice(0, 3 + Math.max(0, Math.min(2, players.size - 2)) + modifierGuard)
@@ -389,7 +391,7 @@ export class Mission {
 
   private revive(player: MissionPlayer, target: MissionPlayer): boolean {
     if (target.downedFor <= 0 || target.captured) return false
-    target.health = player.characterId === "little-john" ? 2 : 1
+    target.health = Math.min(3, (player.characterId === "little-john" ? 2 : 1) + (player.loadoutId === "bandage" ? 1 : 0))
     target.downedFor = 0
     target.invulnerableFor = player.characterId === "little-john" ? 4.5 : 2.5
     player.rescueCount += 1

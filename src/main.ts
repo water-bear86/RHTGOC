@@ -20,8 +20,8 @@ import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type L
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
-import type { MissionEvent, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
-import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
+import type { LoadoutId, MissionEvent, MissionResult, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import { MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import {
   ACTION_LABELS,
   DEFAULT_INPUT_SETTINGS,
@@ -111,7 +111,22 @@ const readableTextSetting = document.querySelector<HTMLInputElement>("#setting-r
 const mobileSpectatorSetting = document.querySelector<HTMLInputElement>("#setting-mobile-spectator")!
 const missionDebugButton = document.querySelector<HTMLButtonElement>("#mission-debug-button")!
 const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
+const rejoinRoomButton = document.querySelector<HTMLButtonElement>("#rejoin-room")!
+const hubPanel = document.querySelector<HTMLElement>("#hub-panel")!
+const hubRoomCode = document.querySelector<HTMLElement>("#hub-room-code")!
+const hubRecent = document.querySelector<HTMLElement>("#hub-recent")!
+const hubMissions = document.querySelector<HTMLDivElement>("#hub-missions")!
+const hubRoles = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-character]")]
+const hubLoadout = document.querySelector<HTMLSelectElement>("#hub-loadout")!
+const hubCopyCode = document.querySelector<HTMLButtonElement>("#hub-copy-code")!
+const hubReady = document.querySelector<HTMLButtonElement>("#hub-ready")!
+const hubState = document.querySelector<HTMLElement>("#hub-state")!
+const returnHubButton = document.querySelector<HTMLButtonElement>("#return-hub")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
+const invitedRoom = new URLSearchParams(location.search).get("room")?.trim().toUpperCase()
+if (invitedRoom?.match(/^[A-Z2-9]{6}$/)) roomCodeInput.value = invitedRoom
+const lastRoomCode = localStorage.getItem("sherwood:last-room-code")
+if (lastRoomCode?.match(/^[A-Z2-9]{6}$/)) rejoinRoomButton.classList.remove("hidden")
 
 let inputSettings: InputSettings = loadInputSettings(localStorage)
 
@@ -154,6 +169,8 @@ let lastPlayerPosition = { ...state.player.position }
 let resultSubmitted = false
 let unsubscribeLeaderboard: (() => void) | null = null
 let multiplayerActive = false
+let inHub = false
+let roomConnected = false
 let localReady = false
 let currentRoomPlayers: RoomPlayer[] = []
 let lastMissionEventSequence = 0
@@ -162,6 +179,9 @@ let missionTarget = DELIVERY_TARGET
 let missionObjective = "Find the Sheriff's tax cart"
 let missionPrompt = "Scout together and signal a route"
 let currentMissionPhase: MissionSnapshot["phase"] = "scout"
+let currentMissionSlug = PEOPLES_PURSE_MISSION.slug
+let currentVillage: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
+let currentLastResult: Pick<MissionResult, "score" | "grade"> | null = null
 let signalSabotaged = false
 let latestMissionSnapshot: MissionSnapshot | null = null
 let missionPackageStatus = "client package valid"
@@ -508,6 +528,23 @@ function createSignalPost(): THREE.Group {
   return signal
 }
 
+function createMissionBoard(): THREE.Group {
+  const board = new THREE.Group()
+  for (const x of [-0.9, 0.9]) {
+    const post = mesh(new THREE.CylinderGeometry(0.08, 0.1, 2.3, 7), 0x4f3522)
+    post.position.set(x, 1.15, 0)
+    board.add(post)
+  }
+  const face = mesh(new THREE.BoxGeometry(2.3, 1.2, 0.16), 0x8e6739)
+  face.position.y = 1.65
+  const crest = mesh(new THREE.CircleGeometry(0.24, 18), palette.gold, { cast: false })
+  crest.position.set(0, 1.72, 0.1)
+  board.add(face, crest)
+  board.position.set(VILLAGE_POSITION.x + 3.4, 0, VILLAGE_POSITION.z - 0.4)
+  scene.add(board)
+  return board
+}
+
 addLighting()
 createWorld()
 
@@ -521,6 +558,7 @@ state.guards.forEach(() => {
 })
 const cartView = createCart()
 const signalView = createSignalPost()
+const missionBoardView = createMissionBoard()
 
 const destinationMarker = new THREE.Mesh(
   new THREE.RingGeometry(0.42, 0.56, 24),
@@ -533,28 +571,49 @@ scene.add(destinationMarker)
 
 const multiplayer = new MultiplayerClient({
   onWelcome: (_playerId, roomCode) => {
+    roomConnected = true
+    localStorage.setItem("sherwood:last-room-code", roomCode)
     lobbyCode.textContent = roomCode
     missionRoomCode.textContent = roomCode
+    hubRoomCode.textContent = roomCode
     roomCodeInput.value = roomCode
     roomLobby.classList.remove("hidden")
     lobbyStatus.textContent = "Share this code, then ready up together."
+    enterHub(true)
   },
-  onRoomState: (_roomCode, phase, players) => {
+  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult) => {
     currentRoomPlayers = players
+    currentMissionSlug = missionSlug
+    currentVillage = { ...village }
+    currentLastResult = lastResult
     renderParty(players)
     renderSafetyPanel(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
     localReady = localPlayer?.ready ?? false
     if (localPlayer) {
-      state.player.health = localPlayer.health
       if (localPlayer.characterId !== selectedCharacter) selectLocalCharacter(localPlayer.characterId, false)
+      state.player.health = localPlayer.health
+      if (phase === "lobby") state.player.position = { ...localPlayer.position }
     }
     readyButton.textContent = localReady ? "NOT READY" : "READY UP"
+    hubReady.textContent = localReady ? "NOT READY" : "READY UP"
+    hubLoadout.value = localPlayer?.loadoutId ?? "balanced"
+    applyVillageState(village)
+    renderHub()
+    if (phase === "lobby") {
+      multiplayerActive = false
+      enterHub(true)
+      ensureRemotePlayers(players)
+      return
+    }
     if (phase === "mission") {
       multiplayerActive = true
+      inHub = false
       running = true
       intro.scrollTop = 0
       intro.classList.add("closed")
+      hubPanel.classList.add("hidden")
+      setMissionWorldVisible(true)
       lobbyStatus.textContent = "Mission started"
       ensureRemotePlayers(players)
       partyHud.classList.remove("hidden")
@@ -591,9 +650,84 @@ const multiplayer = new MultiplayerClient({
     showToast(message)
   },
   onConnection: (connected) => {
+    roomConnected = connected
     lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
+    if (inHub) hubState.textContent = connected ? "Connected · choose a target and ready together." : "Connection lost · attempting to return to this camp."
   },
 })
+
+function setMissionWorldVisible(visible: boolean): void {
+  cartView.visible = visible
+  signalView.visible = visible
+  for (const guard of guardViews) guard.visible = visible
+  missionBoardView.visible = !visible
+  if (!visible) syncTrapViews([])
+}
+
+function renderHub(): void {
+  const isLeader = !roomConnected || currentRoomPlayers[0]?.id === multiplayer.playerId
+  hubMissions.replaceChildren()
+  for (const mission of MISSION_CATALOG.values()) {
+    const button = document.createElement("button")
+    button.classList.toggle("selected", mission.slug === currentMissionSlug)
+    button.disabled = roomConnected && !isLeader
+    const name = document.createElement("b")
+    const detail = document.createElement("small")
+    name.textContent = mission.name
+    detail.textContent = `${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par · v${mission.missionVersion}`
+    button.append(name, detail)
+    button.addEventListener("click", () => {
+      currentMissionSlug = mission.slug
+      if (roomConnected) multiplayer.selectMission(mission.slug)
+      else renderHub()
+    })
+    hubMissions.append(button)
+  }
+  for (const button of hubRoles) button.classList.toggle("selected", button.dataset.hubCharacter === selectedCharacter)
+  hubRoomCode.textContent = roomConnected ? multiplayer.roomCode ?? "------" : "SOLO"
+  hubCopyCode.disabled = !roomConnected
+  hubReady.textContent = roomConnected ? (localReady ? "NOT READY" : "READY UP") : "START MISSION"
+  hubRecent.textContent = currentLastResult
+    ? `Last heist: ${currentLastResult.grade} · ${currentLastResult.score.toLocaleString()} renown. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
+    : `Village works: granary ${currentVillage.granary}, infirmary ${currentVillage.infirmary}, watchtower ${currentVillage.watchtower}.`
+  hubState.textContent = roomConnected
+    ? `${isLeader ? "Band leader chooses the target." : "The band leader chooses the target."} Ready together when roles and kits are set.`
+    : "Move around the fire or start the selected mission."
+}
+
+function enterHub(online: boolean): void {
+  inHub = true
+  multiplayerActive = false
+  roomConnected = online
+  running = true
+  ended = false
+  intro.scrollTop = 0
+  intro.classList.add("closed")
+  hubPanel.classList.remove("hidden")
+  partyHud.classList.toggle("hidden", !online)
+  setMissionWorldVisible(false)
+  objectiveElement.textContent = "Choose the band's next target"
+  missionModifiers.textContent = `${MISSION_CATALOG.size} TRUSTED MISSION${MISSION_CATALOG.size === 1 ? "" : "S"} ON THE BOARD`
+  if (!online) state.player.position = { ...PEOPLES_PURSE_MISSION.spawns.players[0] }
+  lastPlayerPosition = { ...state.player.position }
+  renderHub()
+  clock.getDelta()
+}
+
+function startSoloMission(): void {
+  inHub = false
+  multiplayerActive = false
+  hubPanel.classList.add("hidden")
+  setMissionWorldVisible(true)
+  state = createInitialState(selectedCharacter)
+  localDownedFor = 0
+  ended = false
+  resultSubmitted = false
+  missionTarget = DELIVERY_TARGET
+  objectiveElement.textContent = "Find the Sheriff's tax cart"
+  missionModifiers.textContent = ""
+  clock.getDelta()
+}
 
 const controllerActions = GAME_ACTIONS.filter((action) => !action.startsWith("move")) as Array<keyof InputSettings["controller"]>
 const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel]
@@ -1071,6 +1205,9 @@ function renderMissionResolution(mission: MissionSnapshot): void {
   voteState.textContent = mission.vote.resolved
     ? `${mission.vote.winner?.toUpperCase()} WINS · ${mission.vote.allocatedCoin} COIN ALLOCATED`
     : "The band decides together. Ties resolve deterministically."
+  const isLeader = currentRoomPlayers[0]?.id === multiplayer.playerId
+  returnHubButton.disabled = !mission.vote.resolved || !isLeader
+  returnHubButton.textContent = isLeader ? "RETURN BAND TO CAMPFIRE" : "WAITING FOR BAND LEADER"
 }
 
 function applyVillageState(village: VillageState): void {
@@ -1219,6 +1356,12 @@ function showToast(message: string): void {
 }
 
 function handleInteraction(): void {
+  if (inHub) {
+    hubPanel.classList.remove("hidden")
+    hubReady.focus()
+    showToast("MISSION BOARD OPEN")
+    return
+  }
   if (multiplayerActive) {
     multiplayer.sendAction("interact")
     return
@@ -1236,6 +1379,10 @@ function handleInteraction(): void {
 }
 
 function fireArrow(): void {
+  if (inHub) {
+    showToast("Weapons stay lowered at the campfire")
+    return
+  }
   if (multiplayerActive) {
     if (state.player.arrows <= 0) {
       showToast("Your quiver is empty")
@@ -1278,6 +1425,10 @@ function showVanguardImpact(playerId?: string): void {
 }
 
 function useSignature(): void {
+  if (inHub) {
+    showToast("Save your signature for the heist")
+    return
+  }
   if (multiplayerActive) {
     multiplayer.sendAction("signature")
     return
@@ -1376,6 +1527,12 @@ function updateUI(): void {
   heatWrap.setAttribute("aria-valuetext", state.heat > 60 ? "High pursuit" : state.heat > 20 ? "Sheriff searching" : "Hidden")
   heatWrap.classList.toggle("visible", state.heat > 3)
   progressElement.style.width = `${Math.min(100, (state.delivered / missionTarget) * 100)}%`
+  if (inHub) {
+    objectiveElement.textContent = "Prepare at the campfire mission board"
+    progressElement.style.width = "0%"
+    promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} opens the board · move with your mapped controls`
+    return
+  }
   const atSignal = multiplayerActive && selectedCharacter === "much" && !signalSabotaged && Math.hypot(state.player.position.x - SIGNAL_POSITION.x, state.player.position.z - SIGNAL_POSITION.z) < 3.2
   promptElement.textContent = isMobileSpectator()
     ? "Spectating the Merry Band · disable spectator mode in accessibility settings to play"
@@ -1537,7 +1694,13 @@ function animate(): void {
   if (running) {
     const move = getMoveInput()
     let events: string[] = []
-    if (multiplayerActive) {
+    if (inHub) {
+      const length = Math.hypot(move.x, move.z)
+      if (length > 0.001) {
+        state.player.position.x = Math.max(-20, Math.min(20, state.player.position.x + (move.x / length) * 5.8 * dt))
+        state.player.position.z = Math.max(-20, Math.min(20, state.player.position.z + (move.z / length) * 5.8 * dt))
+      }
+    } else if (multiplayerActive) {
       multiplayer.sendInput(move)
       predictMultiplayerMovement(move, dt)
       state.stats.elapsedSeconds += dt
@@ -1592,10 +1755,14 @@ function sendSupportAction(action: "revive" | "transfer_loot"): void {
 }
 
 startButton.addEventListener("click", () => {
-  running = true
-  intro.scrollTop = 0
-  intro.classList.add("closed")
-  clock.getDelta()
+  enterHub(false)
+})
+
+rejoinRoomButton.addEventListener("click", () => {
+  const code = localStorage.getItem("sherwood:last-room-code")
+  const displayName = playerNameInput.value.trim().slice(0, 20)
+  if (!code || !displayName) return
+  multiplayer.joinRoom(code, displayName, selectedCharacter)
 })
 
 createRoomButton.addEventListener("click", () => {
@@ -1621,6 +1788,25 @@ joinRoomButton.addEventListener("click", () => {
 })
 
 readyButton.addEventListener("click", () => multiplayer.setReady(!localReady))
+hubReady.addEventListener("click", () => {
+  if (roomConnected) multiplayer.setReady(!localReady)
+  else startSoloMission()
+})
+hubRoles.forEach((button) => button.addEventListener("click", () => {
+  const characterId = button.dataset.hubCharacter
+  if (characterId === "robin" || characterId === "marian" || characterId === "little-john" || characterId === "much") selectLocalCharacter(characterId, roomConnected)
+  renderHub()
+}))
+hubLoadout.addEventListener("change", () => {
+  if (roomConnected) multiplayer.selectLoadout(hubLoadout.value as LoadoutId)
+})
+hubCopyCode.addEventListener("click", () => {
+  const code = multiplayer.roomCode
+  if (!code) return
+  const invite = `${location.origin}${location.pathname}?room=${code}`
+  void navigator.clipboard.writeText(invite).then(() => showToast("INVITE LINK COPIED")).catch(() => showToast(`ROOM CODE ${code}`))
+})
+returnHubButton.addEventListener("click", () => multiplayer.returnToHub())
 
 characterButtons.forEach((button) => {
   button.addEventListener("click", () => {

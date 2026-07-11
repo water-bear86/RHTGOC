@@ -36,6 +36,48 @@ describe("Merry Band room", () => {
     expect(room.publicPlayer(player)).toMatchObject({ characterId: "much", trapHits: 0, sabotageCount: 0 })
   })
 
+  it("keeps mission, role, loadout, and readiness synchronized in the campfire hub", () => {
+    const room = new Room("ABC234")
+    const leader = room.addPlayer(fakeSocket(), "Leader", "robin")
+    const member = room.addPlayer(fakeSocket(), "Member", "marian")
+    expect(room.selectMission(member.id, "peoples-purse")).toBe(false)
+    expect(room.selectMission(leader.id, "peoples-purse")).toBe(true)
+    expect(room.selectLoadout(member.id, "smoke")).toBe(true)
+    expect(room.publicPlayer(member).loadoutId).toBe("smoke")
+    room.setReady(leader.id, true)
+    room.setReady(member.id, true)
+    expect(room.phase).toBe("mission")
+    expect(room.mission?.definition.slug).toBe("peoples-purse")
+    expect(room.mission?.snapshot().village).toEqual({ granary: 0, infirmary: 0, watchtower: 0 })
+  })
+
+  it("returns a resolved band to the hub with village progress and a fresh replay state", () => {
+    const room = new Room("ABC234")
+    const leader = room.addPlayer(fakeSocket(), "Leader", "robin")
+    const member = room.addPlayer(fakeSocket(), "Member", "marian")
+    room.setReady(leader.id, true)
+    room.setReady(member.id, true)
+    const mission = room.mission!
+    mission.status = "succeeded"
+    mission.result = {
+      score: 8000,
+      grade: "A",
+      breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 80, generosity: 80 },
+      thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
+      communityCoin: 660,
+      personalRenown: 4000,
+    }
+    mission.vote = { deadlineTick: 300, counts: { granary: 2, infirmary: 0, watchtower: 0 }, votes: {}, resolved: true, winner: "granary", allocatedCoin: 660 }
+    mission.village.granary = 1
+    expect(room.returnToHub(member.id)).toBe(false)
+    expect(room.returnToHub(leader.id)).toBe(true)
+    expect(room.phase).toBe("lobby")
+    expect(room.mission).toBeNull()
+    expect(room.village).toEqual({ granary: 1, infirmary: 0, watchtower: 0 })
+    expect(room.lastResult).toEqual({ score: 8000, grade: "A" })
+    expect([...room.players.values()].every((player) => !player.ready && player.health === 3 && player.loot === 0)).toBe(true)
+  })
+
   it("keeps deterministic, collision-free spawns when a slot is pruned", () => {
     const room = new Room("ABC234")
     const first = room.addPlayer(fakeSocket(), "First", "robin")

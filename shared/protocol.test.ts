@@ -17,6 +17,14 @@ describe("Merry Band protocol", () => {
     }
   })
 
+  it("accepts bounded hub mission, loadout, and return intents", () => {
+    expect(parseClientMessage({ type: "select_mission", missionSlug: "peoples-purse" })).not.toBeNull()
+    expect(parseClientMessage({ type: "select_mission", missionSlug: "../unsafe" })).toBeNull()
+    expect(parseClientMessage({ type: "select_loadout", loadoutId: "smoke" })).not.toBeNull()
+    expect(parseClientMessage({ type: "select_loadout", loadoutId: "pay-to-win" })).toBeNull()
+    expect(parseClientMessage({ type: "return_to_hub" })).toEqual({ type: "return_to_hub" })
+  })
+
   it("rejects malformed names, room codes, and movement", () => {
     expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "<script>", characterId: "robin" })).toBeNull()
     expect(parseClientMessage({ type: "join_room", version: PROTOCOL_VERSION, roomCode: "abc", displayName: "Robin", characterId: "robin" })).toBeNull()

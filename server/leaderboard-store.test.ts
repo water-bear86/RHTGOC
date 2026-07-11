@@ -34,6 +34,7 @@ describe("verified leaderboard store", () => {
       damageTaken: 0,
       missionVersion: "1.0.0",
       missionContentHash: "fnv1a32:ec1c4b0c",
+      missionSlug: "peoples-purse",
       result,
     })).resolves.toBe("993a8d20-c073-4f55-87ce-8b7e727b19b0")
     expect(rpc).toHaveBeenCalledWith("record_verified_leaderboard_entry", expect.objectContaining({
@@ -59,6 +60,7 @@ describe("verified leaderboard store", () => {
       damageTaken: 0,
       missionVersion: "1.0.0",
       missionContentHash: "fnv1a32:ec1c4b0c",
+      missionSlug: "peoples-purse",
       result,
     })).resolves.toBeNull()
   })
