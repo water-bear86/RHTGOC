@@ -12,7 +12,8 @@ Key counters:
 - `mission_phase_<phase>_total`, `mission_succeeded_total`, `mission_failed_total`
 - `action_<action>_total`, `world_pings_total`, `redistribution_votes_total`
 - `reconnect_attempts_total`, `reconnect_success_total`, `disconnects_total`
-- `leaderboard_persistence_success_total`, `leaderboard_persistence_failure_total`
+- `band_restore_<success|failure>_total`, `band_persistence_queue`, `band_persistence_<success|idempotent|retry>_total`
+- `leaderboard_persistence_queue`, `leaderboard_persistence_<success|retry>_total`, `leaderboard_quarantine_total`
 - `protocol_invalid_json_total`, `protocol_invalid_message_total`
 - `client_metrics_reports_total`, `input_backlog_<bucket>_total`, `snapshot_gap_<bucket>_total`
 - `season_<mission|contribution|operator>_events_total`, `season_pressure`, `season_persistence_queue`, `season_persistence_<success|retry>_total`
@@ -28,7 +29,7 @@ For the alpha, poll `/health` and `/metrics` once per minute and alert when:
 - `/health` fails twice consecutively.
 - Reconnect success is below 95% over 5 minutes with at least 20 attempts.
 - Invalid protocol messages exceed 2% of inbound connections over 5 minutes.
-- Any leaderboard persistence failure occurs for 5 consecutive minutes.
+- Either band or leaderboard persistence retry counter rises for 5 consecutive minutes, or either queue remains nonzero for 10 minutes.
 - Active connections exceed 80 or active rooms exceed 35 on the single micro instance.
 - The container restarts twice within 15 minutes.
 

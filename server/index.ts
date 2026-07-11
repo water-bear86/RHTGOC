@@ -5,8 +5,8 @@ import { extname, join, normalize } from "node:path"
 import { WebSocket, WebSocketServer } from "ws"
 import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "../shared/protocol"
 import { Room, type ContributionTransition, type RescueOfferTransition } from "./room"
-import { createBandStoreFromEnv } from "./band-store"
-import { createLeaderboardStoreFromEnv } from "./leaderboard-store"
+import { createBandStoreFromEnv, type CompletedBandMission, type PersistentBandRecord } from "./band-store"
+import { createLeaderboardStoreFromEnv, type VerifiedRun } from "./leaderboard-store"
 import { structuredLog, Telemetry } from "./telemetry"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
@@ -50,6 +50,10 @@ const pendingSeasonTransitions = new Map<string, { transition: SeasonTransition;
 let seasonPersistenceFlushing = false
 const pendingRecentPlayers = new Map<string, { userIds: string[]; attempts: number; nextAttemptAt: number }>()
 let recentPlayersFlushing = false
+const pendingBandMissions = new Map<string, { outcome: CompletedBandMission; room: Room; traceId: string | null; attempts: number; nextAttemptAt: number }>()
+let bandPersistenceFlushing = false
+const pendingLeaderboardRuns = new Map<string, { run: VerifiedRun; traceId: string | null; attempts: number; nextAttemptAt: number }>()
+let leaderboardPersistenceFlushing = false
 
 function roomCode(): string {
   let code = ""
@@ -230,6 +234,68 @@ async function flushRecentPlayers(now = Date.now()): Promise<void> {
   }
 }
 
+function enqueueBandMission(room: Room, outcome: CompletedBandMission, traceId: string | null): void {
+  if (!bandStore || pendingBandMissions.has(outcome.missionId)) return
+  pendingBandMissions.set(outcome.missionId, { outcome, room, traceId, attempts: 0, nextAttemptAt: Date.now() })
+  telemetry.gauge("band_persistence_queue", pendingBandMissions.size)
+}
+
+async function flushBandMissions(now = Date.now()): Promise<void> {
+  if (!bandStore || bandPersistenceFlushing) return
+  bandPersistenceFlushing = true
+  try {
+    for (const [missionId, pending] of pendingBandMissions) {
+      if (pending.nextAttemptAt > now) continue
+      try {
+        const result = await bandStore.recordMission(pending.outcome)
+        pendingBandMissions.delete(missionId)
+        pending.room.refreshPersistentBand(result.band)
+        pending.room.broadcastRoomState()
+        telemetry.increment(result.recorded ? "band_persistence_success_total" : "band_persistence_idempotent_total")
+      } catch (error) {
+        pending.attempts += 1
+        pending.nextAttemptAt = now + Math.min(60_000, 1_000 * 2 ** Math.min(6, pending.attempts))
+        telemetry.increment("band_persistence_retry_total")
+        structuredLog("band_persistence_retry", { traceId: pending.traceId, missionId, attempts: pending.attempts, reason: error instanceof Error ? error.message : "unknown" }, "error")
+      }
+    }
+  } finally {
+    bandPersistenceFlushing = false
+    telemetry.gauge("band_persistence_queue", pendingBandMissions.size)
+  }
+}
+
+function enqueueVerifiedRun(run: VerifiedRun, traceId: string | null): void {
+  if (!leaderboardStore) return
+  const key = `${run.missionId}:${run.playerId}`
+  if (pendingLeaderboardRuns.has(key)) return
+  pendingLeaderboardRuns.set(key, { run, traceId, attempts: 0, nextAttemptAt: Date.now() })
+  telemetry.gauge("leaderboard_persistence_queue", pendingLeaderboardRuns.size)
+}
+
+async function flushVerifiedRuns(now = Date.now()): Promise<void> {
+  if (!leaderboardStore || leaderboardPersistenceFlushing) return
+  leaderboardPersistenceFlushing = true
+  try {
+    for (const [key, pending] of pendingLeaderboardRuns) {
+      if (pending.nextAttemptAt > now) continue
+      try {
+        const entryId = await leaderboardStore.recordVerifiedRun(pending.run)
+        pendingLeaderboardRuns.delete(key)
+        telemetry.increment(entryId ? "leaderboard_persistence_success_total" : "leaderboard_quarantine_total")
+      } catch (error) {
+        pending.attempts += 1
+        pending.nextAttemptAt = now + Math.min(60_000, 1_000 * 2 ** Math.min(6, pending.attempts))
+        telemetry.increment("leaderboard_persistence_retry_total")
+        structuredLog("leaderboard_persistence_retry", { traceId: pending.traceId, missionId: pending.run.missionId, attempts: pending.attempts, reason: error instanceof Error ? error.message : "unknown" }, "error")
+      }
+    }
+  } finally {
+    leaderboardPersistenceFlushing = false
+    telemetry.gauge("leaderboard_persistence_queue", pendingLeaderboardRuns.size)
+  }
+}
+
 const httpServer = createServer(async (request, response) => {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname
   if (pathname === "/rotations" && request.method === "GET") {
@@ -399,11 +465,22 @@ sockets.on("connection", (socket) => {
           send(socket, { type: "error", code: "FORBIDDEN", message: "Your Sherwood sign-in expired. Sign in again or continue as a guest." })
           return
         }
+        let persistentBand: PersistentBandRecord | null = null
+        if (message.type === "create_room" && authUserId && bandStore) {
+          try {
+            persistentBand = await bandStore.ensureBand(authUserId, message.displayName, message.characterId)
+            telemetry.increment("band_restore_success_total")
+          } catch (error) {
+            telemetry.increment("band_restore_failure_total")
+            structuredLog("band_restore_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+          }
+        }
         const room = message.type === "create_room"
           ? new Room(
             roomCode(),
             (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)),
             (now) => seasonService.snapshot(now),
+            persistentBand,
           )
           : rooms.get(message.roomCode)
         if (!room) {
@@ -411,6 +488,15 @@ sockets.on("connection", (socket) => {
           return
         }
         if (message.type === "create_room") rooms.set(room.code, room)
+        if (message.type === "join_room" && room.players.size === 0 && !room.band && authUserId && bandStore) {
+          try {
+            room.attachPersistentBand(await bandStore.ensureBand(authUserId, message.displayName, message.characterId))
+            telemetry.increment("band_restore_success_total")
+          } catch (error) {
+            telemetry.increment("band_restore_failure_total")
+            structuredLog("band_restore_failed", { traceId: roomTraces.get(room.code) ?? null, reason: error instanceof Error ? error.message : "unknown" }, "error")
+          }
+        }
         if (message.type === "join_room" && message.reconnectToken) telemetry.increment("reconnect_attempts_total")
         const reconnected = message.type === "join_room" && message.reconnectToken
           ? room.reconnect(socket, message.reconnectToken, Date.now(), authUserId)
@@ -623,22 +709,10 @@ setInterval(() => {
         telemetry.gauge("recent_players_persistence_queue", pendingRecentPlayers.size)
       }
     }
-    const verifiedRuns = leaderboardStore?.recordVerifiedRun ? room.claimVerifiedRuns() : null
-    if (verifiedRuns) {
-      void Promise.all(verifiedRuns.map((run) => leaderboardStore!.recordVerifiedRun(run)))
-        .then(() => {
-          room.finishLeaderboardPersistence(true)
-          telemetry.increment("leaderboard_persistence_success_total", verifiedRuns.length)
-        })
-        .catch((error) => {
-          room.finishLeaderboardPersistence(false)
-          telemetry.increment("leaderboard_persistence_failure_total")
-          structuredLog("leaderboard_persistence_failed", {
-            traceId: roomTraces.get(code) ?? null,
-            reason: error instanceof Error ? error.message : "unknown",
-          }, "error")
-        })
-    }
+    const bandOutcome = bandStore ? room.claimBandMission() : null
+    if (bandOutcome) enqueueBandMission(room, bandOutcome, roomTraces.get(code) ?? null)
+    const verifiedRuns = leaderboardStore ? room.claimVerifiedRuns() : null
+    if (verifiedRuns) for (const run of verifiedRuns) enqueueVerifiedRun(run, roomTraces.get(code) ?? null)
     if (room.players.size === 0 && (reservedRoomsUntil.get(code) ?? 0) <= Date.now()) {
       rooms.delete(code)
       reservedRoomsUntil.delete(code)
@@ -690,6 +764,8 @@ setInterval(() => void flushRescueTransitions(), 1_000)
 setInterval(() => void flushContributionTransitions(), 1_000)
 setInterval(() => void flushSeasonTransitions(), 1_000)
 setInterval(() => void flushRecentPlayers(), 1_000)
+setInterval(() => void flushBandMissions(), 1_000)
+setInterval(() => void flushVerifiedRuns(), 1_000)
 
 setInterval(() => {
   for (const room of rooms.values()) room.broadcastSnapshot()

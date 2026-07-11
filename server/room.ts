@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
-import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
+import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MerryBandState, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
 import { Mission } from "./mission"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import { isRotationActive, rotationWindowAt, type SheriffRotationWindow } from "../shared/sheriff-rotation"
 import type { SeasonalMissionOutcome, SherwoodSeasonSnapshot } from "../shared/sherwood-season"
+import type { CompletedBandMission, PersistentBandRecord } from "./band-store"
+import type { VerifiedRun } from "./leaderboard-store"
 
 interface ConnectedPlayer extends RoomPlayer {
   authUserId: string | null
@@ -75,11 +77,14 @@ export class Room {
   readonly contributionEvents: ContributionTransition[] = []
   rotationAttemptCount = 0
   village: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
+  band: MerryBandState | null = null
   lastResult: LastMissionResult | null = null
   readonly moderationEvents: Array<{ at: number; actorId: string; targetId: string; action: "report" | "remove" | "block"; reason?: string }> = []
   private readonly bannedReconnectTokens = new Set<string>()
   private missionId = randomUUID()
-  private leaderboardPersistence: "idle" | "pending" | "done" = "idle"
+  private bandActorUserId: string | null = null
+  private bandClaimedForMissionId: string | null = null
+  private leaderboardClaimedForMissionId: string | null = null
   private lastRescueOfferSourceMissionId: string | null = null
   private rescueEventSequence = 0
   private contributionEventSequence = 0
@@ -90,8 +95,29 @@ export class Room {
     code: string,
     private readonly getRotationWindow: (now: number) => SheriffRotationWindow = rotationWindowAt,
     private readonly getSeasonSnapshot: (now: number) => SherwoodSeasonSnapshot | null = () => null,
+    persistentBand: PersistentBandRecord | null = null,
   ) {
     this.code = code
+    if (persistentBand) this.attachPersistentBand(persistentBand)
+  }
+
+  attachPersistentBand(record: PersistentBandRecord): boolean {
+    if (this.band && this.band.id !== record.state.id) return false
+    this.band = { ...record.state, camp: { ...record.state.camp } }
+    this.bandActorUserId = record.actorUserId
+    this.village = { ...record.village }
+    return true
+  }
+
+  refreshPersistentBand(record: PersistentBandRecord): boolean {
+    if (!this.band || this.band.id !== record.state.id) return false
+    this.band = { ...record.state, camp: { ...record.state.camp } }
+    this.village = {
+      granary: Math.max(this.village.granary, record.village.granary),
+      infirmary: Math.max(this.village.infirmary, record.village.infirmary),
+      watchtower: Math.max(this.village.watchtower, record.village.watchtower),
+    }
+    return true
   }
 
   addPlayer(socket: WebSocket, displayName: string, characterId: CharacterId, authUserId: string | null = null): ConnectedPlayer {
@@ -371,7 +397,6 @@ export class Room {
     this.missionId = randomUUID()
     this.preparationsResolvedForMissionId = null
     this.seasonOutcomeClaimedForMissionId = null
-    this.leaderboardPersistence = "idle"
     for (const player of this.players.values()) this.resetPlayerForHub(player)
     this.broadcastRoomState()
     return true
@@ -414,29 +439,14 @@ export class Room {
     return true
   }
 
-  claimVerifiedRuns(): Array<{
-    missionId: string
-    playerId: string
-    playerName: string
-    characterId: CharacterId
-    partySize: number
-    missionSeconds: number
-    delivered: number
-    rescues: number
-    damageTaken: number
-    missionVersion: string
-    missionContentHash: string
-    missionSlug: string
-    rotationId: string | null
-    rotationModifierIds: string[]
-    rescueOfferId: string | null
-    result: NonNullable<Mission["result"]>
-  }> | null {
-    if (!this.mission?.result || this.mission.status !== "succeeded" || this.leaderboardPersistence !== "idle") return null
-    this.leaderboardPersistence = "pending"
+  claimVerifiedRuns(): VerifiedRun[] | null {
+    if (!this.mission?.result || this.mission.status !== "succeeded" || this.leaderboardClaimedForMissionId === this.missionId) return null
+    this.leaderboardClaimedForMissionId = this.missionId
     return [...this.players.values()].map((player) => ({
       missionId: this.missionId,
       playerId: player.id,
+      authUserId: player.authUserId ?? undefined,
+      bandId: this.band?.id,
       playerName: player.displayName,
       characterId: player.characterId,
       partySize: this.players.size,
@@ -454,8 +464,21 @@ export class Room {
     }))
   }
 
-  finishLeaderboardPersistence(success: boolean): void {
-    this.leaderboardPersistence = success ? "done" : "idle"
+  claimBandMission(): CompletedBandMission | null {
+    if (!this.band || !this.mission?.result || this.mission.status === "active" || this.bandClaimedForMissionId === this.missionId) return null
+    if (this.mission.status === "succeeded" && !this.mission.vote?.resolved) return null
+    this.bandClaimedForMissionId = this.missionId
+    return {
+      bandId: this.band.id,
+      actorUserId: this.bandActorUserId,
+      missionId: this.missionId,
+      missionSlug: this.mission.definition.slug,
+      seed: this.mission.seed,
+      status: this.mission.status,
+      result: this.mission.result,
+      allocationChoice: this.mission.vote?.winner ?? null,
+      allocationCoin: this.mission.vote?.allocatedCoin ?? 0,
+    }
   }
 
   authenticatedUserIds(): string[] {
@@ -659,6 +682,7 @@ export class Room {
         .map((contribution) => ({ ...contribution })),
       selectedContributionIds: [...this.selectedContributionIds],
       season: this.getSeasonSnapshot(now),
+      band: this.band ? { ...this.band, camp: { ...this.band.camp } } : null,
       players: [...this.players.values()].map((player) => this.publicPlayer(player)),
       village: { ...this.village },
       lastResult: this.lastResult ? { ...this.lastResult } : null,

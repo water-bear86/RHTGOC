@@ -8,11 +8,15 @@ Seasonal campaign snapshots and immutable mission/contribution/operator events l
 
 The secret key is a runtime secret. It must never use a `VITE_` prefix, enter the browser bundle, appear in screenshots, or be committed. If it is absent, the server must leave persistent-band features unavailable rather than opening anonymous writes.
 
+When the room creator has a verified Supabase session, the server calls the service-only `ensure_merry_band` RPC before opening the room. The RPC serializes concurrent creation per user, restores the one active membership, updates the recorded hero role, and returns the privacy-safe band/camp/village projection. Public-hub private-room handoff follows the same path for its first authenticated leader. Guests can still play but never create or mutate persistent records.
+
+Every terminal mission is copied into an in-process backoff queue before the room may be reset or expire. `record_band_mission_outcome` records both success and failure; only a successful resolved redistribution creates a progression grant. The returned band projection refreshes the visible camp card without allowing a delayed response to regress local village progress. Verified leaderboard runs use a separate backoff queue and include the server-verified Auth user and band IDs.
+
 ## Idempotency and audit
 
 - A band mission is unique on `(band_id, mission_id)`.
 - A progression grant is unique on `(band_id, mission_id, grant_key)`.
-- `apply_band_mission_reward` returns `false` for a duplicate grant and does not advance village progression twice.
+- `record_band_mission_outcome` returns `recorded=false` and `progressed=false` for a duplicate mission and does not advance camp or village progression twice.
 - Band, membership, mission-history, and grant changes write before/after JSON to `band_audit_log`.
 - Only active band leaders can read audit rows through the Data API.
 
@@ -38,10 +42,9 @@ Supabase provides daily project backups. Before a destructive schema change or s
 Run the transactional recovery assertion against that temporary project:
 
 ```bash
-psql -v restore_drill_user_id='<existing auth.users uuid>' \
-  -f tools/supabase-restore-drill.sql "$RESTORED_DATABASE_URL"
+psql -f tools/supabase-restore-drill.sql "$RESTORED_DATABASE_URL"
 ```
 
-The drill creates a disposable band inside a transaction, applies one idempotent mission grant, proves a replay is rejected, checks audit continuity, and rolls everything back. Never run a restore drill against the live project. Record the backup timestamp, restored project reference, row counts, assertion output, operator, and deletion time in the release log.
+The drill creates a disposable Auth user and band inside a transaction, applies one idempotent mission grant, proves a replay is rejected, records a failed mission without progression, verifies the restored camp/village/history projection and audit actor continuity, and rolls everything back. Never run a restore drill against the live project. Record the backup timestamp, restored project reference, row counts, assertion output, operator, and deletion time in the release log.
 
 Enable Point-in-Time Recovery before the public alpha if the recovery-point objective must be shorter than the daily backup interval.

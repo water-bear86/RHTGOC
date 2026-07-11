@@ -1,49 +1,83 @@
 -- Run only against a temporary project restored from a production backup.
--- psql -v restore_drill_user_id='<auth.users uuid>' -f tools/supabase-restore-drill.sql "$RESTORED_DATABASE_URL"
+-- psql -f tools/supabase-restore-drill.sql "$RESTORED_DATABASE_URL"
 \set ON_ERROR_STOP on
 begin;
-select set_config('app.restore_drill_user_id', :'restore_drill_user_id', false);
 
 do $$
 declare
-  drill_user uuid := current_setting('app.restore_drill_user_id')::uuid;
+  drill_user uuid := gen_random_uuid();
   drill_band uuid;
   drill_mission uuid := gen_random_uuid();
-  first_grant boolean;
-  duplicate_grant boolean;
+  failed_mission uuid := gen_random_uuid();
+  restored_band jsonb;
+  first_write jsonb;
+  duplicate_write jsonb;
+  failed_write jsonb;
 begin
-  insert into public.merry_bands (name, banner_id, created_by)
-  values ('Restore Drill Band', 'oak', drill_user)
-  returning id into drill_band;
+  insert into auth.users(id) values(drill_user);
 
-  insert into public.merry_band_members (band_id, user_id, membership_role, hero_role)
-  values (drill_band, drill_user, 'leader', 'robin');
+  restored_band := public.ensure_merry_band(drill_user,'Restore Drill','robin');
+  drill_band := (restored_band ->> 'id')::uuid;
 
-  select public.apply_band_mission_reward(
+  select public.record_band_mission_outcome(
     drill_band,
+    drill_user,
     drill_mission,
-    'tax-cart',
+    'peoples-purse',
     12345,
+    'succeeded',
     '{"score":8000,"grade":"A"}'::jsonb,
     'granary',
     100
-  ) into first_grant;
+  ) into first_write;
 
-  select public.apply_band_mission_reward(
+  select public.record_band_mission_outcome(
     drill_band,
+    drill_user,
     drill_mission,
-    'tax-cart',
+    'peoples-purse',
     12345,
+    'succeeded',
     '{"score":8000,"grade":"A"}'::jsonb,
     'granary',
     100
-  ) into duplicate_grant;
+  ) into duplicate_write;
 
-  if first_grant is not true or duplicate_grant is not false then
+  select public.record_band_mission_outcome(
+    drill_band,
+    drill_user,
+    failed_mission,
+    'prison-wagon',
+    54321,
+    'failed',
+    '{"score":1200,"grade":"C"}'::jsonb,
+    null,
+    0
+  ) into failed_write;
+
+  if (first_write ->> 'recorded')::boolean is not true
+    or (first_write ->> 'progressed')::boolean is not true
+    or (duplicate_write ->> 'recorded')::boolean is not false
+    or (duplicate_write ->> 'progressed')::boolean is not false then
     raise exception 'Restore drill idempotency assertion failed';
+  end if;
+  if (first_write #>> '{band,village,granary}')::integer <> 1
+    or (first_write #>> '{band,camp,workbench}')::integer <> 1
+    or (first_write #>> '{band,missionCount}')::integer <> 1 then
+    raise exception 'Restore drill projection assertion failed';
+  end if;
+  if (failed_write ->> 'recorded')::boolean is not true
+    or (failed_write ->> 'progressed')::boolean is not false
+    or (failed_write #>> '{band,village,granary}')::integer <> 1
+    or (failed_write #>> '{band,camp,workbench}')::integer <> 1
+    or (failed_write #>> '{band,missionCount}')::integer <> 2 then
+    raise exception 'Restore drill failed-mission history assertion failed';
   end if;
   if (select count(*) from public.band_audit_log where band_id = drill_band) < 3 then
     raise exception 'Restore drill audit continuity assertion failed';
+  end if;
+  if exists(select 1 from public.band_audit_log where band_id = drill_band and actor_user_id is distinct from drill_user) then
+    raise exception 'Restore drill audit actor assertion failed';
   end if;
 end;
 $$;

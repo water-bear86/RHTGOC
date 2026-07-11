@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MissionSnapshot, type PingKind, type PublicHubPlayer, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState, type VoteChoice } from "../shared/protocol"
+import { PROTOCOL_VERSION, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MerryBandState, type MissionSnapshot, type PingKind, type PublicHubPlayer, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState, type VoteChoice } from "../shared/protocol"
 import type { Vec2 } from "./simulation"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import type { SherwoodSeasonSnapshot } from "../shared/sherwood-season"
@@ -6,7 +6,7 @@ import { getSupabase } from "./supabase"
 
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
-  onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[], missionSlug: string, village: VillageState, lastResult: LastMissionResult | null, selectedRotationId: string | null, rotationsPaused: boolean, rotations: SheriffRotation[], upcomingRotations: SheriffRotation[], rescueOffer: RescueOffer | null, contributions: BandContribution[], selectedContributionIds: string[], season: SherwoodSeasonSnapshot | null) => void
+  onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[], missionSlug: string, village: VillageState, lastResult: LastMissionResult | null, selectedRotationId: string | null, rotationsPaused: boolean, rotations: SheriffRotation[], upcomingRotations: SheriffRotation[], rescueOffer: RescueOffer | null, contributions: BandContribution[], selectedContributionIds: string[], season: SherwoodSeasonSnapshot | null, band: MerryBandState | null) => void
   onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>, mission: MissionSnapshot) => void
   onError?: (message: string) => void
   onConnection?: (connected: boolean) => void
@@ -208,7 +208,7 @@ export class MultiplayerClient {
       localStorage.setItem(`sherwood:reconnect:${message.roomCode}`, message.reconnectToken)
       this.events.onWelcome?.(message.playerId, message.roomCode)
     }
-    if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players, message.missionSlug, message.village, message.lastResult, message.selectedRotationId, message.rotationsPaused, message.rotations, message.upcomingRotations, message.rescueOffer, message.contributions, message.selectedContributionIds, message.season)
+    if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players, message.missionSlug, message.village, message.lastResult, message.selectedRotationId, message.rotationsPaused, message.rotations, message.upcomingRotations, message.rescueOffer, message.contributions, message.selectedContributionIds, message.season, message.band)
     if (message.type === "hub_welcome") this.events.onHubWelcome?.(message.instanceId, message.participantId, message.capacity)
     if (message.type === "hub_state") this.events.onHubState?.(message.players)
     if (message.type === "hub_band_ready" && this.pendingIdentity) {

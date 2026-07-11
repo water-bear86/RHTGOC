@@ -25,6 +25,8 @@ describe("verified leaderboard store", () => {
     await expect(store.recordVerifiedRun({
       missionId: "mission-1",
       playerId: "player-1",
+      authUserId: "b9fd2fb4-2114-4e4f-aa40-619a0af652a3",
+      bandId: "8c820e61-d711-4c0e-9020-789ea98d315a",
       playerName: "<Oakheart>",
       characterId: "robin",
       partySize: 2,
@@ -41,6 +43,8 @@ describe("verified leaderboard store", () => {
     })).resolves.toBe("993a8d20-c073-4f55-87ce-8b7e727b19b0")
     expect(rpc).toHaveBeenCalledWith("record_verified_leaderboard_entry", expect.objectContaining({
       p_player_name: "Oakheart",
+      p_player_id: "b9fd2fb4-2114-4e4f-aa40-619a0af652a3",
+      p_band_id: "8c820e61-d711-4c0e-9020-789ea98d315a",
       p_score: 8100,
       p_precision: 90,
       p_score_breakdown: expect.objectContaining({ missionVersion: "1.0.0", missionContentHash: "fnv1a32:ec1c4b0c", rotationId: "sheriff-2026-07-10-p2-v1", rotationModifierIds: ["armored-escort", "scarce-quivers"] }),

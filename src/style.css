@@ -198,6 +198,11 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .hub-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .hub-heading h2 { margin: 6px 0 10px; font: 700 23px Cinzel, serif; }
 .hub-heading b { color: var(--gold); font-size: 9px; letter-spacing: .14em; }
+.hub-band { margin: 10px 0 14px; padding: 10px; background: #e4b6530d; border: 1px solid #e4b65338; }
+.hub-band.hidden { display: none; }
+.hub-band div { display: flex; justify-content: space-between; gap: 10px; color: var(--gold); font-size: 8px; font-weight: 800; letter-spacing: .08em; }
+.hub-band p { margin: 6px 0 2px; color: var(--cream); font-size: 8px; }
+.hub-band small { color: #f7f0d47a; font-size: 8px; }
 .hub-panel > p { margin: 0 0 13px; color: #f7f0d48a; font-size: 10px; line-height: 1.5; }
 .hub-rotations { display: grid; gap: 7px; margin: 7px 0 5px; }
 .hub-season { margin: 0 0 14px; padding: 11px; background: linear-gradient(145deg, #294632, #172d22); border: 1px solid #e4b65369; }

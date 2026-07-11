@@ -20,7 +20,7 @@ import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type L
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
-import type { BandContribution, ContributionType, LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionPreparation, MissionSnapshot, MissionTrap, PingKind, PublicHubPlayer, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { BandContribution, ContributionType, LastMissionResult, LoadoutId, MerryBandState, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionPreparation, MissionSnapshot, MissionTrap, PingKind, PublicHubPlayer, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import type { SherwoodSeasonSnapshot } from "../shared/sherwood-season"
@@ -137,6 +137,10 @@ const joinPublicHubButton = document.querySelector<HTMLButtonElement>("#join-pub
 const hubPanel = document.querySelector<HTMLElement>("#hub-panel")!
 const hubRoomCode = document.querySelector<HTMLElement>("#hub-room-code")!
 const hubRecent = document.querySelector<HTMLElement>("#hub-recent")!
+const hubBand = document.querySelector<HTMLElement>("#hub-band")!
+const hubBandName = document.querySelector<HTMLElement>("#hub-band-name")!
+const hubBandCamp = document.querySelector<HTMLElement>("#hub-band-camp")!
+const hubBandHistory = document.querySelector<HTMLElement>("#hub-band-history")!
 const hubSeason = document.querySelector<HTMLElement>("#hub-season")!
 const hubSeasonPhase = document.querySelector<HTMLElement>("#hub-season-phase")!
 const hubSeasonName = document.querySelector<HTMLElement>("#hub-season-name")!
@@ -247,6 +251,7 @@ let capturingAction: GameAction | null = null
 let previousGamepadButtons: boolean[] = []
 let lastPanelTrigger: HTMLElement | null = null
 let currentSocial: SocialState | null = null
+let currentBand: MerryBandState | null = null
 let lastPresenceSignature = ""
 let inPublicHub = false
 let publicHubParticipantId: string | null = null
@@ -770,7 +775,7 @@ const multiplayer = new MultiplayerClient({
     enterHub(true)
     void syncPresence("in-band", roomCode)
   },
-  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer, contributions, nextSelectedContributionIds, season) => {
+  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer, contributions, nextSelectedContributionIds, season, band) => {
     currentRoomPlayers = players
     currentMissionSlug = missionSlug
     currentVillage = { ...village }
@@ -783,6 +788,9 @@ const multiplayer = new MultiplayerClient({
     currentSeason = season
     currentContributions = contributions
     selectedContributionIds = nextSelectedContributionIds
+    currentBand = band
+    if (band) localStorage.setItem("sherwood:band-id", band.id)
+    else localStorage.removeItem("sherwood:band-id")
     renderParty(players)
     renderSafetyPanel(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
@@ -950,6 +958,12 @@ function renderHub(): void {
   hubRoomCode.textContent = roomConnected ? multiplayer.roomCode ?? "------" : "SOLO"
   hubCopyCode.disabled = !roomConnected
   hubReady.textContent = roomConnected ? (localReady ? "NOT READY" : "READY UP") : "START MISSION"
+  hubBand.classList.toggle("hidden", !currentBand)
+  if (currentBand) {
+    hubBandName.textContent = currentBand.name.toUpperCase()
+    hubBandCamp.textContent = `${currentBand.bannerId.toUpperCase()} BANNER · HEARTH ${currentBand.camp.hearth} · WORKBENCH ${currentBand.camp.workbench} · STORES ${currentBand.camp.stores}`
+    hubBandHistory.textContent = currentBand.missionCount === 0 ? "No recorded missions yet." : `${currentBand.missionCount} recorded mission${currentBand.missionCount === 1 ? "" : "s"} · progression v${currentBand.progressionVersion}`
+  }
   hubRecent.textContent = currentLastResult
     ? `Last heist: ${currentLastResult.status === "succeeded" ? currentLastResult.grade : "PARTIAL"} · ${currentLastResult.score.toLocaleString()} renown${currentLastResult.totalCaptives > 0 ? ` · ${currentLastResult.rescuedCaptives}/${currentLastResult.totalCaptives} rescued` : ""}. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
     : `Village works: granary ${currentVillage.granary}, infirmary ${currentVillage.infirmary}, watchtower ${currentVillage.watchtower}.`

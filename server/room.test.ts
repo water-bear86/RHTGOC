@@ -3,9 +3,16 @@ import { WebSocket } from "ws"
 import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS } from "../shared/protocol"
 import { Room } from "./room"
 import { rotationWindowAt } from "../shared/sheriff-rotation"
+import type { PersistentBandRecord } from "./band-store"
 
 function fakeSocket(): WebSocket {
   return { readyState: WebSocket.CLOSED, OPEN: WebSocket.OPEN, send: () => undefined, close: () => undefined } as unknown as WebSocket
+}
+
+const persistedBand: PersistentBandRecord = {
+  state: { id: "8c820e61-d711-4c0e-9020-789ea98d315a", name: "Oak Hearts", bannerId: "oak", camp: { hearth: 1, workbench: 0, stores: 0 }, progressionVersion: 1, missionCount: 0 },
+  village: { granary: 2, infirmary: 1, watchtower: 0 },
+  actorUserId: "b9fd2fb4-2114-4e4f-aa40-619a0af652a3",
 }
 
 describe("Merry Band room", () => {
@@ -163,9 +170,9 @@ describe("Merry Band room", () => {
     expect(room.reconnect(fakeSocket(), member.reconnectToken, 2_001)).toBeNull()
   })
 
-  it("claims authoritative leaderboard runs once and retries only after failure", () => {
-    const room = new Room("ABC234")
-    const robin = room.addPlayer(fakeSocket(), "Robin", "robin")
+  it("claims authenticated authoritative leaderboard runs once for the durable server retry queue", () => {
+    const room = new Room("ABC234", rotationWindowAt, () => null, persistedBand)
+    const robin = room.addPlayer(fakeSocket(), "Robin", "robin", persistedBand.actorUserId)
     const marian = room.addPlayer(fakeSocket(), "Marian", "marian")
     room.setReady(robin.id, true)
     room.setReady(marian.id, true)
@@ -180,12 +187,32 @@ describe("Merry Band room", () => {
       communityCoin: 660,
       personalRenown: 4000,
     }
-    expect(room.claimVerifiedRuns()).toHaveLength(2)
+    expect(room.claimVerifiedRuns()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ authUserId: persistedBand.actorUserId, bandId: persistedBand.state.id, playerId: robin.id }),
+      expect.objectContaining({ authUserId: undefined, bandId: persistedBand.state.id, playerId: marian.id }),
+    ]))
     expect(room.claimVerifiedRuns()).toBeNull()
-    room.finishLeaderboardPersistence(false)
-    expect(room.claimVerifiedRuns()).toHaveLength(2)
-    room.finishLeaderboardPersistence(true)
-    expect(room.claimVerifiedRuns()).toBeNull()
+  })
+
+  it("restores a recognizable band and claims each terminal mission outcome exactly once", () => {
+    const room = new Room("BAND24", rotationWindowAt, () => null, persistedBand)
+    expect(room.band).toMatchObject({ name: "Oak Hearts", bannerId: "oak", missionCount: 0 })
+    expect(room.village).toEqual(persistedBand.village)
+    const robin = room.addPlayer(fakeSocket(), "Robin", "robin", persistedBand.actorUserId)
+    const marian = room.addPlayer(fakeSocket(), "Marian", "marian")
+    room.setReady(robin.id, true)
+    room.setReady(marian.id, true)
+    room.mission!.status = "succeeded"
+    room.mission!.result = {
+      score: 8_000, grade: "A", breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 80, generosity: 80 },
+      thresholds: { S: 9_000, A: 7_500, B: 6_000, C: 0 }, communityCoin: 660, personalRenown: 4_000,
+    }
+    room.mission!.vote = { deadlineTick: 300, counts: { granary: 2, infirmary: 0, watchtower: 0 }, votes: {}, resolved: true, winner: "granary", allocatedCoin: 660 }
+    expect(room.claimBandMission()).toMatchObject({ bandId: persistedBand.state.id, actorUserId: persistedBand.actorUserId, status: "succeeded", allocationChoice: "granary", allocationCoin: 660 })
+    expect(room.claimBandMission()).toBeNull()
+    expect(room.refreshPersistentBand({ ...persistedBand, state: { ...persistedBand.state, camp: { hearth: 1, workbench: 1, stores: 0 }, progressionVersion: 2, missionCount: 1 }, village: { granary: 3, infirmary: 1, watchtower: 0 } })).toBe(true)
+    expect(room.band).toMatchObject({ missionCount: 1, progressionVersion: 2, camp: { workbench: 1 } })
+    expect(room.village.granary).toBe(3)
   })
 
   it("emits one authoritative seasonal outcome only after community allocation resolves", () => {

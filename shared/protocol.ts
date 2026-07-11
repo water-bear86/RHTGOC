@@ -103,6 +103,15 @@ export interface RoomPlayer {
   lastInputSequence: number
 }
 
+export interface MerryBandState {
+  id: string
+  name: string
+  bannerId: "oak" | "fox" | "arrow" | "stag"
+  camp: { hearth: number; workbench: number; stores: number }
+  progressionVersion: number
+  missionCount: number
+}
+
 export interface MissionGuard {
   id: number
   position: { x: number; z: number }
@@ -301,7 +310,7 @@ export interface PublicHubPlayer {
 
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
-  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; rescueOffer: RescueOffer | null; contributions: BandContribution[]; selectedContributionIds: string[]; season: SherwoodSeasonSnapshot | null; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
+  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; rescueOffer: RescueOffer | null; contributions: BandContribution[]; selectedContributionIds: string[]; season: SherwoodSeasonSnapshot | null; band: MerryBandState | null; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
   | { type: "hub_welcome"; instanceId: string; participantId: string; capacity: number }
   | { type: "hub_state"; instanceId: string; players: PublicHubPlayer[] }
   | { type: "hub_band_ready"; roomCode: string; leader: boolean }

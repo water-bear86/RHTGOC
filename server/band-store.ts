@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
-import type { MissionResult, VoteChoice } from "../shared/protocol"
+import type { CharacterId, MerryBandState, MissionResult, VillageState, VoteChoice } from "../shared/protocol"
 
 interface RpcResult {
   data: unknown
@@ -12,12 +12,55 @@ export interface RpcClient {
 
 export interface CompletedBandMission {
   bandId: string
+  actorUserId: string | null
   missionId: string
   missionSlug: string
   seed: number
-  result: MissionResult
-  allocationChoice: VoteChoice
+  status: "succeeded" | "failed"
+  result: MissionResult | null
+  allocationChoice: VoteChoice | null
   allocationCoin: number
+}
+
+export interface PersistentBandRecord {
+  state: MerryBandState
+  village: VillageState
+  actorUserId: string
+}
+
+export interface BandMissionWriteResult {
+  recorded: boolean
+  progressed: boolean
+  band: PersistentBandRecord
+}
+
+function recordFromRpc(value: unknown): PersistentBandRecord {
+  if (!value || typeof value !== "object") throw new Error("BAND_STATE_FAILED: missing band state")
+  const data = value as Record<string, unknown>
+  const camp = data.camp as Record<string, unknown> | undefined
+  const village = data.village as Record<string, unknown> | undefined
+  if (typeof data.id !== "string" || typeof data.name !== "string" || typeof data.bannerId !== "string" || typeof data.actorUserId !== "string" || !camp || !village) throw new Error("BAND_STATE_FAILED: invalid band state")
+  if (!(["oak", "fox", "arrow", "stag"] as const).includes(data.bannerId as "oak" | "fox" | "arrow" | "stag")) throw new Error("BAND_STATE_FAILED: invalid banner")
+  return {
+    state: {
+      id: data.id,
+      name: data.name,
+      bannerId: data.bannerId as MerryBandState["bannerId"],
+      camp: {
+        hearth: Number(camp.hearth ?? 0),
+        workbench: Number(camp.workbench ?? 0),
+        stores: Number(camp.stores ?? 0),
+      },
+      progressionVersion: Number(data.progressionVersion ?? 1),
+      missionCount: Number(data.missionCount ?? 0),
+    },
+    village: {
+      granary: Number(village.granary ?? 0),
+      infirmary: Number(village.infirmary ?? 0),
+      watchtower: Number(village.watchtower ?? 0),
+    },
+    actorUserId: data.actorUserId,
+  }
 }
 
 export class SupabaseBandStore {
@@ -34,18 +77,38 @@ export class SupabaseBandStore {
     return data
   }
 
-  async recordMission(input: CompletedBandMission): Promise<boolean> {
-    const { data, error } = await this.client.rpc("apply_band_mission_reward", {
+  async ensureBand(creatorUserId: string, displayName: string, heroRole: CharacterId): Promise<PersistentBandRecord> {
+    const { data, error } = await this.client.rpc("ensure_merry_band", {
+      p_creator_user_id: creatorUserId,
+      p_display_name: displayName,
+      p_hero_role: heroRole,
+    })
+    if (error) throw new Error(`BAND_ENSURE_FAILED: ${error.message}`)
+    return { ...recordFromRpc(data), actorUserId: creatorUserId }
+  }
+
+  async loadBand(bandId: string): Promise<PersistentBandRecord> {
+    const { data, error } = await this.client.rpc("get_merry_band_state", { p_band_id: bandId })
+    if (error) throw new Error(`BAND_LOAD_FAILED: ${error.message}`)
+    return recordFromRpc(data)
+  }
+
+  async recordMission(input: CompletedBandMission): Promise<BandMissionWriteResult> {
+    const { data, error } = await this.client.rpc("record_band_mission_outcome", {
       p_band_id: input.bandId,
+      p_actor_user_id: input.actorUserId,
       p_mission_id: input.missionId,
       p_mission_slug: input.missionSlug,
       p_seed: input.seed,
+      p_status: input.status,
       p_result: input.result,
       p_allocation_choice: input.allocationChoice,
       p_allocation_coin: input.allocationCoin,
     })
     if (error) throw new Error(`BAND_REWARD_FAILED: ${error.message}`)
-    return data === true
+    if (!data || typeof data !== "object") throw new Error("BAND_REWARD_FAILED: missing result")
+    const value = data as Record<string, unknown>
+    return { recorded: value.recorded === true, progressed: value.progressed === true, band: recordFromRpc(value.band) }
   }
 }
 
