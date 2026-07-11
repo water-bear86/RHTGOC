@@ -18,7 +18,9 @@ The vertical slice supports click-to-move, keyboard movement, a smooth isometric
 
 ### Phase 1 — Forest that feels alive
 
-- Replace procedural primitives with a coherent GLB asset kit.
+- Establish the restrained storybook cel-shaded lighting and material language across the existing playable world.
+- Replace procedural primitives selectively with coherent, curated GLB asset kits that pass the browser-ready quality gate.
+- Build the first village slice from a small CC0 Medieval Village MegaKit selection: plaster/timber walls, round-tile roofs, one window and door family, vines, wagon/crates, and modular fencing.
 - Add navmesh pathfinding, collision, river crossings, cover, and authored landmarks.
 - Add villagers, wildlife, ambient audio, day/night, and weather.
 
@@ -42,8 +44,8 @@ The vertical slice supports click-to-move, keyboard movement, a smooth isometric
 ## Technical direction
 
 - Runtime: Three.js + TypeScript + Vite.
-- Rendering: true 3D geometry, perspective camera, shadows, fog, and procedural low-poly placeholders.
+- Rendering: true 3D geometry, perspective camera, restrained four-step toon lighting, shadows, fog, and a coherent storybook palette; no heavy outline pass initially.
 - State: simulation owns rules and serializable data; Three.js mirrors it as disposable view objects.
 - UI: accessible DOM HUD over WebGL.
-- Future assets: GLB/glTF 2.0 with optimized textures and measured draw calls.
+- Assets: curated GLB/glTF 2.0 only, with optimized textures, measured draw calls/GPU cost, simple collision, LODs, and source/license metadata. Weak textures may be reworked; bad silhouettes, topology, or rigs are rejected.
 - Physics: add Rapier when terrain collision, projectiles, and richer combat justify it.

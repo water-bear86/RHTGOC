@@ -28,6 +28,12 @@ The product should capture the accessibility and shared-world energy of an isome
 
 The game must remain a true 3D experience. Terrain, characters, structures, navigation, lighting, camera behavior, combat, and world interactions must be spatial and rendered in 3D. A 2D implementation is out of scope. Standard DOM UI may overlay the WebGL playfield for accessibility and clarity.
 
+### Restrained storybook rendering
+
+Sherwood should use a restrained cel-shaded storybook treatment rather than chasing realism or preserving the stock look of unrelated asset packs. A shared four-step toon-lighting ramp, coherent palette, directional light, fog, and controlled shadows should unify heroes, guards, foliage, architecture, and props while keeping pursuit routes and interaction states immediately readable. Heavy comic outlines and bloom are out of scope for the first art pass.
+
+Cel shading is not permission to ship weak geometry. Assets with a sound silhouette, topology, and rig may be retextured and adapted; assets with poor proportions, topology, skinning, rigs, or animation should be rejected. External packs must be curated into small browser-ready GLB/glTF kits with consolidated materials, measured texture and draw-call costs, simple collision proxies, explicit LOD behavior, and recorded source/license metadata. Source packs, raw FBX files, and broken external texture paths must never be copied wholesale into the runtime.
+
 ### Cooperation before chat
 
 Social design must begin with reasons to depend on other players. Chat, friend lists, feeds, and leaderboards support the experience but cannot substitute for cooperative mechanics.
@@ -240,6 +246,8 @@ Later regions may include Nottingham, Locksley, royal estates, woodland settleme
 - Simulation rules must remain separate from Three.js renderer objects.
 - Remote players must use buffered snapshots and interpolation.
 - Shipped 3D assets should use optimized GLB or glTF 2.0.
+- Lit runtime materials should pass through one shared toon-material adapter without losing skinning, alpha, vertex colors, gameplay recoloring, or shadow behavior; intentionally unlit signals and markers remain unlit.
+- Every shipped asset must pass the documented accept, rework, or reject quality gate and carry provenance, license, geometry, material, texture, collision, and LOD metadata.
 - Rapier should be introduced when authored collision, projectiles, and physical interactions require it.
 
 ### Multiplayer service
