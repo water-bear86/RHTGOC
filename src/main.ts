@@ -572,7 +572,19 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
 
 function loadRobinRanger(): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
   rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb")
-    .then((asset) => ({ scene: convertObjectToToon(asset.scene), animations: asset.animations }))
+    .then((asset) => {
+      const clipNames: Record<string, string> = {
+        Ranger_Idle: "Robin_Idle",
+        Ranger_Walk: "Robin_Walk",
+        Ranger_Attack: "Robin_Shoot",
+      }
+      const animations = asset.animations.map((clip) => {
+        const renamed = clip.clone()
+        renamed.name = clipNames[clip.name] ?? clip.name
+        return renamed
+      })
+      return { scene: convertObjectToToon(asset.scene), animations }
+    })
   return rangerAssetPromise
 }
 
@@ -684,7 +696,8 @@ function attachTreeGroves(): void {
 function prepareRangerInstance(source: THREE.Group): THREE.Group {
   const ranger = cloneSkeleton(source) as THREE.Group
   cloneObjectMaterialsForInstance(ranger)
-  ranger.scale.setScalar(2.15)
+  ranger.scale.setScalar(1.08)
+  ranger.position.y = 1.15
   ranger.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return
     child.castShadow = true

@@ -10,66 +10,60 @@
       "qualityGate": {
         "decision": "accept",
         "reviewedAt": "2026-07-11",
-        "rationale": "Grounded skinned hero with six measured draw calls, consolidated quiver geometry, browser-safe texture, validated animation, and explicit collision and LOD policy."
+        "rationale": "Project-owner supplied Meshy Robin, rebound to a grounded 22-bone game rig, reduced to one draw, simplified below the hero triangle budget, stripped to the toon-relevant base-color texture, and validated with three runtime animation clips."
       },
       "provenance": {
-        "sourceAsset": "fantasy+ranger+3d+model (1).glb",
-        "sourceSha256": "e96d56bc77fbca142d7a3b6e700a90463a7e62f1bdf6ee4864ddb16b038c90f8",
-        "sourceBytes": 4402020,
-        "sourceGenerator": "Tripo",
+        "sourceAsset": "Meshy_AI_Robin_Hood_0711214327_image-to-3d-texture (1).blend",
+        "sourceSha256": "92526cbca1bb6bd68a418aba7b376f4a11c8aa245a337c3ef42310affd94d8bd",
+        "sourceBytes": 43186851,
+        "sourceGenerator": "Meshy",
         "suppliedBy": "project owner",
-        "conversionScript": "tools/rig_robin_ranger.py",
+        "conversionScript": "tools/rig-forest-ranger.py and tools/strip-robin-pbr.mjs",
         "conversionDoc": "docs/operations/3d-assets.md",
-        "optimizer": "tools/optimize-robin-ranger.sh"
+        "optimizer": "glTF Transform simplify, prune, and WebP"
       },
       "license": {
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "e3d57e5e1ef0fd5ef9efdc34218f80d40f6f79d4ca2709266e143c5ba8fb69e9"
+        "evidenceSha256": "014d13ec7a96657bc6ce3798bae2323a15d770f5de118a87bd6503e90325317b"
       },
       "uri": "assets/characters/robin-ranger-rigged.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "2226ac568499ac922bfda426d181adcb4d4553e600cb2544320549932ea27b75",
+      "sha256": "04ef467f27a4f6a06c352376514fc63b85e981e7743138dee04c4ea5bc4c7c3f",
       "bytesMax": 2500000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
-        "renderVertices": 181647,
-        "uploadVertices": 35374,
-        "triangles": 60549,
-        "uniquePrimitives": 6,
-        "sceneDrawCalls": 6
+        "renderVertices": 182913,
+        "uploadVertices": 35682,
+        "triangles": 60971,
+        "uniquePrimitives": 1,
+        "sceneDrawCalls": 1
       },
       "materials": {
-        "count": 5,
-        "names": [
-          "RobinYewWood",
-          "RobinBowString",
-          "RobinLeather",
-          "RobinArrowheads",
-          "tripo_mat_adf5a68b-2459-4568-a847-7a4d4c5a355d"
-        ]
+        "count": 1,
+        "names": ["Material_0"]
       },
       "texture": {
         "count": 1,
         "format": "webp",
         "width": 1024,
         "height": 1024,
-        "encodedBytes": 61696,
+        "encodedBytes": 52720,
         "gpuBytesApprox": 5592404
       },
-      "clips": ["Robin_Idle", "Robin_Walk", "Robin_Shoot"],
+      "clips": ["Ranger_Idle", "Ranger_Walk", "Ranger_Attack"],
       "pivot": {
-        "policy": "feet at origin",
+        "policy": "runtime foot offset from centered source pivot",
         "passes": true,
-        "evidence": "Validated scene bounds have minY=0"
+        "evidence": "Validated centered bounds pair with the documented 1.15 runtime Y offset"
       },
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.4906920790672302, 0, -0.23249934533385103],
-        "boundsMax": [0.6233227836316664, 1.0623315410637322, 0.1229633092880249],
-        "runtimeMultiplier": 2.15
+        "boundsMin": [-0.93649, -1.06475, -0.20565],
+        "boundsMax": [0.9346, 0.83455, 0.20387],
+        "runtimeMultiplier": 1.08
       },
       "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
       "collision": { "type": "capsule", "radius": 0.55, "height": 2.1, "centerY": 1.05 },
@@ -101,7 +95,7 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "e3d57e5e1ef0fd5ef9efdc34218f80d40f6f79d4ca2709266e143c5ba8fb69e9"
+        "evidenceSha256": "014d13ec7a96657bc6ce3798bae2323a15d770f5de118a87bd6503e90325317b"
       },
       "uri": "assets/environment/sherwood-tree-grove.glb",
       "format": "glTF 2.0 GLB",
