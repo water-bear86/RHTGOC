@@ -5,9 +5,11 @@ import { extname, join, normalize } from "node:path"
 import { WebSocket, WebSocketServer } from "ws"
 import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "../shared/protocol"
 import { Room } from "./room"
+import { createBandStoreFromEnv } from "./band-store"
 
 const port = Number(process.env.PORT ?? 8787)
 const rooms = new Map<string, Room>()
+const bandStore = createBandStoreFromEnv()
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 function roomCode(): string {
@@ -34,7 +36,7 @@ const contentTypes: Record<string, string> = {
 const httpServer = createServer(async (request, response) => {
   if (request.url === "/health") {
     response.writeHead(200, { "Content-Type": "application/json" })
-    response.end(JSON.stringify({ ok: true, rooms: rooms.size, protocolVersion: PROTOCOL_VERSION }))
+    response.end(JSON.stringify({ ok: true, rooms: rooms.size, protocolVersion: PROTOCOL_VERSION, bandPersistence: bandStore !== null }))
     return
   }
   if (request.method !== "GET" && request.method !== "HEAD") {
