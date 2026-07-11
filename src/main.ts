@@ -21,6 +21,17 @@ import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
 import type { MissionEvent, MissionSnapshot, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import {
+  ACTION_LABELS,
+  DEFAULT_INPUT_SETTINGS,
+  GAME_ACTIONS,
+  keyLabel,
+  loadInputSettings,
+  saveInputSettings,
+  type GameAction,
+  type InputSettings,
+  type PointerAction,
+} from "./input-settings"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -75,7 +86,30 @@ const safetyButton = document.querySelector<HTMLButtonElement>("#safety-button")
 const safetyPanel = document.querySelector<HTMLDivElement>("#safety-panel")!
 const closeSafety = document.querySelector<HTMLButtonElement>("#close-safety")!
 const safetyPartyList = document.querySelector<HTMLUListElement>("#safety-party-list")!
+const settingsButton = document.querySelector<HTMLButtonElement>("#settings-button")!
+const settingsPanel = document.querySelector<HTMLDivElement>("#settings-panel")!
+const closeSettings = document.querySelector<HTMLButtonElement>("#close-settings")!
+const keyboardBindings = document.querySelector<HTMLDivElement>("#keyboard-bindings")!
+const pointerBindings = document.querySelector<HTMLDivElement>("#pointer-bindings")!
+const controllerBindings = document.querySelector<HTMLDivElement>("#controller-bindings")!
+const resetSettings = document.querySelector<HTMLButtonElement>("#reset-settings")!
+const settingsStatus = document.querySelector<HTMLElement>("#settings-status")!
+const spectatorBanner = document.querySelector<HTMLElement>("#spectator-banner")!
+const introControls = document.querySelector<HTMLElement>("#intro-controls")!
+const helpMove = document.querySelector<HTMLElement>("#help-move")!
+const helpInteract = document.querySelector<HTMLElement>("#help-interact")!
+const helpFire = document.querySelector<HTMLElement>("#help-fire")!
+const helpSignature = document.querySelector<HTMLElement>("#help-signature")!
+const helpSignals = document.querySelector<HTMLElement>("#help-signals")!
+const helpSupport = document.querySelector<HTMLElement>("#help-support")!
+const reducedMotionSetting = document.querySelector<HTMLInputElement>("#setting-reduced-motion")!
+const highContrastSetting = document.querySelector<HTMLInputElement>("#setting-high-contrast")!
+const captionsSetting = document.querySelector<HTMLInputElement>("#setting-captions")!
+const readableTextSetting = document.querySelector<HTMLInputElement>("#setting-readable-text")!
+const mobileSpectatorSetting = document.querySelector<HTMLInputElement>("#setting-mobile-spectator")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
+
+let inputSettings: InputSettings = loadInputSettings(localStorage)
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x91aa83)
@@ -89,7 +123,7 @@ const renderProfile = chooseRenderProfile({
   maxTextureSize: renderer.capabilities.maxTextureSize,
   maxTextures: renderer.capabilities.maxTextures,
   devicePixelRatio: window.devicePixelRatio,
-  reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  reducedMotion: inputSettings.reducedMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
 })
 renderer.setPixelRatio(renderProfile.pixelRatio)
 renderer.setSize(window.innerWidth, window.innerHeight)
@@ -123,6 +157,10 @@ let localDownedFor = 0
 let missionTarget = DELIVERY_TARGET
 let missionObjective = "Find the Sheriff's tax cart"
 let missionPrompt = "Scout together and signal a route"
+let currentMissionPhase: MissionSnapshot["phase"] = "scout"
+let capturingAction: GameAction | null = null
+let previousGamepadButtons: boolean[] = []
+let lastPanelTrigger: HTMLElement | null = null
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
@@ -498,6 +536,196 @@ const multiplayer = new MultiplayerClient({
   },
 })
 
+const controllerActions = GAME_ACTIONS.filter((action) => !action.startsWith("move")) as Array<keyof InputSettings["controller"]>
+const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel]
+const controllerButtonLabels = ["A / Cross", "B / Circle", "X / Square", "Y / Triangle", "LB / L1", "RB / R1", "LT / L2", "RT / R2", "View / Share", "Menu / Options", "Left stick", "Right stick", "D-pad up", "D-pad down", "D-pad left", "D-pad right"]
+const pointerActionLabels: Record<PointerAction, string> = {
+  move: "Move to ground",
+  interact: ACTION_LABELS.interact,
+  fire: ACTION_LABELS.fire,
+  signature: ACTION_LABELS.signature,
+  revive: ACTION_LABELS.revive,
+  transferLoot: ACTION_LABELS.transferLoot,
+  pingDanger: ACTION_LABELS.pingDanger,
+  pingTarget: ACTION_LABELS.pingTarget,
+  pingRoute: ACTION_LABELS.pingRoute,
+  pingLoot: ACTION_LABELS.pingLoot,
+  pingRegroup: ACTION_LABELS.pingRegroup,
+}
+
+function isMobileSpectator(): boolean {
+  return inputSettings.mobileSpectator && window.innerWidth <= 720
+}
+
+function refreshControlCopy(): void {
+  const key = inputSettings.keyboard
+  helpMove.textContent = `${keyLabel(key.moveUp)} / ${keyLabel(key.moveLeft)} / ${keyLabel(key.moveDown)} / ${keyLabel(key.moveRight)}, controller stick, or mapped pointer movement`
+  helpInteract.textContent = `${keyLabel(key.interact)} near the cart or village fire`
+  helpFire.textContent = `${keyLabel(key.fire)} stuns the nearest guard in range`
+  helpSignature.textContent = `${keyLabel(key.signature)} uses Robin's Twin Shot or Marian's Veil`
+  helpSignals.textContent = `${keyLabel(key.pingDanger)} / ${keyLabel(key.pingTarget)} / ${keyLabel(key.pingRoute)} / ${keyLabel(key.pingLoot)} / ${keyLabel(key.pingRegroup)} place symbol-coded signals`
+  helpSupport.textContent = `${keyLabel(key.revive)} revives a nearby outlaw · ${keyLabel(key.transferLoot)} transfers up to 60 coin`
+  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE`
+  missionPrompt = missionPromptForPhase(currentMissionPhase)
+}
+
+function applyInputSettings(): void {
+  const systemReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  document.body.classList.toggle("reduced-motion", inputSettings.reducedMotion || systemReducedMotion)
+  document.body.classList.toggle("high-contrast", inputSettings.highContrast)
+  document.body.classList.toggle("captions-off", !inputSettings.captions)
+  document.body.classList.toggle("readable-text", inputSettings.readableText)
+  renderProfile.motionScale = inputSettings.reducedMotion || systemReducedMotion ? 0 : 1
+  const spectator = isMobileSpectator()
+  spectatorBanner.classList.toggle("hidden", !spectator)
+  renderer.shadowMap.enabled = spectator ? false : renderProfile.shadows
+  renderer.setPixelRatio(spectator ? 1 : renderProfile.pixelRatio)
+  reducedMotionSetting.checked = inputSettings.reducedMotion
+  highContrastSetting.checked = inputSettings.highContrast
+  captionsSetting.checked = inputSettings.captions
+  readableTextSetting.checked = inputSettings.readableText
+  mobileSpectatorSetting.checked = inputSettings.mobileSpectator
+  refreshControlCopy()
+}
+
+function persistInputSettings(message = "Changes saved on this device."): void {
+  saveInputSettings(localStorage, inputSettings)
+  applyInputSettings()
+  settingsStatus.textContent = message
+}
+
+function renderBindingControls(): void {
+  keyboardBindings.replaceChildren()
+  for (const action of GAME_ACTIONS) {
+    const label = document.createElement("label")
+    label.textContent = ACTION_LABELS[action]
+    const button = document.createElement("button")
+    button.type = "button"
+    button.textContent = capturingAction === action ? "PRESS A KEY…" : keyLabel(inputSettings.keyboard[action])
+    button.setAttribute("aria-label", `Remap ${ACTION_LABELS[action]}, currently ${keyLabel(inputSettings.keyboard[action])}`)
+    button.addEventListener("click", () => {
+      capturingAction = action
+      settingsStatus.textContent = `Press a key for ${ACTION_LABELS[action]}. Escape cancels.`
+      renderBindingControls()
+    })
+    keyboardBindings.append(label, button)
+  }
+
+  pointerBindings.replaceChildren()
+  for (const buttonName of ["primary", "middle", "secondary"] as const) {
+    const label = document.createElement("label")
+    label.textContent = `${buttonName[0].toUpperCase()}${buttonName.slice(1)} button`
+    const select = document.createElement("select")
+    select.setAttribute("aria-label", `${label.textContent} action`)
+    for (const [value, text] of Object.entries(pointerActionLabels)) {
+      const option = document.createElement("option")
+      option.value = value
+      option.textContent = text
+      option.selected = inputSettings.pointer[buttonName] === value
+      select.append(option)
+    }
+    select.addEventListener("change", () => {
+      inputSettings.pointer[buttonName] = select.value as PointerAction
+      persistInputSettings()
+    })
+    pointerBindings.append(label, select)
+  }
+
+  controllerBindings.replaceChildren()
+  for (const action of controllerActions) {
+    const label = document.createElement("label")
+    label.textContent = ACTION_LABELS[action]
+    const select = document.createElement("select")
+    select.setAttribute("aria-label", `Controller ${ACTION_LABELS[action]}`)
+    controllerButtonLabels.forEach((text, index) => {
+      const option = document.createElement("option")
+      option.value = String(index)
+      option.textContent = `${index}: ${text}`
+      option.selected = inputSettings.controller[action] === index
+      select.append(option)
+    })
+    select.addEventListener("change", () => {
+      inputSettings.controller[action] = Number(select.value)
+      persistInputSettings()
+    })
+    controllerBindings.append(label, select)
+  }
+}
+
+function openPanel(panel: HTMLElement, trigger?: HTMLElement): void {
+  keys.clear()
+  for (const candidate of panelElements) {
+    if (candidate !== panel) candidate.classList.add("hidden")
+    candidate.setAttribute("aria-hidden", String(candidate !== panel))
+  }
+  lastPanelTrigger = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  panel.classList.remove("hidden")
+  queueMicrotask(() => panel.focus())
+}
+
+function closePanel(panel: HTMLElement): void {
+  panel.classList.add("hidden")
+  panel.setAttribute("aria-hidden", "true")
+  if (panel === settingsPanel && capturingAction) {
+    capturingAction = null
+    renderBindingControls()
+  }
+  lastPanelTrigger?.focus()
+}
+
+function closeActivePanel(): boolean {
+  const open = panelElements.find((panel) => !panel.classList.contains("hidden"))
+  if (!open) return false
+  closePanel(open)
+  return true
+}
+
+function performMappedAction(action: GameAction | PointerAction): void {
+  if (action === "move" || action.startsWith("move")) return
+  if (action === "interact") handleInteraction()
+  if (action === "fire") fireArrow()
+  if (action === "signature") useSignature()
+  if (action === "revive" && multiplayerActive) sendSupportAction("revive")
+  if (action === "transferLoot" && multiplayerActive) sendSupportAction("transfer_loot")
+  const pings: Partial<Record<GameAction, PingKind>> = {
+    pingDanger: "danger",
+    pingTarget: "target",
+    pingRoute: "route",
+    pingLoot: "loot",
+    pingRegroup: "regroup",
+  }
+  const ping = pings[action as GameAction]
+  if (ping && multiplayerActive) multiplayer.sendPing(ping)
+}
+
+function pollControllerActions(): void {
+  const gamepad = navigator.getGamepads?.()[0]
+  if (!gamepad) {
+    previousGamepadButtons = []
+    return
+  }
+  if (running && !isModalOpen() && !isMobileSpectator()) {
+    for (const action of controllerActions) {
+      const button = inputSettings.controller[action]
+      if (gamepad.buttons[button]?.pressed && !previousGamepadButtons[button]) performMappedAction(action)
+    }
+  }
+  previousGamepadButtons = gamepad.buttons.map((button) => button.pressed)
+}
+
+function missionPromptForPhase(phase: MissionSnapshot["phase"]): string {
+  const key = inputSettings.keyboard
+  const prompts: Record<MissionSnapshot["phase"], string> = {
+    scout: `Reach the forest edge or river crossing · ${keyLabel(key.pingRoute)} signals a route`,
+    ambush: `${keyLabel(key.fire)} or ${keyLabel(key.signature)} stuns escorts · ${keyLabel(key.pingDanger)} warns the band`,
+    robbery: `Press ${keyLabel(key.interact)} beside the tax cart`,
+    pursuit: `Carry coin to the forest north or river east · ${keyLabel(key.pingLoot)} marks loot`,
+    escape: `Reach the village fire · ${keyLabel(key.revive)} rescues · ${keyLabel(key.transferLoot)} shares coin`,
+    extraction: `Press ${keyLabel(key.interact)} at the village fire`,
+  }
+  return prompts[phase]
+}
+
 function applyMissionSnapshot(mission: MissionSnapshot): void {
   state.heat = mission.heat
   state.cartCoin = mission.cartCoin
@@ -514,15 +742,8 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
     extraction: "Return the taxes to the people",
   }
   missionObjective = objectives[mission.phase]
-  const prompts: Record<MissionSnapshot["phase"], string> = {
-    scout: "Reach the forest edge or river crossing · 3 places a route ping",
-    ambush: "SPACE or Q stuns escorts · 1 warns the band",
-    robbery: "Press E beside the tax cart",
-    pursuit: "Carry coin to the forest north or river east · 4 marks loot",
-    escape: "Reach the village fire · R rescues · T shares coin",
-    extraction: "Press E at the village fire",
-  }
-  missionPrompt = prompts[mission.phase]
+  currentMissionPhase = mission.phase
+  missionPrompt = missionPromptForPhase(mission.phase)
   const completedOptional = mission.optionalObjectives.filter((objective) => objective.completed).length
   missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
   if (mission.phase === "robbery") localStorage.setItem("sherwood:tutorial-complete", "true")
@@ -669,7 +890,7 @@ function createPingView(ping: WorldPing): THREE.Group {
 
 function renderMissionResolution(mission: MissionSnapshot): void {
   if (!mission.result || !mission.vote) return
-  resultsPanel.classList.remove("hidden")
+  if (resultsPanel.classList.contains("hidden")) openPanel(resultsPanel)
   resultGrade.textContent = mission.result.grade
   resultScore.textContent = mission.result.score.toLocaleString()
   resultBreakdown.replaceChildren()
@@ -739,6 +960,8 @@ function renderParty(players: RoomPlayer[]): void {
     compact.classList.toggle("disconnected", !player.connected)
     const presence = document.createElement("i")
     presence.className = "presence"
+    presence.textContent = player.connected ? "●" : "×"
+    presence.setAttribute("aria-label", player.connected ? "Connected" : "Reconnecting")
     const identity = document.createElement("span")
     identity.className = "identity"
     identity.textContent = `${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}`
@@ -796,12 +1019,20 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
 }
 
 function getMoveInput(): Vec2 {
+  if (isMobileSpectator()) return { x: 0, z: 0 }
   let x = 0
   let z = 0
-  if (keys.has("KeyA") || keys.has("ArrowLeft")) x -= 1
-  if (keys.has("KeyD") || keys.has("ArrowRight")) x += 1
-  if (keys.has("KeyW") || keys.has("ArrowUp")) z -= 1
-  if (keys.has("KeyS") || keys.has("ArrowDown")) z += 1
+  if (keys.has(inputSettings.keyboard.moveLeft)) x -= 1
+  if (keys.has(inputSettings.keyboard.moveRight)) x += 1
+  if (keys.has(inputSettings.keyboard.moveUp)) z -= 1
+  if (keys.has(inputSettings.keyboard.moveDown)) z += 1
+  const gamepad = navigator.getGamepads?.()[0]
+  if (gamepad) {
+    const gamepadX = Math.abs(gamepad.axes[0] ?? 0) >= 0.18 ? gamepad.axes[0] : 0
+    const gamepadZ = Math.abs(gamepad.axes[1] ?? 0) >= 0.18 ? gamepad.axes[1] : 0
+    x += gamepadX
+    z += gamepadZ
+  }
   if (x !== 0 || z !== 0) {
     clickTarget = null
     destinationMarker.visible = false
@@ -886,11 +1117,11 @@ function useSignature(): void {
 }
 
 function isModalOpen(): boolean {
-  return !helpPanel.classList.contains("hidden") || !leaderboardPanel.classList.contains("hidden") || !resultsPanel.classList.contains("hidden") || !safetyPanel.classList.contains("hidden")
+  return panelElements.some((panel) => !panel.classList.contains("hidden"))
 }
 
 async function openLeaderboard(): Promise<void> {
-  leaderboardPanel.classList.remove("hidden")
+  if (leaderboardPanel.classList.contains("hidden")) openPanel(leaderboardPanel, leaderboardButton)
   leaderboardState.textContent = "Loading the global board…"
   leaderboardList.replaceChildren()
   const kind = boardKind.value as LeaderboardKind
@@ -959,9 +1190,13 @@ function updateUI(): void {
   lootElement.textContent = String(state.player.loot)
   signatureElement.textContent = state.player.signatureCooldown > 0 ? `${Math.ceil(state.player.signatureCooldown)}s` : "READY"
   heatElement.style.width = `${state.heat}%`
+  heatWrap.setAttribute("aria-valuenow", String(Math.max(0, Math.min(100, Math.round(state.heat)))))
+  heatWrap.setAttribute("aria-valuetext", state.heat > 60 ? "High pursuit" : state.heat > 20 ? "Sheriff searching" : "Hidden")
   heatWrap.classList.toggle("visible", state.heat > 3)
   progressElement.style.width = `${Math.min(100, (state.delivered / missionTarget) * 100)}%`
-  promptElement.textContent = localDownedFor > 0
+  promptElement.textContent = isMobileSpectator()
+    ? "Spectating the Merry Band · disable spectator mode in accessibility settings to play"
+    : localDownedFor > 0
     ? `DOWNED · ${Math.ceil(localDownedFor)}s for a teammate to revive you`
     : multiplayerActive
       ? missionPrompt
@@ -1092,6 +1327,7 @@ function animate(): void {
   requestAnimationFrame(animate)
   const dt = Math.min(clock.getDelta(), 0.05)
   const elapsed = clock.elapsedTime
+  pollControllerActions()
   if (running && isModalOpen()) {
     syncViews(elapsed, dt)
     renderer.render(scene, camera)
@@ -1211,48 +1447,101 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   updateUI()
 }
 
-helpButton.addEventListener("click", () => helpPanel.classList.remove("hidden"))
-closeHelp.addEventListener("click", () => helpPanel.classList.add("hidden"))
+helpButton.addEventListener("click", () => openPanel(helpPanel, helpButton))
+closeHelp.addEventListener("click", () => closePanel(helpPanel))
 leaderboardButton.addEventListener("click", () => void openLeaderboard())
-closeLeaderboard.addEventListener("click", () => leaderboardPanel.classList.add("hidden"))
+closeLeaderboard.addEventListener("click", () => closePanel(leaderboardPanel))
 for (const filter of [boardKind, boardCharacter, boardParty, boardScope, boardMission, boardSeason]) filter.addEventListener("change", () => void openLeaderboard())
-closeResults.addEventListener("click", () => resultsPanel.classList.add("hidden"))
+closeResults.addEventListener("click", () => closePanel(resultsPanel))
 voteButtons.forEach((button) => button.addEventListener("click", () => multiplayer.vote(button.dataset.vote as VoteChoice)))
-safetyButton.addEventListener("click", () => safetyPanel.classList.remove("hidden"))
-closeSafety.addEventListener("click", () => safetyPanel.classList.add("hidden"))
+safetyButton.addEventListener("click", () => openPanel(safetyPanel, safetyButton))
+closeSafety.addEventListener("click", () => closePanel(safetyPanel))
+settingsButton.addEventListener("click", () => {
+  renderBindingControls()
+  openPanel(settingsPanel, settingsButton)
+})
+closeSettings.addEventListener("click", () => closePanel(settingsPanel))
+
+reducedMotionSetting.addEventListener("change", () => { inputSettings.reducedMotion = reducedMotionSetting.checked; persistInputSettings() })
+highContrastSetting.addEventListener("change", () => { inputSettings.highContrast = highContrastSetting.checked; persistInputSettings() })
+captionsSetting.addEventListener("change", () => { inputSettings.captions = captionsSetting.checked; persistInputSettings() })
+readableTextSetting.addEventListener("change", () => { inputSettings.readableText = readableTextSetting.checked; persistInputSettings() })
+mobileSpectatorSetting.addEventListener("change", () => { inputSettings.mobileSpectator = mobileSpectatorSetting.checked; persistInputSettings() })
+resetSettings.addEventListener("click", () => {
+  inputSettings = {
+    ...DEFAULT_INPUT_SETTINGS,
+    keyboard: { ...DEFAULT_INPUT_SETTINGS.keyboard },
+    controller: { ...DEFAULT_INPUT_SETTINGS.controller },
+    pointer: { ...DEFAULT_INPUT_SETTINGS.pointer },
+  }
+  capturingAction = null
+  persistInputSettings("Default controls restored.")
+  renderBindingControls()
+})
 
 window.addEventListener("keydown", (event) => {
-  if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) event.preventDefault()
-  keys.add(event.code)
-  if (!running || event.repeat) return
-  if (event.code === "Escape") {
-    if (!leaderboardPanel.classList.contains("hidden")) leaderboardPanel.classList.add("hidden")
-    else helpPanel.classList.toggle("hidden")
+  if (capturingAction) {
+    event.preventDefault()
+    if (event.code === "Escape") {
+      capturingAction = null
+      settingsStatus.textContent = "Remapping cancelled."
+      renderBindingControls()
+      return
+    }
+    if (["Tab", "MetaLeft", "MetaRight"].includes(event.code)) {
+      settingsStatus.textContent = "Choose a non-system key."
+      return
+    }
+    const previousCode = inputSettings.keyboard[capturingAction]
+    const conflict = GAME_ACTIONS.find((action) => action !== capturingAction && inputSettings.keyboard[action] === event.code)
+    if (conflict) inputSettings.keyboard[conflict] = previousCode
+    inputSettings.keyboard[capturingAction] = event.code
+    const label = ACTION_LABELS[capturingAction]
+    capturingAction = null
+    persistInputSettings(`${label} remapped to ${keyLabel(event.code)}.`)
+    renderBindingControls()
     return
   }
-  if (isModalOpen()) return
-  if (event.code === "KeyE") handleInteraction()
-  if (event.code === "Space") fireArrow()
-  if (event.code === "KeyQ") useSignature()
-  if (multiplayerActive && event.code === "KeyR") sendSupportAction("revive")
-  if (multiplayerActive && event.code === "KeyT") sendSupportAction("transfer_loot")
-  if (multiplayerActive) {
-    const pingByKey: Partial<Record<string, PingKind>> = {
-      Digit1: "danger",
-      Digit2: "target",
-      Digit3: "route",
-      Digit4: "loot",
-      Digit5: "regroup",
+  const activePanel = panelElements.find((panel) => !panel.classList.contains("hidden"))
+  if (event.code === "Tab" && activePanel) {
+    const focusable = [...activePanel.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex='-1'])")]
+      .filter((element) => element.offsetParent !== null)
+    if (focusable.length > 0) {
+      event.preventDefault()
+      const current = focusable.indexOf(document.activeElement as HTMLElement)
+      const next = event.shiftKey
+        ? (current <= 0 ? focusable.length - 1 : current - 1)
+        : (current < 0 || current === focusable.length - 1 ? 0 : current + 1)
+      focusable[next].focus()
     }
-    const ping = pingByKey[event.code]
-    if (ping) multiplayer.sendPing(ping)
+    return
   }
+  if (event.code === "Escape") {
+    event.preventDefault()
+    if (!closeActivePanel() && running) openPanel(helpPanel, helpButton)
+    return
+  }
+  const target = event.target
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return
+  const action = GAME_ACTIONS.find((candidate) => inputSettings.keyboard[candidate] === event.code)
+  if (action && running) event.preventDefault()
+  if (!running || event.repeat) return
+  if (isModalOpen()) return
+  keys.add(event.code)
+  if (action) performMappedAction(action)
 })
 
 window.addEventListener("keyup", (event) => keys.delete(event.code))
 
 renderer.domElement.addEventListener("pointerdown", (event) => {
-  if (!running || isModalOpen()) return
+  if (!running || isModalOpen() || isMobileSpectator()) return
+  const buttonName = event.button === 1 ? "middle" : event.button === 2 ? "secondary" : "primary"
+  const action = inputSettings.pointer[buttonName]
+  if (action !== "move") {
+    event.preventDefault()
+    performMappedAction(action)
+    return
+  }
   pointer.x = (event.clientX / window.innerWidth) * 2 - 1
   pointer.y = -(event.clientY / window.innerHeight) * 2 + 1
   raycaster.setFromCamera(pointer, camera)
@@ -1262,12 +1551,16 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
     destinationMarker.visible = true
   }
 })
+renderer.domElement.addEventListener("contextmenu", (event) => {
+  if (running) event.preventDefault()
+})
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
-  renderer.setPixelRatio(renderProfile.pixelRatio)
+  applyInputSettings()
+  updateUI()
 })
 
 window.addEventListener("blur", () => keys.clear())
@@ -1278,6 +1571,9 @@ renderer.domElement.addEventListener("webglcontextlost", (event) => {
 })
 renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sherwood restored"))
 
+renderBindingControls()
+applyInputSettings()
+for (const panel of panelElements) panel.setAttribute("aria-hidden", String(panel.classList.contains("hidden")))
 updateUI()
 syncViews(0, 0.016)
 animate()

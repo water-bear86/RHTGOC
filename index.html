@@ -25,7 +25,7 @@
         <span title="Stolen coin"><i class="coin"></i><b id="loot">0</b></span>
         <span class="signature-status" title="Signature ability"><i>Q</i><b id="signature">READY</b></span>
       </div>
-      <div class="heat" id="heat-wrap">
+      <div class="heat" id="heat-wrap" role="meter" aria-label="Sheriff pursuit" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <span>WANTED</span>
         <div><i id="heat-fill"></i></div>
       </div>
@@ -36,8 +36,10 @@
       <button class="help-button" id="help-button" aria-label="Open controls">?</button>
       <button class="leaderboard-button" id="leaderboard-button" aria-label="Open leaderboard">♜</button>
       <button class="safety-button" id="safety-button" aria-label="Open band safety">♢</button>
+      <button class="settings-button" id="settings-button" aria-label="Open accessibility and controls">⚙</button>
+      <div class="spectator-banner hidden" id="spectator-banner">MOBILE SPECTATOR · VIEW ONLY</div>
       <div class="prompt" id="prompt">Click the ground or use WASD to move</div>
-      <div class="toast" id="toast"></div>
+      <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     </div>
     <div class="intro" id="intro">
       <div class="intro-card">
@@ -65,27 +67,27 @@
           <button id="ready-button">READY UP</button>
         </div>
         <button id="start-button">ENTER SHERWOOD <span>→</span></button>
-        <small>WASD / CLICK TO MOVE · E TO INTERACT · SPACE TO FIRE · Q SIGNATURE</small>
+        <small id="intro-controls">WASD / CLICK TO MOVE · E TO INTERACT · SPACE TO FIRE · Q SIGNATURE</small>
       </div>
     </div>
-    <div class="panel hidden" id="help-panel">
+    <div class="panel hidden" id="help-panel" role="dialog" aria-modal="true" aria-labelledby="help-title" tabindex="-1">
       <button id="close-help" aria-label="Close controls">×</button>
       <span class="eyebrow">FIELD NOTES</span>
-      <h2>How to rebel</h2>
+      <h2 id="help-title">How to rebel</h2>
       <dl>
-        <dt>Move</dt><dd>WASD, arrow keys, or click the ground</dd>
-        <dt>Steal / give</dt><dd>Press E near the cart or village fire</dd>
-        <dt>Loose arrow</dt><dd>Space stuns the nearest guard in range</dd>
-        <dt>Signature</dt><dd>Q uses Robin's Twin Shot or Marian's Veil</dd>
-        <dt>Signal</dt><dd>1–5 place danger, target, route, loot, and regroup pings</dd>
-        <dt>Rescue / share</dt><dd>R revives a nearby outlaw · T transfers up to 60 coin</dd>
+        <dt>Move</dt><dd id="help-move">WASD, arrow keys, controller stick, or click the ground</dd>
+        <dt>Steal / give</dt><dd id="help-interact">Press E near the cart or village fire</dd>
+        <dt>Loose arrow</dt><dd id="help-fire">Space stuns the nearest guard in range</dd>
+        <dt>Signature</dt><dd id="help-signature">Q uses Robin's Twin Shot or Marian's Veil</dd>
+        <dt>Signal</dt><dd id="help-signals">1–5 place danger, target, route, loot, and regroup pings</dd>
+        <dt>Rescue / share</dt><dd id="help-support">R revives a nearby outlaw · T transfers up to 60 coin</dd>
         <dt>Survive</dt><dd>Break line of pursuit among the trees</dd>
       </dl>
     </div>
-    <div class="panel leaderboard-panel hidden" id="leaderboard-panel">
+    <div class="panel leaderboard-panel hidden" id="leaderboard-panel" role="dialog" aria-modal="true" aria-labelledby="leaderboard-title" tabindex="-1">
       <button id="close-leaderboard" aria-label="Close leaderboard">×</button>
       <span class="eyebrow">SEASON ZERO</span>
-      <h2>Master Outlaws</h2>
+      <h2 id="leaderboard-title">Master Outlaws</h2>
       <div class="board-filters">
         <select id="board-kind" aria-label="Leaderboard category">
           <option value="master-outlaws">Master Outlaws</option>
@@ -114,10 +116,10 @@
       <ol class="leaderboard-list" id="leaderboard-list"></ol>
       <small class="board-note">Only server-validated missions will receive a verified mark. Prototype runs remain unverified.</small>
     </div>
-    <div class="panel results-panel hidden" id="results-panel">
+    <div class="panel results-panel hidden" id="results-panel" role="dialog" aria-modal="true" aria-labelledby="results-title" tabindex="-1">
       <button id="close-results" aria-label="Close mission results">×</button>
       <span class="eyebrow">HEIST COMPLETE</span>
-      <h2>Mastery <b id="result-grade">—</b></h2>
+      <h2 id="results-title">Mastery <b id="result-grade">—</b></h2>
       <strong class="result-score" id="result-score">0</strong>
       <dl class="result-breakdown" id="result-breakdown"></dl>
       <p class="allocation" id="community-allocation">Every coin goes to Sherwood.</p>
@@ -129,13 +131,41 @@
       </div>
       <p class="board-state" id="vote-state">The band decides together.</p>
     </div>
-    <div class="panel safety-panel hidden" id="safety-panel">
+    <div class="panel safety-panel hidden" id="safety-panel" role="dialog" aria-modal="true" aria-labelledby="safety-title" tabindex="-1">
       <button id="close-safety" aria-label="Close band safety">×</button>
       <span class="eyebrow">BAND SAFETY</span>
-      <h2>Keep Sherwood civil</h2>
+      <h2 id="safety-title">Keep Sherwood civil</h2>
       <p class="board-state">Mute is local. Reports use fixed reasons. The room leader can remove or block a player from the current room.</p>
       <ul id="safety-party-list"></ul>
       <small class="board-note">No public chat, voice, trading, or user-generated content is enabled.</small>
+    </div>
+    <div class="panel settings-panel hidden" id="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1">
+      <button id="close-settings" aria-label="Close accessibility and controls">×</button>
+      <span class="eyebrow">ACCESSIBILITY & INPUT</span>
+      <h2 id="settings-title">Make it yours</h2>
+      <fieldset class="accessibility-options">
+        <legend>Display and captions</legend>
+        <label><input type="checkbox" id="setting-reduced-motion" /> Reduced motion</label>
+        <label><input type="checkbox" id="setting-high-contrast" /> High contrast</label>
+        <label><input type="checkbox" id="setting-captions" /> Event captions</label>
+        <label><input type="checkbox" id="setting-readable-text" /> Larger readable text</label>
+        <label><input type="checkbox" id="setting-mobile-spectator" /> Lightweight mobile spectator</label>
+      </fieldset>
+      <details open>
+        <summary>Keyboard bindings</summary>
+        <div class="binding-grid" id="keyboard-bindings"></div>
+      </details>
+      <details>
+        <summary>Pointer bindings</summary>
+        <div class="binding-grid" id="pointer-bindings"></div>
+      </details>
+      <details>
+        <summary>Controller bindings</summary>
+        <p class="settings-note">Movement uses the left stick. Remap action buttons below.</p>
+        <div class="binding-grid" id="controller-bindings"></div>
+      </details>
+      <button class="reset-bindings" id="reset-settings">RESET TO DEFAULTS</button>
+      <p class="settings-note" id="settings-status" role="status" aria-live="polite">Changes save on this device.</p>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
