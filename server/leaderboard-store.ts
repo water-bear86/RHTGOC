@@ -16,6 +16,8 @@ export interface VerifiedRun {
   delivered: number
   rescues: number
   damageTaken: number
+  missionVersion: string
+  missionContentHash: string
   result: MissionResult
 }
 
@@ -48,7 +50,11 @@ export class SupabaseLeaderboardStore {
       p_damage_taken: run.damageTaken,
       p_precision: run.result.breakdown.precision,
       p_generosity: run.result.breakdown.generosity,
-      p_score_breakdown: run.result.breakdown,
+      p_score_breakdown: {
+        ...run.result.breakdown,
+        missionVersion: run.missionVersion,
+        missionContentHash: run.missionContentHash,
+      },
     })
     if (error) throw new Error(`VERIFIED_SCORE_FAILED: ${error.message}`)
     return typeof data === "string" ? data : null

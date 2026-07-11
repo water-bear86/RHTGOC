@@ -1,3 +1,5 @@
+import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
+
 export interface Vec2 { x: number; z: number }
 
 export type CharacterId = "robin" | "marian" | "little-john" | "much"
@@ -48,9 +50,9 @@ export interface InputState {
   move: Vec2
 }
 
-export const CART_POSITION: Vec2 = { x: 10, z: -8 }
-export const VILLAGE_POSITION: Vec2 = { x: -11, z: 9 }
-export const DELIVERY_TARGET = 300
+export const CART_POSITION: Vec2 = { ...PEOPLES_PURSE_MISSION.spawns.cart }
+export const VILLAGE_POSITION: Vec2 = { ...PEOPLES_PURSE_MISSION.spawns.village }
+export const DELIVERY_TARGET = PEOPLES_PURSE_MISSION.rewards.deliveryTarget
 
 const distance = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z)
 
@@ -62,7 +64,7 @@ export function createInitialState(characterId: CharacterId = "robin"): GameStat
   return {
     player: {
       characterId,
-      position: { x: -8, z: 7 },
+      position: { ...PEOPLES_PURSE_MISSION.spawns.players[0] },
       health: 3,
       arrows: getMaxArrows(characterId),
       loot: 0,
@@ -70,11 +72,7 @@ export function createInitialState(characterId: CharacterId = "robin"): GameStat
       signatureCooldown: 0,
       veilFor: 0,
     },
-    guards: [
-      { id: 0, position: { x: 7, z: -5 }, home: { x: 7, z: -5 }, patrolAngle: 0, stunnedFor: 0 },
-      { id: 1, position: { x: 13, z: -6 }, home: { x: 13, z: -6 }, patrolAngle: 2, stunnedFor: 0 },
-      { id: 2, position: { x: 9, z: -11 }, home: { x: 9, z: -11 }, patrolAngle: 4, stunnedFor: 0 },
-    ],
+    guards: PEOPLES_PURSE_MISSION.spawns.guards.slice(0, 3).map((guard, index) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: index * 2, stunnedFor: 0 })),
     traps: [],
     delivered: 0,
     heat: 0,

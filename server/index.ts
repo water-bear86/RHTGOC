@@ -8,12 +8,14 @@ import { Room } from "./room"
 import { createBandStoreFromEnv } from "./band-store"
 import { createLeaderboardStoreFromEnv } from "./leaderboard-store"
 import { structuredLog, Telemetry } from "./telemetry"
+import { getMissionDefinition } from "../shared/mission-catalog"
 
 const port = Number(process.env.PORT ?? 8787)
 const rooms = new Map<string, Room>()
 const bandStore = createBandStoreFromEnv()
 const leaderboardStore = createLeaderboardStoreFromEnv()
 const telemetry = new Telemetry()
+const defaultMission = getMissionDefinition()
 const observedRoomPhases = new Map<string, string>()
 const observedMissionStatus = new Map<string, string>()
 const roomTraces = new Map<string, string>()
@@ -55,6 +57,9 @@ const httpServer = createServer(async (request, response) => {
       protocolVersion: PROTOCOL_VERSION,
       bandPersistence: bandStore !== null,
       verifiedLeaderboardWrites: leaderboardStore !== null,
+      missionId: defaultMission.id,
+      missionVersion: defaultMission.missionVersion,
+      missionContentHash: defaultMission.contentHash,
     }))
     return
   }
@@ -248,5 +253,8 @@ httpServer.listen(port, "0.0.0.0", () => {
     protocolVersion: PROTOCOL_VERSION,
     bandPersistence: bandStore !== null,
     verifiedLeaderboardWrites: leaderboardStore !== null,
+    missionId: defaultMission.id,
+    missionVersion: defaultMission.missionVersion,
+    missionContentHash: defaultMission.contentHash,
   })
 })

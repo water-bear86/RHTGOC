@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
 import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type CharacterId, type RoomPlayer, type ServerMessage } from "../shared/protocol"
 import { Mission } from "./mission"
+import { getMissionDefinition } from "../shared/mission-catalog"
 
 interface ConnectedPlayer extends RoomPlayer {
   reconnectToken: string
@@ -33,12 +34,7 @@ function maxArrows(characterId: CharacterId): number {
   return characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4
 }
 
-const spawnPoints = [
-  { x: -8, z: 7 },
-  { x: -9.5, z: 7 },
-  { x: -8, z: 8.5 },
-  { x: -9.5, z: 8.5 },
-]
+const spawnPoints = getMissionDefinition().spawns.players
 
 export class Room {
   readonly code: string
@@ -196,6 +192,8 @@ export class Room {
     delivered: number
     rescues: number
     damageTaken: number
+    missionVersion: string
+    missionContentHash: string
     result: NonNullable<Mission["result"]>
   }> | null {
     if (!this.mission?.result || this.mission.status !== "succeeded" || this.leaderboardPersistence !== "idle") return null
@@ -210,6 +208,8 @@ export class Room {
       delivered: this.mission!.delivered,
       rescues: player.rescueCount,
       damageTaken: this.mission!.damageTaken,
+      missionVersion: this.mission!.definition.missionVersion,
+      missionContentHash: this.mission!.definition.contentHash,
       result: this.mission!.result!,
     }))
   }

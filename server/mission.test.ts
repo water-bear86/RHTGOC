@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import type { MissionPlayer } from "./mission"
 import { Mission, SIGNAL_POSITION, missionSeed } from "./mission"
 import type { CharacterId } from "../shared/protocol"
+import referencePackage from "../missions/peoples-purse.v1.json"
+import { missionContentHash, parseMissionDefinition } from "../shared/mission-definition"
 
 function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer {
   return {
@@ -41,6 +43,28 @@ describe("authoritative mission", () => {
     expect(first.seed).toBe(missionSeed("ABC234"))
     expect(first.snapshot()).toEqual(second.snapshot())
     expect(first.events).toEqual([{ sequence: 1, tick: 0, type: "mission_started", playerId: undefined, value: undefined, detail: undefined }])
+    expect(first.snapshot()).toMatchObject({ missionId: "peoples-purse@1.0.0", missionVersion: "1.0.0", contentHash: referencePackage.contentHash })
+  })
+
+  it("runs a cloned package variant without changing core mission code", () => {
+    const variant = structuredClone(referencePackage) as typeof referencePackage
+    variant.id = "peoples-purse-fast@1.1.0"
+    variant.slug = "peoples-purse-fast"
+    variant.missionVersion = "1.1.0"
+    variant.name = "The People's Purse: Fast"
+    variant.rewards.deliveryTarget = 777
+    variant.rewards.doubleTitheTarget = 777
+    variant.rewards.baseCartValue = 99
+    variant.rewards.doubleTitheCartValue = 99
+    variant.contentHash = missionContentHash(variant)
+    const definition = parseMissionDefinition(variant)
+    const robin = player()
+    const mission = new Mission("ABC234", new Map([[robin.id, robin]]), definition)
+    mission.phase = "robbery"
+    robin.position = { ...definition.spawns.cart }
+    expect(mission.action(robin.id, "interact")).toBe(true)
+    expect(robin.loot).toBe(99)
+    expect(mission.snapshot()).toMatchObject({ missionId: variant.id, missionVersion: "1.1.0", contentHash: variant.contentHash, target: 777 })
   })
 
   it("rejects replayed, over-rate, and post-completion inputs", () => {

@@ -23,6 +23,13 @@
       ]
     }
   ],
+  "catalog": {
+    "characters": ["character.robin.ranger", "character.marian.scout", "character.little-john.vanguard", "character.much.saboteur", "character.sheriff.guard"],
+    "environments": ["environment.sherwood.common"],
+    "props": ["prop.tax-cart", "prop.reinforcement-signal", "prop.road-snare", "prop.village-fire"],
+    "audio": ["audio.mission.forest-bed", "audio.fx.bow", "audio.fx.impact"],
+    "effects": ["fx.ping.symbols", "fx.vanguard.oak-sweep", "fx.saboteur.road-snare"]
+  },
   "budgets": {
     "heroGlbBytes": 1600000,
     "heroDrawCalls": 8,

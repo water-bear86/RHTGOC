@@ -89,6 +89,7 @@
         <dt>Rescue / share</dt><dd id="help-support">R revives a nearby outlaw · T transfers up to 60 coin</dd>
         <dt>Survive</dt><dd>Break line of pursuit among the trees</dd>
       </dl>
+      <div class="panel-actions"><button id="mission-debug-button">TOGGLE MISSION DEBUG</button></div>
     </div>
     <div class="panel leaderboard-panel hidden" id="leaderboard-panel" role="dialog" aria-modal="true" aria-labelledby="leaderboard-title" tabindex="-1">
       <button id="close-leaderboard" aria-label="Close leaderboard">×</button>
@@ -173,6 +174,7 @@
       <button class="reset-bindings" id="reset-settings">RESET TO DEFAULTS</button>
       <p class="settings-note" id="settings-status" role="status" aria-live="polite">Changes save on this device.</p>
     </div>
+    <pre class="mission-debug hidden" id="mission-debug" role="status" aria-live="polite"></pre>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -34,6 +34,8 @@ export type Database = {
           id: string
           mission_seconds: number
           mission_slug: string
+          mission_version: string
+          mission_content_hash: string
           party_size: number
           precision: number
           player_id: string | null

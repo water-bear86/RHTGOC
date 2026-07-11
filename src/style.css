@@ -111,6 +111,8 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .panel dl { margin: 0; }
 .panel dt { margin-top: 16px; color: var(--gold); font-size: 10px; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; }
 .panel dd { margin: 4px 0 0; color: #f7f0d4b0; font-size: 13px; line-height: 1.45; }
+.panel-actions { margin-top: 22px; }
+.panel-actions button { padding: 8px 10px; color: var(--cream); background: #294632; border: 1px solid #e4b65361; cursor: pointer; font-size: 9px; font-weight: 800; letter-spacing: .08em; }
 .leaderboard-panel { width: min(460px, calc(100vw - 56px)); }
 .board-state { margin: -12px 0 18px; color: #f7f0d485; font-size: 11px; }
 .board-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: -12px 0 18px; }
@@ -154,6 +156,8 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .binding-grid button, .binding-grid select { min-width: 112px; padding: 7px 8px; color: var(--cream); background: #0b1b14; border: 1px solid #f7f0d43d; cursor: pointer; font-size: 9px; text-align: center; }
 .settings-panel .reset-bindings { position: static; margin-top: 14px; padding: 9px 12px; color: var(--cream); background: #294632; border: 1px solid #e4b65361; cursor: pointer; font-size: 9px; font-weight: 800; letter-spacing: .09em; }
 .settings-note { margin: 2px 0 10px; color: #f7f0d47c; font-size: 9px; line-height: 1.4; }
+.mission-debug { position: fixed; z-index: 7; left: 18px; bottom: 78px; width: min(430px, calc(100vw - 36px)); max-height: 42vh; overflow: auto; margin: 0; padding: 14px; color: #d9f3ad; background: #07120bf2; border: 1px solid #d9f3ad70; pointer-events: none; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.mission-debug.hidden { display: none; }
 
 body.high-contrast { --cream: #fff; --gold: #ffd84f; --moss: #a6ef57; --red: #ff6b57; }
 body.high-contrast .objective, body.high-contrast .status span, body.high-contrast .party-hud, body.high-contrast .panel, body.high-contrast .prompt { background: #06100bf5; border-color: #fff; }

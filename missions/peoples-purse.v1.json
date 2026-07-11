@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "peoples-purse@1.0.0",
+  "slug": "peoples-purse",
+  "missionVersion": "1.0.0",
+  "contentHash": "fnv1a32:ec1c4b0c",
+  "name": "The People's Purse",
+  "environment": {
+    "scene": "environment.sherwood.common",
+    "characters": ["character.robin.ranger", "character.marian.scout", "character.little-john.vanguard", "character.much.saboteur", "character.sheriff.guard"],
+    "props": ["prop.tax-cart", "prop.reinforcement-signal", "prop.road-snare", "prop.village-fire"],
+    "audio": ["audio.mission.forest-bed", "audio.fx.bow", "audio.fx.impact"],
+    "effects": ["fx.ping.symbols", "fx.vanguard.oak-sweep", "fx.saboteur.road-snare"]
+  },
+  "spawns": {
+    "players": [{"x":-8,"z":7},{"x":-9.5,"z":7},{"x":-8,"z":8.5},{"x":-9.5,"z":8.5}],
+    "cart": {"x":10,"z":-8},
+    "village": {"x":-11,"z":9},
+    "reinforcementSignal": {"x":6,"z":-14},
+    "guards": [
+      {"id":0,"position":{"x":7,"z":-5}}, {"id":1,"position":{"x":13,"z":-6}},
+      {"id":2,"position":{"x":9,"z":-11}}, {"id":3,"position":{"x":5,"z":-10}},
+      {"id":4,"position":{"x":14,"z":-10}}, {"id":5,"position":{"x":11,"z":-14}}
+    ]
+  },
+  "routes": {
+    "entry": [{"id":"forest","label":"Forest edge","position":{"x":-16,"z":-4}},{"id":"river","label":"River crossing","position":{"x":16,"z":2}}],
+    "escape": [{"id":"forest","label":"Deep woods","position":{"x":-18,"z":15}},{"id":"river","label":"Eastern ford","position":{"x":18,"z":15}}]
+  },
+  "objectives": [
+    {"id":"objective.scout-route","phase":"scout","label":"Scout the forest or river approach","trigger":"player enters an entry route"},
+    {"id":"objective.break-escort","phase":"ambush","label":"Stun the escort guards","trigger":"ambush stun target reached"},
+    {"id":"objective.rob-cart","phase":"robbery","label":"Rob the Sheriff's tax cart","trigger":"interact within cart range"},
+    {"id":"objective.choose-escape","phase":"pursuit","label":"Carry coin to an escape route","trigger":"loot carrier enters an escape route"},
+    {"id":"objective.reach-village","phase":"escape","label":"Break pursuit and reach the village","trigger":"loot carrier reaches village fire"},
+    {"id":"objective.redistribute","phase":"extraction","label":"Return the taxes to the people","trigger":"interact at village fire"}
+  ],
+  "modifiers": [
+    {"id":"armored-escort","label":"Armored Escort","effect":"Stun three guards before robbery"},
+    {"id":"scarce-quivers","label":"Scarce Quivers","effect":"Each outlaw starts with one fewer arrow"},
+    {"id":"double-tithe","label":"Double Tithe","effect":"Larger carts raise the village target"},
+    {"id":"watchful-sheriff","label":"Watchful Sheriff","effect":"One extra guard joins the escort"}
+  ],
+  "mastery": {
+    "parSeconds": 900,
+    "thresholds": {"S":9000,"A":7500,"B":6000,"C":0},
+    "weights": {"speed":0.2,"stealth":0.2,"precision":0.2,"survival":0.15,"rescues":0.15,"generosity":0.1}
+  },
+  "rewards": {"deliveryTarget":600,"doubleTitheTarget":750,"baseCartValue":120,"doubleTitheCartValue":150},
+  "rules": {"worldBounds":22,"baseAmbushStuns":2,"armoredAmbushStuns":3,"trapLifetimeTicks":600}
+}

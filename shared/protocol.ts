@@ -108,6 +108,9 @@ export interface MissionTrap {
 }
 
 export interface MissionSnapshot {
+  missionId: string
+  missionVersion: string
+  contentHash: string
   seed: number
   status: "active" | "succeeded" | "failed"
   phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction"

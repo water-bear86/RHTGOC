@@ -21,6 +21,7 @@ import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
 import type { MissionEvent, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import {
   ACTION_LABELS,
   DEFAULT_INPUT_SETTINGS,
@@ -108,6 +109,8 @@ const highContrastSetting = document.querySelector<HTMLInputElement>("#setting-h
 const captionsSetting = document.querySelector<HTMLInputElement>("#setting-captions")!
 const readableTextSetting = document.querySelector<HTMLInputElement>("#setting-readable-text")!
 const mobileSpectatorSetting = document.querySelector<HTMLInputElement>("#setting-mobile-spectator")!
+const missionDebugButton = document.querySelector<HTMLButtonElement>("#mission-debug-button")!
+const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
 
 let inputSettings: InputSettings = loadInputSettings(localStorage)
@@ -160,6 +163,8 @@ let missionObjective = "Find the Sheriff's tax cart"
 let missionPrompt = "Scout together and signal a route"
 let currentMissionPhase: MissionSnapshot["phase"] = "scout"
 let signalSabotaged = false
+let latestMissionSnapshot: MissionSnapshot | null = null
+let missionPackageStatus = "client package valid"
 let capturingAction: GameAction | null = null
 let previousGamepadButtons: boolean[] = []
 let lastPanelTrigger: HTMLElement | null = null
@@ -208,7 +213,7 @@ const palette = {
   water: 0x5c8791,
 }
 
-const SIGNAL_POSITION = { x: 6, z: -14 }
+const SIGNAL_POSITION = { ...PEOPLES_PURSE_MISSION.spawns.reinforcementSignal }
 
 const characterNames: Record<CharacterId, string> = {
   robin: "Robin Hood",
@@ -781,7 +786,31 @@ function missionPromptForPhase(phase: MissionSnapshot["phase"]): string {
   return prompts[phase]
 }
 
+function updateMissionDebug(): void {
+  const mission = latestMissionSnapshot
+  const objective = PEOPLES_PURSE_MISSION.objectives.find((candidate) => candidate.phase === (mission?.phase ?? currentMissionPhase))
+  missionDebug.textContent = [
+    `MISSION  ${PEOPLES_PURSE_MISSION.id}`,
+    `VERSION  ${PEOPLES_PURSE_MISSION.missionVersion}`,
+    `HASH     ${PEOPLES_PURSE_MISSION.contentHash}`,
+    `STATUS   ${missionPackageStatus}`,
+    `SERVER   ${mission ? `${mission.missionId} · ${mission.missionVersion} · ${mission.contentHash}` : "waiting for authoritative snapshot"}`,
+    `PHASE    ${mission?.phase ?? "local preview"}`,
+    `OBJECTIVE ${objective?.id ?? "none"}`,
+    `TRIGGER  ${objective?.trigger ?? "none"}`,
+    `ROUTES   entry=${mission?.entryRoute ?? "unset"} escape=${mission?.escapeRoute ?? "unset"}`,
+    `MODIFIERS ${(mission?.modifiers ?? []).map((modifier) => modifier.id).join(", ") || "pending"}`,
+    `TRAPS    ${mission?.traps.length ?? 0} · SIGNAL ${mission?.signalSabotaged ? "cut" : "active"}`,
+  ].join("\n")
+}
+
 function applyMissionSnapshot(mission: MissionSnapshot): void {
+  latestMissionSnapshot = mission
+  const packageMatches = mission.missionId === PEOPLES_PURSE_MISSION.id
+    && mission.missionVersion === PEOPLES_PURSE_MISSION.missionVersion
+    && mission.contentHash === PEOPLES_PURSE_MISSION.contentHash
+  missionPackageStatus = packageMatches ? "client/server package match" : "ERROR: client/server package mismatch"
+  if (!packageMatches) showToast("Mission package mismatch — reconnect after updating")
   state.heat = mission.heat
   state.cartCoin = mission.cartCoin
   state.delivered = mission.delivered
@@ -835,6 +864,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   })
   applyVillageState(mission.village)
   renderMissionResolution(mission)
+  updateMissionDebug()
 }
 
 function showMissionEvent(event: MissionEvent): void {
@@ -1623,6 +1653,10 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
 
 helpButton.addEventListener("click", () => openPanel(helpPanel, helpButton))
 closeHelp.addEventListener("click", () => closePanel(helpPanel))
+missionDebugButton.addEventListener("click", () => {
+  missionDebug.classList.toggle("hidden")
+  updateMissionDebug()
+})
 leaderboardButton.addEventListener("click", () => void openLeaderboard())
 closeLeaderboard.addEventListener("click", () => closePanel(leaderboardPanel))
 for (const filter of [boardKind, boardCharacter, boardParty, boardScope, boardMission, boardSeason]) filter.addEventListener("change", () => void openLeaderboard())
@@ -1747,6 +1781,7 @@ renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sh
 
 renderBindingControls()
 applyInputSettings()
+updateMissionDebug()
 for (const panel of panelElements) panel.setAttribute("aria-hidden", String(panel.classList.contains("hidden")))
 updateUI()
 syncViews(0, 0.016)
