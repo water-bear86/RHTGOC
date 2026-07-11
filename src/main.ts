@@ -20,7 +20,8 @@ import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type L
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
-import type { MissionEvent, MissionSnapshot, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import {
   ACTION_LABELS,
   DEFAULT_INPUT_SETTINGS,
@@ -39,6 +40,7 @@ const startButton = document.querySelector<HTMLButtonElement>("#start-button")!
 const promptElement = document.querySelector<HTMLDivElement>("#prompt")!
 const toastElement = document.querySelector<HTMLDivElement>("#toast")!
 const objectiveElement = document.querySelector<HTMLElement>("#objective-text")!
+const missionTitle = document.querySelector<HTMLElement>("#mission-title")!
 const progressElement = document.querySelector<HTMLElement>("#progress-fill")!
 const missionModifiers = document.querySelector<HTMLElement>("#mission-modifiers")!
 const healthElement = document.querySelector<HTMLElement>("#health")!
@@ -50,6 +52,7 @@ const helpButton = document.querySelector<HTMLButtonElement>("#help-button")!
 const helpPanel = document.querySelector<HTMLDivElement>("#help-panel")!
 const closeHelp = document.querySelector<HTMLButtonElement>("#close-help")!
 const signatureElement = document.querySelector<HTMLElement>("#signature")!
+const signatureKeyElement = document.querySelector<HTMLElement>(".signature-status i")!
 const leaderboardButton = document.querySelector<HTMLButtonElement>("#leaderboard-button")!
 const leaderboardPanel = document.querySelector<HTMLDivElement>("#leaderboard-panel")!
 const closeLeaderboard = document.querySelector<HTMLButtonElement>("#close-leaderboard")!
@@ -107,7 +110,24 @@ const highContrastSetting = document.querySelector<HTMLInputElement>("#setting-h
 const captionsSetting = document.querySelector<HTMLInputElement>("#setting-captions")!
 const readableTextSetting = document.querySelector<HTMLInputElement>("#setting-readable-text")!
 const mobileSpectatorSetting = document.querySelector<HTMLInputElement>("#setting-mobile-spectator")!
+const missionDebugButton = document.querySelector<HTMLButtonElement>("#mission-debug-button")!
+const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
+const rejoinRoomButton = document.querySelector<HTMLButtonElement>("#rejoin-room")!
+const hubPanel = document.querySelector<HTMLElement>("#hub-panel")!
+const hubRoomCode = document.querySelector<HTMLElement>("#hub-room-code")!
+const hubRecent = document.querySelector<HTMLElement>("#hub-recent")!
+const hubMissions = document.querySelector<HTMLDivElement>("#hub-missions")!
+const hubRoles = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-character]")]
+const hubLoadout = document.querySelector<HTMLSelectElement>("#hub-loadout")!
+const hubCopyCode = document.querySelector<HTMLButtonElement>("#hub-copy-code")!
+const hubReady = document.querySelector<HTMLButtonElement>("#hub-ready")!
+const hubState = document.querySelector<HTMLElement>("#hub-state")!
+const returnHubButton = document.querySelector<HTMLButtonElement>("#return-hub")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
+const invitedRoom = new URLSearchParams(location.search).get("room")?.trim().toUpperCase()
+if (invitedRoom?.match(/^[A-Z2-9]{6}$/)) roomCodeInput.value = invitedRoom
+const lastRoomCode = localStorage.getItem("sherwood:last-room-code")
+if (lastRoomCode?.match(/^[A-Z2-9]{6}$/)) rejoinRoomButton.classList.remove("hidden")
 
 let inputSettings: InputSettings = loadInputSettings(localStorage)
 
@@ -150,6 +170,8 @@ let lastPlayerPosition = { ...state.player.position }
 let resultSubmitted = false
 let unsubscribeLeaderboard: (() => void) | null = null
 let multiplayerActive = false
+let inHub = false
+let roomConnected = false
 let localReady = false
 let currentRoomPlayers: RoomPlayer[] = []
 let lastMissionEventSequence = 0
@@ -158,12 +180,19 @@ let missionTarget = DELIVERY_TARGET
 let missionObjective = "Find the Sheriff's tax cart"
 let missionPrompt = "Scout together and signal a route"
 let currentMissionPhase: MissionSnapshot["phase"] = "scout"
+let currentMissionSlug = PEOPLES_PURSE_MISSION.slug
+let currentVillage: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
+let currentLastResult: LastMissionResult | null = null
+let signalSabotaged = false
+let latestMissionSnapshot: MissionSnapshot | null = null
+let missionPackageStatus = "client package valid"
 let capturingAction: GameAction | null = null
 let previousGamepadButtons: boolean[] = []
 let lastPanelTrigger: HTMLElement | null = null
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
+const vanguardEffects: { ring: THREE.Mesh; age: number }[] = []
 interface RemoteView {
   view: THREE.Group
   fallback: THREE.Group
@@ -179,10 +208,16 @@ interface RemoteView {
 
 const remoteViews = new Map<string, RemoteView>()
 const pingViews = new Map<number, THREE.Group>()
+const trapViews = new Map<number, THREE.Group>()
+const captiveViews = new Map<number, THREE.Group>()
+const alarmViews = new Map<string, THREE.Group>()
+const lootCacheViews = new Map<string, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
+const authoredGroveViews: THREE.Group[] = []
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
+let treeGroveAssetPromise: Promise<THREE.Group> | null = null
 let robinRangerMixer: THREE.AnimationMixer | null = null
 let robinRangerActions = new Map<string, THREE.AnimationAction>()
 let robinRangerMotion = ""
@@ -202,6 +237,19 @@ const palette = {
   red: 0x8d352b,
   green: 0x315f37,
   water: 0x5c8791,
+}
+
+const SIGNAL_POSITION = { ...PEOPLES_PURSE_MISSION.spawns.reinforcementSignal }
+
+const characterNames: Record<CharacterId, string> = {
+  robin: "Robin Hood",
+  marian: "Maid Marian",
+  "little-john": "Little John",
+  much: "Much",
+}
+
+function characterName(characterId: CharacterId): string {
+  return characterNames[characterId]
 }
 
 function material(color: number, roughness = 0.9): THREE.MeshStandardMaterial {
@@ -321,7 +369,7 @@ function createWorld(): void {
     seed = (seed * 16807) % 2147483647
     return (seed - 1) / 2147483646
   }
-  for (let i = 0; i < 90; i += 1) {
+  for (let i = 0; i < 58; i += 1) {
     const x = random() * 48 - 24
     const z = random() * 48 - 24
     const nearVillage = Math.hypot(x - VILLAGE_POSITION.x, z - VILLAGE_POSITION.z) < 6.5
@@ -344,9 +392,10 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
   const character = new THREE.Group()
   const isRobin = role === "robin"
   const isMarian = role === "marian"
-  const isHero = isRobin || isMarian
-  const tunicColor = isRobin ? palette.green : isMarian ? 0x4d536f : palette.red
-  const tunic = mesh(new THREE.CylinderGeometry(0.38, 0.52, 1.35, 8), tunicColor)
+  const isLittleJohn = role === "little-john"
+  const isHero = role !== "guard"
+  const tunicColor = isRobin ? palette.green : isMarian ? 0x4d536f : isLittleJohn ? 0x76532f : role === "much" ? 0x665337 : palette.red
+  const tunic = mesh(new THREE.CylinderGeometry(isLittleJohn ? 0.48 : 0.38, isLittleJohn ? 0.62 : 0.52, isLittleJohn ? 1.52 : 1.35, 8), tunicColor)
   tunic.position.y = 1.08
   const belt = mesh(new THREE.CylinderGeometry(0.43, 0.43, 0.14, 8), 0x3e2a21)
   belt.position.y = 1.15
@@ -362,7 +411,7 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
   hat.position.y = 2.23
   hat.rotation.z = isHero ? -0.35 : 0
   character.add(tunic, belt, head, legLeft, legRight, hat)
-  if (isHero) {
+  if (isHero && !isLittleJohn) {
     const bow = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 5, 18, Math.PI * 1.45), material(0x7e512f))
     bow.position.set(-0.5, 1.15, 0)
     bow.rotation.set(Math.PI / 2, 0, Math.PI / 2)
@@ -373,6 +422,26 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
       mantle.rotation.x = 0.08
       character.add(mantle)
     }
+    if (role === "much") {
+      const satchel = mesh(new THREE.BoxGeometry(0.48, 0.42, 0.24), 0x8b6234)
+      satchel.position.set(0.43, 1.04, 0.28)
+      satchel.rotation.z = -0.18
+      const fuse = mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.6, 5), 0xd4b15e)
+      fuse.position.set(0.36, 1.55, 0.22)
+      fuse.rotation.z = -0.55
+      character.add(satchel, fuse)
+    }
+  } else if (isLittleJohn) {
+    const staff = mesh(new THREE.CylinderGeometry(0.055, 0.065, 2.9, 8), 0x654225)
+    staff.position.set(0.55, 1.25, 0)
+    staff.rotation.z = -0.16
+    const ironBand = mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.22, 8), 0x8b8f86)
+    ironBand.position.set(0.78, 2.66, 0)
+    ironBand.rotation.z = -0.16
+    const shoulder = mesh(new THREE.TorusGeometry(0.48, 0.075, 6, 18, Math.PI), 0x3e2a21)
+    shoulder.position.set(0, 1.64, 0)
+    shoulder.rotation.x = Math.PI / 2
+    character.add(staff, ironBand, shoulder)
   } else {
     const spear = mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.5, 5), 0x3c2c20)
     spear.position.set(0.48, 1.15, 0)
@@ -387,6 +456,38 @@ function loadRobinRanger(): Promise<{ scene: THREE.Group; animations: THREE.Anim
   rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb")
     .then((asset) => ({ scene: asset.scene, animations: asset.animations }))
   return rangerAssetPromise
+}
+
+function loadTreeGrove(): Promise<THREE.Group> {
+  treeGroveAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-tree-grove.glb").then((asset) => asset.scene)
+  return treeGroveAssetPromise
+}
+
+function attachTreeGroves(): void {
+  const placements = renderProfile.tier === "degraded"
+    ? [{ x: -18, z: -15, scale: 10, rotation: 0.35 }]
+    : [
+        { x: -18, z: -15, scale: 10, rotation: 0.35 },
+        { x: 17, z: 15, scale: 9, rotation: -1.1 },
+        { x: 18, z: -15, scale: 8, rotation: 1.7 },
+      ]
+  void loadTreeGrove().then((source) => {
+    for (const placement of placements) {
+      const grove = source.clone(true)
+      grove.position.set(placement.x, 0, placement.z)
+      grove.rotation.y = placement.rotation
+      grove.scale.setScalar(placement.scale)
+      grove.userData.authoredTreeGrove = true
+      grove.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return
+        child.castShadow = renderProfile.shadows
+        child.receiveShadow = true
+        child.frustumCulled = true
+      })
+      authoredGroveViews.push(grove)
+      scene.add(grove)
+    }
+  }).catch(() => showToast("The authored tree grove could not be loaded; procedural forest remains active"))
 }
 
 function prepareRangerInstance(source: THREE.Group): THREE.Group {
@@ -446,12 +547,123 @@ function createCart(): THREE.Group {
     coin.userData.coin = true
     cart.add(coin)
   }
+  const cage = new THREE.Group()
+  cage.userData.prison = true
+  const cageRoof = mesh(new THREE.BoxGeometry(2.25, 0.12, 1.45), 0x3f3428)
+  cageRoof.position.y = 2.75
+  cage.add(cageRoof)
+  for (const x of [-0.95, -0.48, 0, 0.48, 0.95]) {
+    for (const z of [-0.66, 0.66]) {
+      const bar = mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.65, 6), 0x3f3428)
+      bar.position.set(x, 1.95, z)
+      cage.add(bar)
+    }
+  }
+  for (const x of [-1.08, 1.08]) {
+    for (const z of [-0.42, 0, 0.42]) {
+      const bar = mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.65, 6), 0x3f3428)
+      bar.position.set(x, 1.95, z)
+      cage.add(bar)
+    }
+  }
+  cage.visible = false
+  cart.add(cage)
   scene.add(cart)
   return cart
 }
 
+function createSignalPost(): THREE.Group {
+  const signal = new THREE.Group()
+  const pole = mesh(new THREE.CylinderGeometry(0.08, 0.1, 3.8, 8), 0x513824)
+  pole.position.y = 1.9
+  const arm = mesh(new THREE.BoxGeometry(1.35, 0.1, 0.1), 0x513824)
+  arm.position.set(0.55, 3.45, 0)
+  const flag = mesh(new THREE.PlaneGeometry(1.1, 0.65), 0xa94132, { cast: false })
+  flag.position.set(0.68, 3.04, 0.04)
+  flag.userData.signalFlag = true
+  signal.add(pole, arm, flag)
+  signal.position.set(SIGNAL_POSITION.x, 0, SIGNAL_POSITION.z)
+  scene.add(signal)
+  return signal
+}
+
+function createMissionBoard(): THREE.Group {
+  const board = new THREE.Group()
+  for (const x of [-0.9, 0.9]) {
+    const post = mesh(new THREE.CylinderGeometry(0.08, 0.1, 2.3, 7), 0x4f3522)
+    post.position.set(x, 1.15, 0)
+    board.add(post)
+  }
+  const face = mesh(new THREE.BoxGeometry(2.3, 1.2, 0.16), 0x8e6739)
+  face.position.y = 1.65
+  const crest = mesh(new THREE.CircleGeometry(0.24, 18), palette.gold, { cast: false })
+  crest.position.set(0, 1.72, 0.1)
+  board.add(face, crest)
+  board.position.set(VILLAGE_POSITION.x + 3.4, 0, VILLAGE_POSITION.z - 0.4)
+  scene.add(board)
+  return board
+}
+
+function createRoyalStorehouse(): THREE.Group {
+  const storehouse = new THREE.Group()
+  const floor = mesh(new THREE.BoxGeometry(7.2, 0.12, 6.2), 0x765d3b)
+  floor.position.y = 0.06
+  const wallSpecs = [
+    { size: [7.2, 1.6, 0.22], position: [0, 0.8, -3.1] },
+    { size: [2.25, 1.6, 0.22], position: [-2.48, 0.8, 3.1] },
+    { size: [2.25, 1.6, 0.22], position: [2.48, 0.8, 3.1] },
+    { size: [0.22, 1.6, 6.2], position: [-3.6, 0.8, 0] },
+    { size: [0.22, 1.6, 4.1], position: [3.6, 0.8, 1.05] },
+  ]
+  for (const spec of wallSpecs) {
+    const wall = mesh(new THREE.BoxGeometry(...spec.size as [number, number, number]), 0x8f7447)
+    wall.position.set(...spec.position as [number, number, number])
+    storehouse.add(wall)
+  }
+  for (const [x, z] of [[-3.45, -2.95], [3.45, -2.95], [-3.45, 2.95], [3.45, 2.95]] as const) {
+    const post = mesh(new THREE.CylinderGeometry(0.11, 0.14, 2.7, 7), 0x4d382d)
+    post.position.set(x, 1.35, z)
+    storehouse.add(post)
+  }
+  const roofBeamA = mesh(new THREE.BoxGeometry(7.1, 0.16, 0.18), 0x4d382d)
+  roofBeamA.position.set(0, 2.62, -2.95)
+  const roofBeamB = roofBeamA.clone()
+  roofBeamB.position.z = 2.95
+  const gate = mesh(new THREE.BoxGeometry(1.9, 1.45, 0.16), 0x3e2d22)
+  gate.position.set(0, 0.72, 3.12)
+  gate.rotation.y = -0.62
+  const canalDoor = mesh(new THREE.BoxGeometry(1.5, 1.45, 0.16), 0x3e2d22)
+  canalDoor.position.set(3.62, 0.72, -1.9)
+  canalDoor.rotation.y = Math.PI / 2 + 0.62
+  const crest = mesh(new THREE.CircleGeometry(0.48, 18), palette.gold, { cast: false })
+  crest.position.set(0, 1.75, 3.22)
+  storehouse.add(floor, roofBeamA, roofBeamB, gate, canalDoor, crest)
+  storehouse.position.set(7, 0, -7)
+  storehouse.visible = false
+  scene.add(storehouse)
+  return storehouse
+}
+
+function createDisguiseRack(): THREE.Group {
+  const rack = new THREE.Group()
+  const beam = mesh(new THREE.BoxGeometry(1.7, 0.1, 0.12), 0x4f3522)
+  beam.position.y = 1.75
+  for (const x of [-0.72, 0.72]) {
+    const post = mesh(new THREE.CylinderGeometry(0.055, 0.07, 1.8, 6), 0x4f3522)
+    post.position.set(x, 0.9, 0)
+    rack.add(post)
+  }
+  const cloak = mesh(new THREE.ConeGeometry(0.48, 1.35, 7, 1, true), 0x8c3430)
+  cloak.position.set(0, 1.05, 0)
+  rack.add(beam, cloak)
+  rack.visible = false
+  scene.add(rack)
+  return rack
+}
+
 addLighting()
 createWorld()
+attachTreeGroves()
 
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
@@ -462,6 +674,10 @@ state.guards.forEach(() => {
   scene.add(guard)
 })
 const cartView = createCart()
+const signalView = createSignalPost()
+const missionBoardView = createMissionBoard()
+const storehouseView = createRoyalStorehouse()
+const disguiseRackView = createDisguiseRack()
 
 const destinationMarker = new THREE.Mesh(
   new THREE.RingGeometry(0.42, 0.56, 24),
@@ -474,28 +690,49 @@ scene.add(destinationMarker)
 
 const multiplayer = new MultiplayerClient({
   onWelcome: (_playerId, roomCode) => {
+    roomConnected = true
+    localStorage.setItem("sherwood:last-room-code", roomCode)
     lobbyCode.textContent = roomCode
     missionRoomCode.textContent = roomCode
+    hubRoomCode.textContent = roomCode
     roomCodeInput.value = roomCode
     roomLobby.classList.remove("hidden")
     lobbyStatus.textContent = "Share this code, then ready up together."
+    enterHub(true)
   },
-  onRoomState: (_roomCode, phase, players) => {
+  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult) => {
     currentRoomPlayers = players
+    currentMissionSlug = missionSlug
+    currentVillage = { ...village }
+    currentLastResult = lastResult
     renderParty(players)
     renderSafetyPanel(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
     localReady = localPlayer?.ready ?? false
     if (localPlayer) {
-      state.player.health = localPlayer.health
       if (localPlayer.characterId !== selectedCharacter) selectLocalCharacter(localPlayer.characterId, false)
+      state.player.health = localPlayer.health
+      if (phase === "lobby") state.player.position = { ...localPlayer.position }
     }
     readyButton.textContent = localReady ? "NOT READY" : "READY UP"
+    hubReady.textContent = localReady ? "NOT READY" : "READY UP"
+    hubLoadout.value = localPlayer?.loadoutId ?? "balanced"
+    applyVillageState(village)
+    renderHub()
+    if (phase === "lobby") {
+      multiplayerActive = false
+      enterHub(true)
+      ensureRemotePlayers(players)
+      return
+    }
     if (phase === "mission") {
       multiplayerActive = true
+      inHub = false
       running = true
       intro.scrollTop = 0
       intro.classList.add("closed")
+      hubPanel.classList.add("hidden")
+      setMissionWorldVisible(true)
       lobbyStatus.textContent = "Mission started"
       ensureRemotePlayers(players)
       partyHud.classList.remove("hidden")
@@ -532,9 +769,92 @@ const multiplayer = new MultiplayerClient({
     showToast(message)
   },
   onConnection: (connected) => {
+    roomConnected = connected
     lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
+    if (inHub) hubState.textContent = connected ? "Connected · choose a target and ready together." : "Connection lost · attempting to return to this camp."
   },
 })
+
+function setMissionWorldVisible(visible: boolean): void {
+  cartView.visible = visible
+  signalView.visible = visible
+  for (const guard of guardViews) guard.visible = visible
+  missionBoardView.visible = !visible
+  if (!visible) {
+    syncTrapViews([])
+    syncCaptiveViews([])
+    syncAlarmViews([])
+    syncLootCacheViews([])
+    storehouseView.visible = false
+    disguiseRackView.visible = false
+  }
+}
+
+function renderHub(): void {
+  const isLeader = !roomConnected || currentRoomPlayers[0]?.id === multiplayer.playerId
+  missionTitle.textContent = getMissionDefinition(currentMissionSlug).name.toUpperCase()
+  hubMissions.replaceChildren()
+  for (const mission of MISSION_CATALOG.values()) {
+    const button = document.createElement("button")
+    button.classList.toggle("selected", mission.slug === currentMissionSlug)
+    button.disabled = roomConnected && !isLeader
+    const name = document.createElement("b")
+    const detail = document.createElement("small")
+    name.textContent = mission.name
+    detail.textContent = `${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par · v${mission.missionVersion}`
+    button.append(name, detail)
+    button.addEventListener("click", () => {
+      currentMissionSlug = mission.slug
+      if (roomConnected) multiplayer.selectMission(mission.slug)
+      else renderHub()
+    })
+    hubMissions.append(button)
+  }
+  for (const button of hubRoles) button.classList.toggle("selected", button.dataset.hubCharacter === selectedCharacter)
+  hubRoomCode.textContent = roomConnected ? multiplayer.roomCode ?? "------" : "SOLO"
+  hubCopyCode.disabled = !roomConnected
+  hubReady.textContent = roomConnected ? (localReady ? "NOT READY" : "READY UP") : "START MISSION"
+  hubRecent.textContent = currentLastResult
+    ? `Last heist: ${currentLastResult.status === "succeeded" ? currentLastResult.grade : "PARTIAL"} · ${currentLastResult.score.toLocaleString()} renown${currentLastResult.totalCaptives > 0 ? ` · ${currentLastResult.rescuedCaptives}/${currentLastResult.totalCaptives} rescued` : ""}. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
+    : `Village works: granary ${currentVillage.granary}, infirmary ${currentVillage.infirmary}, watchtower ${currentVillage.watchtower}.`
+  hubState.textContent = roomConnected
+    ? `${isLeader ? "Band leader chooses the target." : "The band leader chooses the target."} Ready together when roles and kits are set.`
+    : "Move around the fire or start the selected mission."
+}
+
+function enterHub(online: boolean): void {
+  inHub = true
+  multiplayerActive = false
+  roomConnected = online
+  running = true
+  ended = false
+  intro.scrollTop = 0
+  intro.classList.add("closed")
+  hubPanel.classList.remove("hidden")
+  partyHud.classList.toggle("hidden", !online)
+  setMissionWorldVisible(false)
+  objectiveElement.textContent = "Choose the band's next target"
+  missionModifiers.textContent = `${MISSION_CATALOG.size} TRUSTED MISSION${MISSION_CATALOG.size === 1 ? "" : "S"} ON THE BOARD`
+  if (!online) state.player.position = { ...PEOPLES_PURSE_MISSION.spawns.players[0] }
+  lastPlayerPosition = { ...state.player.position }
+  renderHub()
+  clock.getDelta()
+}
+
+function startSoloMission(): void {
+  inHub = false
+  multiplayerActive = false
+  hubPanel.classList.add("hidden")
+  setMissionWorldVisible(true)
+  state = createInitialState(selectedCharacter)
+  localDownedFor = 0
+  ended = false
+  resultSubmitted = false
+  missionTarget = DELIVERY_TARGET
+  objectiveElement.textContent = "Find the Sheriff's tax cart"
+  missionModifiers.textContent = ""
+  clock.getDelta()
+}
 
 const controllerActions = GAME_ACTIONS.filter((action) => !action.startsWith("move")) as Array<keyof InputSettings["controller"]>
 const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel]
@@ -562,7 +882,8 @@ function refreshControlCopy(): void {
   helpMove.textContent = `${keyLabel(key.moveUp)} / ${keyLabel(key.moveLeft)} / ${keyLabel(key.moveDown)} / ${keyLabel(key.moveRight)}, controller stick, or mapped pointer movement`
   helpInteract.textContent = `${keyLabel(key.interact)} near the cart or village fire`
   helpFire.textContent = `${keyLabel(key.fire)} stuns the nearest guard in range`
-  helpSignature.textContent = `${keyLabel(key.signature)} uses Robin's Twin Shot or Marian's Veil`
+  helpSignature.textContent = `${keyLabel(key.signature)} uses Twin Shot, Marian's Veil, Oak Sweep, or Much's Road Snare`
+  signatureKeyElement.textContent = keyLabel(key.signature)
   helpSignals.textContent = `${keyLabel(key.pingDanger)} / ${keyLabel(key.pingTarget)} / ${keyLabel(key.pingRoute)} / ${keyLabel(key.pingLoot)} / ${keyLabel(key.pingRegroup)} place symbol-coded signals`
   helpSupport.textContent = `${keyLabel(key.revive)} revives a nearby outlaw · ${keyLabel(key.transferLoot)} transfers up to 60 coin`
   introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE`
@@ -715,6 +1036,28 @@ function pollControllerActions(): void {
 
 function missionPromptForPhase(phase: MissionSnapshot["phase"]): string {
   const key = inputSettings.keyboard
+  if (latestMissionSnapshot?.missionKind === "prison-wagon") {
+    const prompts: Record<MissionSnapshot["phase"], string> = {
+      scout: `Choose the fallen oak or ford intercept · ${keyLabel(key.pingRoute)} signals a route`,
+      ambush: `${keyLabel(key.fire)} or ${keyLabel(key.signature)} stops the escort`,
+      robbery: `Press ${keyLabel(key.interact)} beside the cage to work the lock`,
+      pursuit: `Lead the captives to either refuge · ${keyLabel(key.pingRegroup)} calls the band`,
+      escape: `Stay with the captives and press ${keyLabel(key.interact)} at extraction`,
+      extraction: "Every villager is accounted for · choose Sherwood's next work",
+    }
+    return prompts[phase]
+  }
+  if (latestMissionSnapshot?.missionKind === "storehouse") {
+    const prompts: Record<MissionSnapshot["phase"], string> = {
+      scout: `Case the tally gate or canal roofline · ${keyLabel(key.pingRoute)} signals the approach`,
+      ambush: `${keyLabel(key.interact)} disguises, sabotages, or forces entry · ${keyLabel(key.fire)} opens loudly`,
+      robbery: `${keyLabel(key.interact)} opens nearby caches or cuts an alarm`,
+      pursuit: `Carry the levy to either extraction · ${keyLabel(key.pingLoot)} marks the carrier`,
+      escape: `${keyLabel(key.interact)} settles secured coin at extraction`,
+      extraction: "Review alarms, intelligence, ledger, and mastery conditions",
+    }
+    return prompts[phase]
+  }
   const prompts: Record<MissionSnapshot["phase"], string> = {
     scout: `Reach the forest edge or river crossing · ${keyLabel(key.pingRoute)} signals a route`,
     ambush: `${keyLabel(key.fire)} or ${keyLabel(key.signature)} stuns escorts · ${keyLabel(key.pingDanger)} warns the band`,
@@ -726,14 +1069,58 @@ function missionPromptForPhase(phase: MissionSnapshot["phase"]): string {
   return prompts[phase]
 }
 
+function updateMissionDebug(): void {
+  const mission = latestMissionSnapshot
+  const definition = getMissionDefinition(currentMissionSlug)
+  missionTitle.textContent = definition.name.toUpperCase()
+  const objective = definition.objectives.find((candidate) => candidate.phase === (mission?.phase ?? currentMissionPhase))
+  missionDebug.textContent = [
+    `MISSION  ${definition.id}`,
+    `VERSION  ${definition.missionVersion}`,
+    `HASH     ${definition.contentHash}`,
+    `STATUS   ${missionPackageStatus}`,
+    `SERVER   ${mission ? `${mission.missionId} · ${mission.missionVersion} · ${mission.contentHash}` : "waiting for authoritative snapshot"}`,
+    `PHASE    ${mission?.phase ?? "local preview"}`,
+    `OBJECTIVE ${objective?.id ?? "none"}`,
+    `TRIGGER  ${objective?.trigger ?? "none"}`,
+    `ROUTES   entry=${mission?.entryRoute ?? "unset"} escape=${mission?.escapeRoute ?? "unset"}`,
+    `MODIFIERS ${(mission?.modifiers ?? []).map((modifier) => modifier.id).join(", ") || "pending"}`,
+    `TRAPS    ${mission?.traps.length ?? 0} · SIGNAL ${mission?.signalSabotaged ? "cut" : "active"}`,
+    `RESCUE   ${mission?.captives.filter((captive) => captive.rewarded).length ?? 0}/${mission?.captives.length ?? 0} · LOCK ${mission?.lockProgress ?? 0}/${mission?.lockTarget ?? 0}`,
+    `INFILTRATION alarms=${mission?.alarmLevel ?? 0} waves=${mission?.reinforcementWave ?? 0} intel=${mission?.intelFound ? "yes" : "no"} ledger=${mission?.ledgerStolen ? "yes" : "no"}`,
+  ].join("\n")
+}
+
 function applyMissionSnapshot(mission: MissionSnapshot): void {
+  latestMissionSnapshot = mission
+  const definition = getMissionDefinition(currentMissionSlug)
+  const packageMatches = mission.missionId === definition.id
+    && mission.missionVersion === definition.missionVersion
+    && mission.contentHash === definition.contentHash
+  missionPackageStatus = packageMatches ? "client/server package match" : "ERROR: client/server package mismatch"
+  if (!packageMatches) showToast("Mission package mismatch — reconnect after updating")
   state.heat = mission.heat
   state.cartCoin = mission.cartCoin
   state.delivered = mission.delivered
   state.won = mission.status === "succeeded"
   state.lost = mission.status === "failed"
+  signalSabotaged = mission.signalSabotaged
   missionTarget = mission.target
-  const objectives: Record<MissionSnapshot["phase"], string> = {
+  const objectives: Record<MissionSnapshot["phase"], string> = mission.missionKind === "prison-wagon" ? {
+    scout: "Choose the fallen oak or ford interception",
+    ambush: mission.wagonMoving ? "Stop the moving prison wagon" : "Scatter the escort guards",
+    robbery: `Break the cage lock · ${mission.lockProgress}/${mission.lockTarget}`,
+    pursuit: "Escort the freed captives toward either refuge",
+    escape: `Protect and extract every captive · ${mission.captives.filter((captive) => captive.rewarded).length}/${mission.captives.length}`,
+    extraction: "Every rescued villager is accounted for",
+  } : mission.missionKind === "storehouse" ? {
+    scout: "Case the tally gate or canal roofline",
+    ambush: "Disguise, sabotage, or force an entry",
+    robbery: `Secure the royal levy · ${mission.delivered + currentRoomPlayers.reduce((sum, player) => sum + player.loot, 0)}/${mission.target}`,
+    pursuit: "Break contact and choose an extraction route",
+    escape: `Extract the levy · alarms ${mission.alarmLevel}/3`,
+    extraction: `Infiltration accounted · intel ${mission.intelFound ? "secured" : "missed"} · ledger ${mission.ledgerStolen ? "secured" : "missed"}`,
+  } : {
     scout: `Scout the forest or river approach · shipment ${mission.cycle}`,
     ambush: "Stun the escort guards",
     robbery: "Rob the Sheriff's tax cart",
@@ -745,7 +1132,8 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   currentMissionPhase = mission.phase
   missionPrompt = missionPromptForPhase(mission.phase)
   const completedOptional = mission.optionalObjectives.filter((objective) => objective.completed).length
-  missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
+  const sabotageState = mission.signalSabotaged ? ` · SIGNAL CUT ${Math.ceil(mission.reinforcementDelaySeconds)}s` : ""
+  missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
   if (mission.phase === "robbery") localStorage.setItem("sherwood:tutorial-complete", "true")
   while (guardViews.length < mission.guards.length) {
     const guardState = mission.guards[guardViews.length]
@@ -771,15 +1159,53 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
     showMissionEvent(mission.latestEvent)
   }
   syncPingViews(mission.pings)
+  syncTrapViews(mission.traps)
+  syncCaptiveViews(mission.captives)
+  syncAlarmViews(mission.alarms)
+  syncLootCacheViews(mission.lootCaches)
+  cartView.position.set(mission.cartPosition.x, 0, mission.cartPosition.z)
+  signalView.position.set(definition.spawns.reinforcementSignal.x, 0, definition.spawns.reinforcementSignal.z)
+  cartView.children.forEach((child) => {
+    if (child.userData.prison) child.visible = mission.missionKind === "prison-wagon"
+  })
+  cartView.visible = mission.missionKind !== "storehouse"
+  storehouseView.visible = mission.missionKind === "storehouse"
+  storehouseView.position.set(definition.spawns.cart.x, 0, definition.spawns.cart.z)
+  disguiseRackView.visible = mission.missionKind === "storehouse" && mission.disguisePlayerId === null
+  if (definition.scenario?.kind === "storehouse") disguiseRackView.position.set(definition.scenario.disguisePosition.x, 0, definition.scenario.disguisePosition.z)
+  signalView.visible = mission.missionKind !== "storehouse"
+  signalView.rotation.z = mission.signalSabotaged ? Math.PI / 2.8 : 0
+  signalView.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.userData.signalFlag) (child.material as THREE.MeshStandardMaterial).color.setHex(mission.signalSabotaged ? 0x5f5b45 : 0xa94132)
+  })
   applyVillageState(mission.village)
   renderMissionResolution(mission)
+  updateMissionDebug()
 }
 
 function showMissionEvent(event: MissionEvent): void {
   const messages: Partial<Record<MissionEvent["type"], string>> = {
     cart_robbed: "THE TAX CART IS OURS — RUN!",
     loot_delivered: "COIN RETURNED TO THE PEOPLE",
+    wagon_intercepted: "THE PRISON WAGON IS STOPPED",
+    lock_breached: "THE CAGE LOCK IS GIVING WAY",
+    captives_freed: "THE CAPTIVES ARE FREE — PROTECT THEM",
+    captive_extracted: "A VILLAGER REACHED SAFETY",
+    alarm_triggered: "THE ALARM BELLS ARE RINGING",
+    alarm_sabotaged: "ALARM LINE CUT",
+    disguise_acquired: "MARIAN HAS A ROYAL DISGUISE",
+    cache_looted: "ROYAL LEVY SECURED",
+    intel_found: "PATROL INTELLIGENCE FOUND",
+    ledger_stolen: "THE NOTTINGHAM LEDGER IS OURS",
+    extraction_reached: "SECURED VALUE REACHED EXTRACTION",
+    reinforcement_arrived: "SHERIFF'S RELIEF PATROL ARRIVED",
     guard_stunned: "Guard stunned",
+    crowd_controlled: "OAK SWEEP — ESCORT SCATTERED",
+    ally_protected: "VANGUARD PROTECTION",
+    heavy_carry: "HEAVY CARRY SECURED",
+    trap_placed: "ROAD SNARE SET",
+    trap_triggered: "SNARE CAUGHT AN ESCORT",
+    reinforcement_sabotaged: "SHERIFF'S SIGNAL CUT",
     player_hit: "The Sheriff strikes!",
     player_downed: "AN OUTLAW IS DOWN",
     player_revived: "OUTLAW RESCUED",
@@ -792,7 +1218,12 @@ function showMissionEvent(event: MissionEvent): void {
     mission_succeeded: "SHERWOOD RISES",
     mission_failed: "THE BAND HAS FALLEN",
   }
-  const message = messages[event.type]
+  if (event.type === "signature_used" && event.detail === "little-john-sweep") showVanguardImpact(event.playerId)
+  const message = event.type === "signature_used" && event.detail === "little-john-sweep"
+    ? "OAK SWEEP — HOLD THE LINE"
+    : event.type === "signature_used" && event.detail === "much-snare"
+      ? "ROAD SNARE SET — DRAW THEM IN"
+    : messages[event.type]
   if (message) showToast(message)
 }
 
@@ -815,13 +1246,159 @@ function syncPingViews(pings: WorldPing[]): void {
   }
 }
 
+function createTrapView(trap: MissionTrap): THREE.Group {
+  const group = new THREE.Group()
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.68, 0.92, 24),
+    new THREE.MeshBasicMaterial({ color: 0xe7bd5a, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+  )
+  ring.rotation.x = -Math.PI / 2
+  ring.position.y = 0.05
+  for (const rotation of [-0.7, 0.7]) {
+    const bar = mesh(new THREE.BoxGeometry(1.55, 0.14, 0.14), 0x553923)
+    bar.position.y = 0.11
+    bar.rotation.y = rotation
+    group.add(bar)
+  }
+  const marker = mesh(new THREE.ConeGeometry(0.16, 0.62, 5), 0xe7bd5a)
+  marker.position.set(0, 0.78, 0)
+  for (const x of [-0.72, 0.72]) {
+    const stake = mesh(new THREE.CylinderGeometry(0.055, 0.075, 0.85, 6), 0xe7bd5a)
+    stake.position.set(x, 0.43, 0)
+    group.add(stake)
+  }
+  group.add(ring, marker)
+  group.position.set(trap.position.x, 0, trap.position.z)
+  return group
+}
+
+function syncTrapViews(traps: MissionTrap[]): void {
+  const activeIds = new Set(traps.map((trap) => trap.id))
+  for (const trap of traps) {
+    if (trapViews.has(trap.id)) continue
+    const view = createTrapView(trap)
+    trapViews.set(trap.id, view)
+    scene.add(view)
+  }
+  for (const [id, view] of trapViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(view)
+    trapViews.delete(id)
+  }
+}
+
+function createCaptiveView(captive: MissionCaptive): THREE.Group {
+  const group = new THREE.Group()
+  const body = mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.9, 7), captive.id % 2 === 0 ? 0x7f6846 : 0x6e7950)
+  body.position.y = 0.62
+  const head = mesh(new THREE.SphereGeometry(0.22, 8, 6), 0xd4aa78)
+  head.position.y = 1.25
+  const hood = mesh(new THREE.ConeGeometry(0.3, 0.42, 7), captive.id % 2 === 0 ? 0x75503a : 0x4e6140)
+  hood.position.y = 1.48
+  group.add(body, head, hood)
+  return group
+}
+
+function syncCaptiveViews(captives: MissionCaptive[]): void {
+  const activeIds = new Set(captives.filter((captive) => captive.status !== "extracted").map((captive) => captive.id))
+  for (const captive of captives) {
+    if (captive.status === "extracted") continue
+    let view = captiveViews.get(captive.id)
+    if (!view) {
+      view = createCaptiveView(captive)
+      captiveViews.set(captive.id, view)
+      scene.add(view)
+    }
+    view.position.set(captive.position.x, captive.status === "locked" ? 1.03 : 0, captive.position.z)
+    view.scale.setScalar(captive.status === "locked" ? 0.72 : 1)
+  }
+  for (const [id, view] of captiveViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(view)
+    captiveViews.delete(id)
+  }
+}
+
+function createAlarmView(alarm: MissionAlarm): THREE.Group {
+  const group = new THREE.Group()
+  const post = mesh(new THREE.CylinderGeometry(0.055, 0.075, 2.3, 6), 0x4f3522)
+  post.position.y = 1.15
+  const bell = mesh(new THREE.ConeGeometry(0.34, 0.5, 10), 0xc79d42)
+  bell.position.y = 2.35
+  bell.rotation.z = Math.PI
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.62, 0.78, 28),
+    new THREE.MeshBasicMaterial({ color: 0xb43e32, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+  )
+  ring.rotation.x = -Math.PI / 2
+  ring.position.y = 0.08
+  ring.userData.alarmPulse = true
+  group.add(post, bell, ring)
+  group.position.set(alarm.position.x, 0, alarm.position.z)
+  return group
+}
+
+function syncAlarmViews(alarms: MissionAlarm[], elapsed = clock.elapsedTime): void {
+  const activeIds = new Set(alarms.map((alarm) => alarm.id))
+  for (const alarm of alarms) {
+    let view = alarmViews.get(alarm.id)
+    if (!view) {
+      view = createAlarmView(alarm)
+      alarmViews.set(alarm.id, view)
+      scene.add(view)
+    }
+    view.position.set(alarm.position.x, 0, alarm.position.z)
+    view.userData.alarmStatus = alarm.status
+    const ring = view.children.find((child) => child.userData.alarmPulse) as THREE.Mesh | undefined
+    if (ring) {
+      const material = ring.material as THREE.MeshBasicMaterial
+      material.color.setHex(alarm.status === "triggered" ? 0xc94a3d : alarm.status === "sabotaged" ? 0x56644a : 0xe3b54a)
+      material.opacity = alarm.status === "triggered" ? 0.58 + Math.sin(elapsed * 8) * 0.3 : alarm.status === "sabotaged" ? 0.22 : 0.72
+    }
+    view.rotation.z = alarm.status === "sabotaged" ? Math.PI / 2.7 : 0
+  }
+  for (const [id, view] of alarmViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(view)
+    alarmViews.delete(id)
+  }
+}
+
+function createLootCacheView(cache: MissionLootCache): THREE.Group {
+  const group = new THREE.Group()
+  const color = cache.kind === "coin" ? 0x7e532e : cache.kind === "intel" ? 0x38556b : 0x6c3431
+  const chest = mesh(new THREE.BoxGeometry(cache.kind === "coin" ? 1.35 : 0.9, 0.72, cache.kind === "coin" ? 0.95 : 0.65), color)
+  chest.position.y = 0.36
+  const band = mesh(new THREE.BoxGeometry(0.16, 0.82, cache.kind === "coin" ? 1 : 0.7), 0xb28c48)
+  band.position.y = 0.4
+  group.add(chest, band)
+  group.position.set(cache.position.x, 0, cache.position.z)
+  return group
+}
+
+function syncLootCacheViews(caches: MissionLootCache[]): void {
+  const secured = caches.filter((cache) => cache.status === "secured")
+  const activeIds = new Set(secured.map((cache) => cache.id))
+  for (const cache of secured) {
+    if (lootCacheViews.has(cache.id)) continue
+    const view = createLootCacheView(cache)
+    lootCacheViews.set(cache.id, view)
+    scene.add(view)
+  }
+  for (const [id, view] of lootCacheViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(view)
+    lootCacheViews.delete(id)
+  }
+}
+
 function renderSafetyPanel(players: RoomPlayer[]): void {
   safetyPartyList.replaceChildren()
   for (const player of players) {
     if (player.id === multiplayer.playerId) continue
     const item = document.createElement("li")
     const identity = document.createElement("span")
-    identity.textContent = `${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}`
+    identity.textContent = `${player.displayName} · ${characterName(player.characterId)}`
     const actions = document.createElement("div")
     actions.className = "safety-actions"
     const mute = document.createElement("button")
@@ -889,7 +1466,7 @@ function createPingView(ping: WorldPing): THREE.Group {
 }
 
 function renderMissionResolution(mission: MissionSnapshot): void {
-  if (!mission.result || !mission.vote) return
+  if (!mission.result) return
   if (resultsPanel.classList.contains("hidden")) openPanel(resultsPanel)
   resultGrade.textContent = mission.result.grade
   resultScore.textContent = mission.result.score.toLocaleString()
@@ -901,6 +1478,51 @@ function renderMissionResolution(mission: MissionSnapshot): void {
     detail.textContent = `${value}/100`
     resultBreakdown.append(term, detail)
   }
+  const localPlayer = currentRoomPlayers.find((player) => player.id === multiplayer.playerId)
+  if (localPlayer?.characterId === "little-john") {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = "Vanguard impact"
+    detail.textContent = `${localPlayer.protectionScore} protection · ${localPlayer.crowdControl} controlled · ${localPlayer.heavyCarryPeak} max carry`
+    resultBreakdown.append(term, detail)
+  }
+  if (localPlayer?.characterId === "much") {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = "Saboteur impact"
+    detail.textContent = `${localPlayer.trapHits} traps triggered · ${localPlayer.sabotageCount} signals cut`
+    resultBreakdown.append(term, detail)
+  }
+  if (mission.missionKind === "storehouse") {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = "Infiltration"
+    const triggered = mission.alarms.filter((alarm) => alarm.status === "triggered").map((alarm) => alarm.id.replace("alarm.", "")).join(", ") || "none"
+    detail.textContent = `${mission.alarmLevel} alarms (${triggered}) · ${mission.reinforcementWave} relief waves · intel ${mission.intelFound ? "secured" : "missed"} · ledger ${mission.ledgerStolen ? "secured" : "missed"}`
+    resultBreakdown.append(term, detail)
+  }
+  const optionalTerm = document.createElement("dt")
+  const optionalDetail = document.createElement("dd")
+  optionalTerm.textContent = "Optional"
+  optionalDetail.textContent = mission.optionalObjectives.map((objective) => `${objective.completed ? "✓" : objective.failed ? "×" : "○"} ${objective.label}`).join(" · ")
+  resultBreakdown.append(optionalTerm, optionalDetail)
+  const voteChoices = resultsPanel.querySelector<HTMLElement>(".vote-choices")!
+  const voteEyebrow = voteChoices.previousElementSibling as HTMLElement
+  if (!mission.vote) {
+    voteChoices.style.display = "none"
+    voteEyebrow.style.display = "none"
+    const rescued = mission.captives.filter((captive) => captive.rewarded).length
+    communityAllocation.textContent = mission.missionKind === "prison-wagon"
+      ? `Partial rescue: ${rescued}/${mission.captives.length} villagers reached safety. No captive can be rewarded twice.`
+      : "The band was defeated before community rewards settled."
+    voteState.textContent = `MISSION FAILED · ${(mission.failureReason ?? "unknown").replaceAll("-", " ").toUpperCase()}`
+    const isLeader = currentRoomPlayers[0]?.id === multiplayer.playerId
+    returnHubButton.disabled = !isLeader
+    returnHubButton.textContent = isLeader ? "RETURN BAND TO CAMPFIRE" : "WAITING FOR BAND LEADER"
+    return
+  }
+  voteChoices.style.display = "grid"
+  voteEyebrow.style.display = ""
   communityAllocation.textContent = `${mission.result.communityCoin} crown coin is locked for the winning village project. Personal renown cannot reduce it.`
   for (const button of voteButtons) {
     const choice = button.dataset.vote as VoteChoice
@@ -912,6 +1534,9 @@ function renderMissionResolution(mission: MissionSnapshot): void {
   voteState.textContent = mission.vote.resolved
     ? `${mission.vote.winner?.toUpperCase()} WINS · ${mission.vote.allocatedCoin} COIN ALLOCATED`
     : "The band decides together. Ties resolve deterministically."
+  const isLeader = currentRoomPlayers[0]?.id === multiplayer.playerId
+  returnHubButton.disabled = !mission.vote.resolved || !isLeader
+  returnHubButton.textContent = isLeader ? "RETURN BAND TO CAMPFIRE" : "WAITING FOR BAND LEADER"
 }
 
 function applyVillageState(village: VillageState): void {
@@ -952,7 +1577,7 @@ function renderParty(players: RoomPlayer[]): void {
   for (const player of players) {
     const item = document.createElement("li")
     item.classList.toggle("ready", player.ready)
-    item.textContent = `${player.ready ? "✓" : "○"} ${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}${player.connected ? "" : " · reconnecting"}`
+    item.textContent = `${player.ready ? "✓" : "○"} ${player.displayName} · ${characterName(player.characterId)}${player.connected ? "" : " · reconnecting"}`
     partyList.append(item)
 
     const compact = document.createElement("li")
@@ -964,10 +1589,12 @@ function renderParty(players: RoomPlayer[]): void {
     presence.setAttribute("aria-label", player.connected ? "Connected" : "Reconnecting")
     const identity = document.createElement("span")
     identity.className = "identity"
-    identity.textContent = `${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}`
+    identity.textContent = `${player.displayName} · ${characterName(player.characterId)}`
     const vitality = document.createElement("b")
     vitality.className = "vitality"
-    vitality.textContent = player.downedFor > 0 ? `DOWN ${Math.ceil(player.downedFor)}s` : "♥".repeat(Math.max(0, player.health))
+    vitality.textContent = player.downedFor > 0
+      ? `DOWN ${Math.ceil(player.downedFor)}s`
+      : `${"♥".repeat(Math.max(0, player.health))}${player.characterId === "little-john" ? ` · 🛡${player.protectionScore} ⚒${player.crowdControl}` : player.characterId === "much" ? ` · ⛓${player.trapHits} ✂${player.sabotageCount}` : ""}`
     compact.append(presence, identity, vitality)
     missionPartyList.append(compact)
   }
@@ -1058,6 +1685,12 @@ function showToast(message: string): void {
 }
 
 function handleInteraction(): void {
+  if (inHub) {
+    hubPanel.classList.remove("hidden")
+    hubReady.focus()
+    showToast("MISSION BOARD OPEN")
+    return
+  }
   if (multiplayerActive) {
     multiplayer.sendAction("interact")
     return
@@ -1075,6 +1708,10 @@ function handleInteraction(): void {
 }
 
 function fireArrow(): void {
+  if (inHub) {
+    showToast("Weapons stay lowered at the campfire")
+    return
+  }
   if (multiplayerActive) {
     if (state.player.arrows <= 0) {
       showToast("Your quiver is empty")
@@ -1101,7 +1738,26 @@ function fireArrow(): void {
   showToast("Guard stunned")
 }
 
+function showVanguardImpact(playerId?: string): void {
+  const source = playerId && playerId !== multiplayer.playerId
+    ? currentRoomPlayers.find((player) => player.id === playerId)?.position
+    : state.player.position
+  if (!source) return
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.8, 1.05, 36),
+    new THREE.MeshBasicMaterial({ color: 0xf0c86a, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }),
+  )
+  ring.position.set(source.x, 0.12, source.z)
+  ring.rotation.x = -Math.PI / 2
+  scene.add(ring)
+  vanguardEffects.push({ ring, age: 0 })
+}
+
 function useSignature(): void {
+  if (inHub) {
+    showToast("Save your signature for the heist")
+    return
+  }
   if (multiplayerActive) {
     multiplayer.sendAction("signature")
     return
@@ -1110,8 +1766,14 @@ function useSignature(): void {
   const messages: Record<string, string> = {
     "marian-veil": "MARIAN'S VEIL — PURSUIT BROKEN",
     "robin-volley": "TWIN SHOT — GUARDS PINNED",
+    "little-john-sweep": "OAK SWEEP — HOLD THE LINE",
+    "much-snare": "ROAD SNARE SET — DRAW THEM IN",
     "volley-missed": "No guards in Twin Shot range",
     "signature-unavailable": `Signature ready in ${Math.ceil(state.player.signatureCooldown)}s`,
+  }
+  if (result.event === "little-john-sweep") showVanguardImpact()
+  if (result.event === "much-snare") {
+    syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
   }
   showToast(messages[result.event] ?? result.event)
 }
@@ -1163,7 +1825,7 @@ async function openLeaderboard(): Promise<void> {
     const detail = document.createElement("span")
     const score = document.createElement("strong")
     name.textContent = `${entry.verified ? "◆ " : ""}${entry.playerName}`
-    detail.textContent = `${entry.characterId === "marian" ? "Maid Marian" : "Robin Hood"} · ${entry.grade} · ${entry.missionSeconds}s`
+    detail.textContent = `${characterName(entry.characterId)} · ${entry.grade} · ${entry.missionSeconds}s`
     score.textContent = kind === "peoples-champions"
       ? `${entry.generosity ?? 0}%`
       : kind === "clean-escapes"
@@ -1187,15 +1849,27 @@ async function openLeaderboard(): Promise<void> {
 function updateUI(): void {
   healthElement.textContent = String(state.player.health)
   arrowsElement.textContent = String(state.player.arrows)
-  lootElement.textContent = String(state.player.loot)
+  const rescueMission = latestMissionSnapshot?.missionKind === "prison-wagon"
+  lootElement.textContent = String(rescueMission ? latestMissionSnapshot!.captives.filter((captive) => captive.rewarded).length : state.player.loot)
+  lootElement.parentElement?.setAttribute("title", rescueMission ? "Captives extracted" : "Stolen coin")
   signatureElement.textContent = state.player.signatureCooldown > 0 ? `${Math.ceil(state.player.signatureCooldown)}s` : "READY"
   heatElement.style.width = `${state.heat}%`
   heatWrap.setAttribute("aria-valuenow", String(Math.max(0, Math.min(100, Math.round(state.heat)))))
   heatWrap.setAttribute("aria-valuetext", state.heat > 60 ? "High pursuit" : state.heat > 20 ? "Sheriff searching" : "Hidden")
   heatWrap.classList.toggle("visible", state.heat > 3)
   progressElement.style.width = `${Math.min(100, (state.delivered / missionTarget) * 100)}%`
+  if (inHub) {
+    objectiveElement.textContent = "Prepare at the campfire mission board"
+    progressElement.style.width = "0%"
+    promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} opens the board · move with your mapped controls`
+    return
+  }
+  const signalPosition = getMissionDefinition(currentMissionSlug).spawns.reinforcementSignal
+  const atSignal = multiplayerActive && latestMissionSnapshot?.missionKind !== "storehouse" && selectedCharacter === "much" && !signalSabotaged && Math.hypot(state.player.position.x - signalPosition.x, state.player.position.z - signalPosition.z) < 3.2
   promptElement.textContent = isMobileSpectator()
     ? "Spectating the Merry Band · disable spectator mode in accessibility settings to play"
+    : atSignal
+      ? `${keyLabel(inputSettings.keyboard.interact)}  CUT THE SHERIFF'S REINFORCEMENT SIGNAL`
     : localDownedFor > 0
     ? `DOWNED · ${Math.ceil(localDownedFor)}s for a teammate to revive you`
     : multiplayerActive
@@ -1222,7 +1896,7 @@ function showEnding(won: boolean): void {
   title.innerHTML = won ? "Sherwood<br /><em>rises.</em>" : "The rebellion<br /><em>needs another try.</em>"
   copy.textContent = won
     ? `${state.delivered} crown coin reached the people. Mastery grade ${mastery.grade} · ${mastery.score.toLocaleString()} points · ${Math.round(state.stats.elapsedSeconds)} seconds.`
-    : `The guards caught ${state.player.characterId === "marian" ? "Marian" : "Robin"}. Grade ${mastery.grade} · ${mastery.score.toLocaleString()} points. Change your route and time your signature.`
+    : `The guards caught ${characterName(state.player.characterId)}. Grade ${mastery.grade} · ${mastery.score.toLocaleString()} points. Change your route and time your signature.`
   startButton.innerHTML = "PLAY AGAIN <span>→</span>"
   small.textContent = "RESTART THE 3D PROTOTYPE"
   intro.classList.remove("closed")
@@ -1242,7 +1916,17 @@ function showEnding(won: boolean): void {
 }
 
 function syncViews(elapsed: number, dt: number): void {
+  if (!multiplayerActive) {
+    syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
+  }
   const player = state.player.position
+  const groveDistance = renderProfile.tier === "degraded" ? 30 : 38
+  for (const grove of authoredGroveViews) grove.visible = Math.hypot(grove.position.x - player.x, grove.position.z - player.z) <= groveDistance
+  for (const view of alarmViews.values()) {
+    if (view.userData.alarmStatus !== "triggered") continue
+    const pulse = 1 + Math.sin(elapsed * 8) * 0.14 * renderProfile.motionScale
+    view.scale.setScalar(pulse)
+  }
   playerView.position.set(player.x, Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale, player.z)
   playerView.traverse((child) => {
     if (child instanceof THREE.Mesh) {
@@ -1321,6 +2005,19 @@ function syncViews(elapsed: number, dt: number): void {
       arrowEffects.splice(i, 1)
     }
   }
+  for (let index = vanguardEffects.length - 1; index >= 0; index -= 1) {
+    const effect = vanguardEffects[index]
+    effect.age += dt
+    const progress = Math.min(1, effect.age / 0.55)
+    effect.ring.scale.setScalar(1 + progress * 5 * Math.max(0.25, renderProfile.motionScale))
+    ;(effect.ring.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - progress)
+    if (progress >= 1) {
+      scene.remove(effect.ring)
+      effect.ring.geometry.dispose()
+      ;(effect.ring.material as THREE.Material).dispose()
+      vanguardEffects.splice(index, 1)
+    }
+  }
 }
 
 function animate(): void {
@@ -1336,7 +2033,13 @@ function animate(): void {
   if (running) {
     const move = getMoveInput()
     let events: string[] = []
-    if (multiplayerActive) {
+    if (inHub) {
+      const length = Math.hypot(move.x, move.z)
+      if (length > 0.001) {
+        state.player.position.x = Math.max(-20, Math.min(20, state.player.position.x + (move.x / length) * 5.8 * dt))
+        state.player.position.z = Math.max(-20, Math.min(20, state.player.position.z + (move.z / length) * 5.8 * dt))
+      }
+    } else if (multiplayerActive) {
       multiplayer.sendInput(move)
       predictMultiplayerMovement(move, dt)
       state.stats.elapsedSeconds += dt
@@ -1361,8 +2064,10 @@ function animate(): void {
 function predictMultiplayerMovement(move: Vec2, dt: number): void {
   const length = Math.hypot(move.x, move.z)
   if (length <= 0.001 || state.player.health <= 0 || localDownedFor > 0) return
-  const speed = state.player.characterId === "marian" ? 6.75 : 6.2
-  const lootPenalty = Math.max(0.68, 1 - state.player.loot / 600)
+  const speed = state.player.characterId === "marian" ? 6.75 : state.player.characterId === "little-john" ? 5.9 : 6.2
+  const lootPenalty = state.player.characterId === "little-john"
+    ? Math.max(0.82, 1 - state.player.loot / 1_100)
+    : Math.max(0.68, 1 - state.player.loot / 600)
   state.player.position.x = Math.max(-22, Math.min(22, state.player.position.x + (move.x / length) * speed * lootPenalty * dt))
   state.player.position.z = Math.max(-22, Math.min(22, state.player.position.z + (move.z / length) * speed * lootPenalty * dt))
 }
@@ -1389,10 +2094,14 @@ function sendSupportAction(action: "revive" | "transfer_loot"): void {
 }
 
 startButton.addEventListener("click", () => {
-  running = true
-  intro.scrollTop = 0
-  intro.classList.add("closed")
-  clock.getDelta()
+  enterHub(false)
+})
+
+rejoinRoomButton.addEventListener("click", () => {
+  const code = localStorage.getItem("sherwood:last-room-code")
+  const displayName = playerNameInput.value.trim().slice(0, 20)
+  if (!code || !displayName) return
+  multiplayer.joinRoom(code, displayName, selectedCharacter)
 })
 
 createRoomButton.addEventListener("click", () => {
@@ -1418,11 +2127,31 @@ joinRoomButton.addEventListener("click", () => {
 })
 
 readyButton.addEventListener("click", () => multiplayer.setReady(!localReady))
+hubReady.addEventListener("click", () => {
+  if (roomConnected) multiplayer.setReady(!localReady)
+  else startSoloMission()
+})
+hubRoles.forEach((button) => button.addEventListener("click", () => {
+  const characterId = button.dataset.hubCharacter
+  if (characterId === "robin" || characterId === "marian" || characterId === "little-john" || characterId === "much") selectLocalCharacter(characterId, roomConnected)
+  renderHub()
+}))
+hubLoadout.addEventListener("change", () => {
+  if (roomConnected) multiplayer.selectLoadout(hubLoadout.value as LoadoutId)
+})
+hubCopyCode.addEventListener("click", () => {
+  const code = multiplayer.roomCode
+  if (!code) return
+  const invite = `${location.origin}${location.pathname}?room=${code}`
+  void navigator.clipboard.writeText(invite).then(() => showToast("INVITE LINK COPIED")).catch(() => showToast(`ROOM CODE ${code}`))
+})
+returnHubButton.addEventListener("click", () => multiplayer.returnToHub())
 
 characterButtons.forEach((button) => {
   button.addEventListener("click", () => {
     if (running) return
-    selectLocalCharacter(button.dataset.character === "marian" ? "marian" : "robin", true)
+    const characterId = button.dataset.character
+    if (characterId === "robin" || characterId === "marian" || characterId === "little-john" || characterId === "much") selectLocalCharacter(characterId, true)
   })
 })
 
@@ -1449,6 +2178,10 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
 
 helpButton.addEventListener("click", () => openPanel(helpPanel, helpButton))
 closeHelp.addEventListener("click", () => closePanel(helpPanel))
+missionDebugButton.addEventListener("click", () => {
+  missionDebug.classList.toggle("hidden")
+  updateMissionDebug()
+})
 leaderboardButton.addEventListener("click", () => void openLeaderboard())
 closeLeaderboard.addEventListener("click", () => closePanel(leaderboardPanel))
 for (const filter of [boardKind, boardCharacter, boardParty, boardScope, boardMission, boardSeason]) filter.addEventListener("change", () => void openLeaderboard())
@@ -1573,6 +2306,7 @@ renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sh
 
 renderBindingControls()
 applyInputSettings()
+updateMissionDebug()
 for (const panel of panelElements) panel.setAttribute("aria-hidden", String(panel.classList.contains("hidden")))
 updateUI()
 syncViews(0, 0.016)

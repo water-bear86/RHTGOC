@@ -1,6 +1,8 @@
+import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
+
 export interface Vec2 { x: number; z: number }
 
-export type CharacterId = "robin" | "marian"
+export type CharacterId = "robin" | "marian" | "little-john" | "much"
 
 export interface MissionStats {
   elapsedSeconds: number
@@ -33,6 +35,7 @@ export interface GameState {
     veilFor: number
   }
   guards: GuardState[]
+  traps: Array<{ id: number; position: Vec2; remaining: number }>
   delivered: number
   heat: number
   cartCoin: number
@@ -47,21 +50,21 @@ export interface InputState {
   move: Vec2
 }
 
-export const CART_POSITION: Vec2 = { x: 10, z: -8 }
-export const VILLAGE_POSITION: Vec2 = { x: -11, z: 9 }
-export const DELIVERY_TARGET = 300
+export const CART_POSITION: Vec2 = { ...PEOPLES_PURSE_MISSION.spawns.cart }
+export const VILLAGE_POSITION: Vec2 = { ...PEOPLES_PURSE_MISSION.spawns.village }
+export const DELIVERY_TARGET = PEOPLES_PURSE_MISSION.rewards.deliveryTarget
 
 const distance = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z)
 
 export function getMaxArrows(characterId: CharacterId): number {
-  return characterId === "robin" ? 6 : 4
+  return characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4
 }
 
 export function createInitialState(characterId: CharacterId = "robin"): GameState {
   return {
     player: {
       characterId,
-      position: { x: -8, z: 7 },
+      position: { ...PEOPLES_PURSE_MISSION.spawns.players[0] },
       health: 3,
       arrows: getMaxArrows(characterId),
       loot: 0,
@@ -69,11 +72,8 @@ export function createInitialState(characterId: CharacterId = "robin"): GameStat
       signatureCooldown: 0,
       veilFor: 0,
     },
-    guards: [
-      { id: 0, position: { x: 7, z: -5 }, home: { x: 7, z: -5 }, patrolAngle: 0, stunnedFor: 0 },
-      { id: 1, position: { x: 13, z: -6 }, home: { x: 13, z: -6 }, patrolAngle: 2, stunnedFor: 0 },
-      { id: 2, position: { x: 9, z: -11 }, home: { x: 9, z: -11 }, patrolAngle: 4, stunnedFor: 0 },
-    ],
+    guards: PEOPLES_PURSE_MISSION.spawns.guards.slice(0, 3).map((guard, index) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: index * 2, stunnedFor: 0 })),
+    traps: [],
     delivered: 0,
     heat: 0,
     cartCoin: 120,
@@ -113,8 +113,11 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
 
   const moveLength = Math.hypot(input.move.x, input.move.z)
   if (moveLength > 0.001) {
-    const speed = player.characterId === "marian" ? 6.75 : 6.2
-    const movement = speed * dt
+    const speed = player.characterId === "marian" ? 6.75 : player.characterId === "little-john" ? 5.9 : 6.2
+    const lootPenalty = player.characterId === "little-john"
+      ? Math.max(0.82, 1 - player.loot / 1_100)
+      : Math.max(0.68, 1 - player.loot / 600)
+    const movement = speed * lootPenalty * dt
     player.position.x += (input.move.x / moveLength) * movement
     player.position.z += (input.move.z / moveLength) * movement
     state.stats.distanceTravelled += movement
@@ -127,6 +130,10 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   player.veilFor = Math.max(0, player.veilFor - dt)
   state.bowCooldown = Math.max(0, state.bowCooldown - dt)
   state.cartRefill = Math.max(0, state.cartRefill - dt)
+  for (let index = state.traps.length - 1; index >= 0; index -= 1) {
+    state.traps[index].remaining -= dt
+    if (state.traps[index].remaining <= 0) state.traps.splice(index, 1)
+  }
   if (state.cartRefill === 0 && state.cartCoin === 0) {
     state.cartCoin = 120
     events.push("cart-ready")
@@ -143,6 +150,13 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   for (const guard of state.guards) {
     guard.stunnedFor = Math.max(0, guard.stunnedFor - dt)
     if (guard.stunnedFor > 0) continue
+    const trapIndex = state.traps.findIndex((trap) => distance(trap.position, guard.position) < 1.35)
+    if (trapIndex >= 0) {
+      state.traps.splice(trapIndex, 1)
+      guard.stunnedFor = 4.5
+      events.push("trap-triggered")
+      continue
+    }
 
     const detectionRange = player.veilFor > 0 ? 2.4 : 22
     if (state.heat > 8 && distance(guard.position, player.position) < detectionRange) {
@@ -232,6 +246,36 @@ export function activateSignature(state: GameState): { event: string; guardIds: 
     player.veilFor = 6
     state.heat = Math.max(0, state.heat - 28)
     return { event: "marian-veil", guardIds: [] }
+  }
+
+  if (player.characterId === "little-john") {
+    const targets = state.guards
+      .map((guard) => ({ guard, range: distance(guard.position, player.position) }))
+      .filter(({ guard, range }) => guard.stunnedFor <= 0 && range < 6)
+    if (targets.length === 0) {
+      player.signatureCooldown = 0
+      state.stats.signatureUses -= 1
+      return { event: "signature-unavailable", guardIds: [] }
+    }
+    for (const { guard } of targets) guard.stunnedFor = 5
+    player.signatureCooldown = 20
+    return { event: "little-john-sweep", guardIds: targets.map(({ guard }) => guard.id) }
+  }
+
+  if (player.characterId === "much") {
+    const invalidTerrain = Math.abs(player.position.x) > 20
+      || Math.abs(player.position.z) > 20
+      || (Math.abs(player.position.x) < 3.2 && Math.abs(player.position.z) < 18)
+      || distance(player.position, CART_POSITION) < 3
+      || distance(player.position, VILLAGE_POSITION) < 3
+    if (invalidTerrain || state.traps.length > 0) {
+      player.signatureCooldown = 0
+      state.stats.signatureUses -= 1
+      return { event: "signature-unavailable", guardIds: [] }
+    }
+    state.traps.push({ id: state.stats.signatureUses, position: { ...player.position }, remaining: 30 })
+    player.signatureCooldown = 18
+    return { event: "much-snare", guardIds: [] }
   }
 
   const targets = state.guards

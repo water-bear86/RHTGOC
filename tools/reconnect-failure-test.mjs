@@ -35,7 +35,7 @@ const invalid = await invalidResponse
 if (invalid.code !== "INVALID_MESSAGE") throw new Error(`Unexpected invalid-message response: ${JSON.stringify(invalid)}`)
 
 const welcomeResponse = waitForMessage(original, (message) => message.type === "welcome")
-original.send(JSON.stringify({ type: "create_room", version: 3, displayName: "Failure Robin", characterId: "robin" }))
+original.send(JSON.stringify({ type: "create_room", version: 4, displayName: "Failure Robin", characterId: "robin" }))
 const welcome = await welcomeResponse
 original.terminate()
 await new Promise((resolve) => setTimeout(resolve, 150))
@@ -44,7 +44,7 @@ const reconnected = await connect()
 const reconnectResponse = waitForMessage(reconnected, (message) => message.type === "welcome")
 reconnected.send(JSON.stringify({
   type: "join_room",
-  version: 3,
+  version: 4,
   roomCode: welcome.roomCode,
   displayName: "Failure Robin",
   characterId: "robin",

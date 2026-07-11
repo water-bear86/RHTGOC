@@ -8,12 +8,14 @@ import { Room } from "./room"
 import { createBandStoreFromEnv } from "./band-store"
 import { createLeaderboardStoreFromEnv } from "./leaderboard-store"
 import { structuredLog, Telemetry } from "./telemetry"
+import { getMissionDefinition } from "../shared/mission-catalog"
 
 const port = Number(process.env.PORT ?? 8787)
 const rooms = new Map<string, Room>()
 const bandStore = createBandStoreFromEnv()
 const leaderboardStore = createLeaderboardStoreFromEnv()
 const telemetry = new Telemetry()
+const defaultMission = getMissionDefinition()
 const observedRoomPhases = new Map<string, string>()
 const observedMissionStatus = new Map<string, string>()
 const roomTraces = new Map<string, string>()
@@ -55,6 +57,9 @@ const httpServer = createServer(async (request, response) => {
       protocolVersion: PROTOCOL_VERSION,
       bandPersistence: bandStore !== null,
       verifiedLeaderboardWrites: leaderboardStore !== null,
+      missionId: defaultMission.id,
+      missionVersion: defaultMission.missionVersion,
+      missionContentHash: defaultMission.contentHash,
     }))
     return
   }
@@ -157,6 +162,15 @@ sockets.on("connection", (socket) => {
       send(socket, { type: "error", code: "ROLE_FULL", message: "That role is full — choose the other outlaw" })
       joinedRoom.broadcastRoomState()
     }
+    if (message.type === "select_mission" && !joinedRoom.selectMission(playerId, message.missionSlug)) {
+      send(socket, { type: "error", code: "FORBIDDEN", message: "Only the band leader can choose an available mission" })
+    }
+    if (message.type === "select_loadout" && !joinedRoom.selectLoadout(playerId, message.loadoutId)) {
+      send(socket, { type: "error", code: "FORBIDDEN", message: "Field kits can only change at the campfire" })
+    }
+    if (message.type === "return_to_hub" && !joinedRoom.returnToHub(playerId)) {
+      send(socket, { type: "error", code: "FORBIDDEN", message: "Resolve the village vote before the leader returns the band to camp" })
+    }
     if (message.type === "input") joinedRoom.setInput(playerId, message.sequence, message.move)
     if (message.type === "action") {
       joinedRoom.action(playerId, message.action, message.targetPlayerId)
@@ -168,6 +182,9 @@ sockets.on("connection", (socket) => {
       joinedRoom.vote(playerId, message.choice)
       telemetry.increment("redistribution_votes_total")
     }
+    if (message.type === "select_mission") telemetry.increment("hub_mission_selections_total")
+    if (message.type === "select_loadout") telemetry.increment(`hub_loadout_${message.loadoutId}_total`)
+    if (message.type === "return_to_hub") telemetry.increment("hub_returns_total")
     if (message.type === "moderation" && !joinedRoom.moderate(playerId, message.targetPlayerId, message.action, message.reason)) {
       send(socket, { type: "error", code: "FORBIDDEN", message: "That moderation action is not allowed" })
     }
@@ -248,5 +265,8 @@ httpServer.listen(port, "0.0.0.0", () => {
     protocolVersion: PROTOCOL_VERSION,
     bandPersistence: bandStore !== null,
     verifiedLeaderboardWrites: leaderboardStore !== null,
+    missionId: defaultMission.id,
+    missionVersion: defaultMission.missionVersion,
+    missionContentHash: defaultMission.contentHash,
   })
 })

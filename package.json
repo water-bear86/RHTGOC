@@ -6,13 +6,14 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "server": "tsx server/index.ts",
-    "build": "tsc -b && vite build",
+    "build": "npm run validate:assets && npm run validate:missions && tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "test:load": "node tools/multiplayer-load-test.mjs",
     "test:soak": "SOAK=1 node tools/multiplayer-load-test.mjs",
     "test:reconnect": "node tools/reconnect-failure-test.mjs",
-    "validate:assets": "node tools/validate-assets.mjs"
+    "validate:assets": "node tools/validate-assets.mjs",
+    "validate:missions": "tsx tools/validate-missions.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.110.2",

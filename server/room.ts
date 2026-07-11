@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
-import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type CharacterId, type RoomPlayer, type ServerMessage } from "../shared/protocol"
+import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type CharacterId, type LastMissionResult, type LoadoutId, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
 import { Mission } from "./mission"
+import { getMissionDefinition } from "../shared/mission-catalog"
 
 interface ConnectedPlayer extends RoomPlayer {
   reconnectToken: string
@@ -22,14 +23,18 @@ interface ConnectedPlayer extends RoomPlayer {
   transferCount: number
   lastPingTick: number
   totalTransferred: number
+  protectionScore: number
+  crowdControl: number
+  heavyCarryPeak: number
+  trapHits: number
+  sabotageCount: number
 }
 
-const spawnPoints = [
-  { x: -8, z: 7 },
-  { x: -9.5, z: 7 },
-  { x: -8, z: 8.5 },
-  { x: -9.5, z: 8.5 },
-]
+function maxArrows(characterId: CharacterId): number {
+  return characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4
+}
+
+const spawnPoints = getMissionDefinition().spawns.players
 
 export class Room {
   readonly code: string
@@ -37,9 +42,12 @@ export class Room {
   phase: "lobby" | "mission" = "lobby"
   tick = 0
   mission: Mission | null = null
+  missionSlug = "peoples-purse"
+  village: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
+  lastResult: LastMissionResult | null = null
   readonly moderationEvents: Array<{ at: number; actorId: string; targetId: string; action: "report" | "remove" | "block"; reason?: string }> = []
   private readonly bannedReconnectTokens = new Set<string>()
-  private readonly missionId = randomUUID()
+  private missionId = randomUUID()
   private leaderboardPersistence: "idle" | "pending" | "done" = "idle"
 
   constructor(code: string) {
@@ -59,10 +67,11 @@ export class Room {
       reconnectToken: randomUUID(),
       displayName,
       characterId,
+      loadoutId: "balanced",
       ready: false,
       connected: true,
       health: 3,
-      arrows: characterId === "robin" ? 6 : 4,
+      arrows: maxArrows(characterId),
       loot: 0,
       position: { ...position },
       lastInputSequence: 0,
@@ -81,6 +90,11 @@ export class Room {
       transferCount: 0,
       lastPingTick: -20,
       totalTransferred: 0,
+      protectionScore: 0,
+      crowdControl: 0,
+      heavyCarryPeak: 0,
+      trapHits: 0,
+      sabotageCount: 0,
     }
     this.players.set(player.id, player)
     return player
@@ -119,7 +133,10 @@ export class Room {
     const connected = [...this.players.values()].filter((candidate) => candidate.connected)
     if (connected.length >= 2 && connected.every((candidate) => candidate.ready)) {
       this.phase = "mission"
-      this.mission ??= new Mission(this.code, this.players)
+      const definition = getMissionDefinition(this.missionSlug)
+      for (const player of this.players.values()) player.position = { ...definition.spawns.players[player.spawnIndex] }
+      this.mission ??= new Mission(this.code, this.players, definition)
+      this.mission.village = { ...this.village }
     }
     this.broadcastRoomState()
   }
@@ -129,8 +146,45 @@ export class Room {
     if (!player || this.phase !== "lobby") return false
     if (!this.characterAvailable(characterId, playerId)) return false
     player.characterId = characterId
-    player.arrows = characterId === "robin" ? 6 : 4
+    player.arrows = maxArrows(characterId)
     player.ready = false
+    this.broadcastRoomState()
+    return true
+  }
+
+  selectMission(playerId: string, missionSlug: string): boolean {
+    if (this.phase !== "lobby" || this.moderatorId() !== playerId) return false
+    try { getMissionDefinition(missionSlug) } catch { return false }
+    this.missionSlug = missionSlug
+    for (const player of this.players.values()) player.ready = false
+    this.broadcastRoomState()
+    return true
+  }
+
+  selectLoadout(playerId: string, loadoutId: LoadoutId): boolean {
+    const player = this.players.get(playerId)
+    if (!player || this.phase !== "lobby") return false
+    player.loadoutId = loadoutId
+    player.ready = false
+    this.broadcastRoomState()
+    return true
+  }
+
+  returnToHub(playerId: string): boolean {
+    if (!this.mission || this.moderatorId() !== playerId || this.mission.status === "active" || (this.mission.status === "succeeded" && !this.mission.vote?.resolved)) return false
+    if (this.mission.status === "succeeded") this.village = { ...this.mission.village }
+    this.lastResult = this.mission.result ? {
+      score: this.mission.result.score,
+      grade: this.mission.result.grade,
+      status: this.mission.status,
+      rescuedCaptives: this.mission.captives.filter((captive) => captive.rewarded).length,
+      totalCaptives: this.mission.captives.length,
+    } : null
+    this.phase = "lobby"
+    this.mission = null
+    this.missionId = randomUUID()
+    this.leaderboardPersistence = "idle"
+    for (const player of this.players.values()) this.resetPlayerForHub(player)
     this.broadcastRoomState()
     return true
   }
@@ -182,6 +236,9 @@ export class Room {
     delivered: number
     rescues: number
     damageTaken: number
+    missionVersion: string
+    missionContentHash: string
+    missionSlug: string
     result: NonNullable<Mission["result"]>
   }> | null {
     if (!this.mission?.result || this.mission.status !== "succeeded" || this.leaderboardPersistence !== "idle") return null
@@ -196,6 +253,9 @@ export class Room {
       delivered: this.mission!.delivered,
       rescues: player.rescueCount,
       damageTaken: this.mission!.damageTaken,
+      missionVersion: this.mission!.definition.missionVersion,
+      missionContentHash: this.mission!.definition.contentHash,
+      missionSlug: this.mission!.definition.slug,
       result: this.mission!.result!,
     }))
   }
@@ -216,6 +276,7 @@ export class Room {
       id: player.id,
       displayName: player.displayName,
       characterId: player.characterId,
+      loadoutId: player.loadoutId,
       ready: player.ready,
       connected: player.connected,
       health: player.health,
@@ -223,6 +284,11 @@ export class Room {
       loot: player.loot,
       downedFor: player.downedFor,
       signatureCooldown: player.signatureCooldown,
+      protectionScore: player.protectionScore,
+      crowdControl: player.crowdControl,
+      heavyCarryPeak: player.heavyCarryPeak,
+      trapHits: player.trapHits,
+      sabotageCount: player.sabotageCount,
       position: player.position,
       lastInputSequence: player.lastInputSequence,
     }
@@ -240,7 +306,15 @@ export class Room {
   }
 
   broadcastRoomState(): void {
-    this.broadcast({ type: "room_state", roomCode: this.code, phase: this.phase, players: [...this.players.values()].map((player) => this.publicPlayer(player)) })
+    this.broadcast({
+      type: "room_state",
+      roomCode: this.code,
+      phase: this.phase,
+      missionSlug: this.missionSlug,
+      players: [...this.players.values()].map((player) => this.publicPlayer(player)),
+      village: { ...this.village },
+      lastResult: this.lastResult ? { ...this.lastResult } : null,
+    })
   }
 
   broadcastSnapshot(): void {
@@ -248,7 +322,7 @@ export class Room {
     this.broadcast({
       type: "snapshot",
       tick: this.tick,
-      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown })),
+      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount })),
       mission: this.mission.snapshot(),
     })
   }
@@ -258,5 +332,29 @@ export class Room {
     for (const player of this.players.values()) {
       if (player.socket?.readyState === WebSocket.OPEN) player.socket.send(payload)
     }
+  }
+
+  private resetPlayerForHub(player: ConnectedPlayer): void {
+    const spawn = spawnPoints[player.spawnIndex]
+    player.ready = false
+    player.health = 3
+    player.arrows = maxArrows(player.characterId)
+    player.loot = 0
+    player.position = { ...spawn }
+    player.input = { x: 0, z: 0 }
+    player.downedFor = 0
+    player.captured = false
+    player.signatureCooldown = 0
+    player.bowCooldown = 0
+    player.invulnerableFor = 0
+    player.veilFor = 0
+    player.rescueCount = 0
+    player.transferCount = 0
+    player.totalTransferred = 0
+    player.protectionScore = 0
+    player.crowdControl = 0
+    player.heavyCarryPeak = 0
+    player.trapHits = 0
+    player.sabotageCount = 0
   }
 }

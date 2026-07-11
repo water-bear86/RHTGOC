@@ -1,10 +1,10 @@
-import { PROTOCOL_VERSION, type CharacterId, type MissionSnapshot, type PingKind, type RoomPlayer, type ServerMessage, type VoteChoice } from "../shared/protocol"
+import { PROTOCOL_VERSION, type CharacterId, type LastMissionResult, type LoadoutId, type MissionSnapshot, type PingKind, type RoomPlayer, type ServerMessage, type VillageState, type VoteChoice } from "../shared/protocol"
 import type { Vec2 } from "./simulation"
 
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
-  onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[]) => void
-  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown">>, mission: MissionSnapshot) => void
+  onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[], missionSlug: string, village: VillageState, lastResult: LastMissionResult | null) => void
+  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>, mission: MissionSnapshot) => void
   onError?: (message: string) => void
   onConnection?: (connected: boolean) => void
 }
@@ -49,6 +49,18 @@ export class MultiplayerClient {
   selectCharacter(characterId: CharacterId): void {
     if (this.reconnectSession) this.reconnectSession.characterId = characterId
     this.send({ type: "select_character", characterId })
+  }
+
+  selectMission(missionSlug: string): void {
+    this.send({ type: "select_mission", missionSlug })
+  }
+
+  selectLoadout(loadoutId: LoadoutId): void {
+    this.send({ type: "select_loadout", loadoutId })
+  }
+
+  returnToHub(): void {
+    this.send({ type: "return_to_hub" })
   }
 
   sendInput(move: Vec2): void {
@@ -135,7 +147,7 @@ export class MultiplayerClient {
       localStorage.setItem(`sherwood:reconnect:${message.roomCode}`, message.reconnectToken)
       this.events.onWelcome?.(message.playerId, message.roomCode)
     }
-    if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players)
+    if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players, message.missionSlug, message.village, message.lastResult)
     if (message.type === "snapshot") {
       const now = performance.now()
       if (this.playerId && now - this.lastMetricsAt >= 10_000) {

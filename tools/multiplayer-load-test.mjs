@@ -41,12 +41,12 @@ function send(socket, message) {
 async function createRoom(index) {
   const robin = await connect()
   const robinWelcome = waitForMessage(robin, (message) => message.type === "welcome")
-  send(robin, { type: "create_room", version: 3, displayName: `Load Robin ${index}`, characterId: "robin" })
+  send(robin, { type: "create_room", version: 4, displayName: `Load Robin ${index}`, characterId: "robin" })
   const { roomCode } = await robinWelcome
 
   const marian = await connect()
   const marianWelcome = waitForMessage(marian, (message) => message.type === "welcome")
-  send(marian, { type: "join_room", version: 3, roomCode, displayName: `Load Marian ${index}`, characterId: "marian" })
+  send(marian, { type: "join_room", version: 4, roomCode, displayName: `Load Marian ${index}`, characterId: "marian" })
   await marianWelcome
   return { roomCode, sockets: [robin, marian] }
 }
