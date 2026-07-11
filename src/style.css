@@ -168,6 +168,21 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .hub-heading b { color: var(--gold); font-size: 9px; letter-spacing: .14em; }
 .hub-panel > p { margin: 0 0 13px; color: #f7f0d48a; font-size: 10px; line-height: 1.5; }
 .hub-rotations { display: grid; gap: 7px; margin: 7px 0 5px; }
+.hub-season { margin: 0 0 14px; padding: 11px; background: linear-gradient(145deg, #294632, #172d22); border: 1px solid #e4b65369; }
+.hub-season.hidden { display: none; }
+.season-heading { display: flex; justify-content: space-between; align-items: center; }
+.season-heading b { color: var(--cream); font-size: 8px; letter-spacing: .12em; }
+.hub-season h3 { margin: 5px 0; color: var(--cream); font: 700 13px Cinzel, serif; }
+.hub-season p { margin: 0 0 8px; color: #f7f0d4ad; font-size: 8px; line-height: 1.4; }
+.season-pressure { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: #e4b653; font-size: 7px; font-weight: 800; letter-spacing: .1em; }
+.season-pressure i { grid-column: 1 / -1; height: 4px; overflow: hidden; background: #0006; }
+.season-pressure em { display: block; height: 100%; background: linear-gradient(90deg, #86aa69, #e4b653, #d85b46); }
+.season-projects { display: grid; gap: 5px; margin: 9px 0 6px; }
+.season-project { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; color: #f7f0d4bd; font-size: 8px; }
+.season-project b { color: var(--cream); font: 700 8px Cinzel, serif; }
+.season-project i { grid-column: 1 / -1; height: 3px; overflow: hidden; background: #0006; }
+.season-project em { display: block; height: 100%; background: #8eb875; }
+#hub-season-finale { color: #f7f0d477; font-size: 8px; }
 .hub-rotations button { padding: 10px; color: var(--cream); text-align: left; background: #563e184f; border: 1px solid #e4b6536b; cursor: pointer; }
 .hub-rotations button.selected { color: var(--ink); background: var(--gold); }
 .hub-rotations button:disabled { opacity: .48; cursor: default; }

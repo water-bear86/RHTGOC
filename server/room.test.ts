@@ -188,6 +188,26 @@ describe("Merry Band room", () => {
     expect(room.claimVerifiedRuns()).toBeNull()
   })
 
+  it("emits one authoritative seasonal outcome only after community allocation resolves", () => {
+    const room = new Room("SEASON")
+    const robin = room.addPlayer(fakeSocket(), "Robin", "robin")
+    const marian = room.addPlayer(fakeSocket(), "Marian", "marian")
+    room.setReady(robin.id, true)
+    room.setReady(marian.id, true)
+    room.mission!.status = "succeeded"
+    room.mission!.delivered = 660
+    room.mission!.result = {
+      score: 8_000, grade: "A", breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 80, generosity: 80 },
+      thresholds: { S: 9_000, A: 7_500, B: 6_000, C: 0 }, communityCoin: 660, personalRenown: 4_000,
+    }
+    room.mission!.vote = { deadlineTick: 300, counts: { granary: 2, infirmary: 0, watchtower: 0 }, votes: {}, resolved: false, winner: null, allocatedCoin: 660 }
+    expect(room.claimSeasonOutcome(1_000)).toBeNull()
+    room.mission!.vote.resolved = true
+    room.mission!.vote.winner = "granary"
+    expect(room.claimSeasonOutcome(1_001)).toMatchObject({ status: "succeeded", project: "granary", communityCoin: 660, tacticalScore: 8_000, cleanEscape: true })
+    expect(room.claimSeasonOutcome(1_002)).toBeNull()
+  })
+
   it("starts only when at least two connected players are ready", () => {
     const room = new Room("ABC234")
     const first = room.addPlayer(fakeSocket(), "Robin", "robin")

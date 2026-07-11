@@ -193,6 +193,8 @@ After the social MVP proves successful, expand in this order:
 
 Competition should emphasize clean escapes, rescues, generosity, tactical execution, and village loyalty—not raw wealth accumulation alone.
 
+The first seasonal campaign must be an event-sourced, server-authoritative shared world layer. Verified redistribution and consumed band preparations advance three-tier village projects; mission outcomes adjust bounded Sheriff pressure and validated daily-target modifiers. Completing the project set unlocks a finite participation-based finale. Success, failure, rollback, and archival must preserve permanent identity, safety, band membership, cosmetics, entitlements, past recognition, and the immutable campaign audit trail.
+
 ## 10. Progression and economy
 
 Progression should operate across three connected tracks:

@@ -15,6 +15,7 @@ Key counters:
 - `leaderboard_persistence_success_total`, `leaderboard_persistence_failure_total`
 - `protocol_invalid_json_total`, `protocol_invalid_message_total`
 - `client_metrics_reports_total`, `input_backlog_<bucket>_total`, `snapshot_gap_<bucket>_total`
+- `season_<mission|contribution|operator>_events_total`, `season_pressure`, `season_persistence_queue`, `season_persistence_<success|retry>_total`
 
 Key gauges: `active_connections`, `active_rooms`, and `active_players`.
 

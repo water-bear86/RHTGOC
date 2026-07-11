@@ -4,6 +4,7 @@ import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type BandContribution, type Chara
 import { Mission } from "./mission"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import { isRotationActive, rotationWindowAt, type SheriffRotationWindow } from "../shared/sheriff-rotation"
+import type { SeasonalMissionOutcome, SherwoodSeasonSnapshot } from "../shared/sherwood-season"
 
 interface ConnectedPlayer extends RoomPlayer {
   reconnectToken: string
@@ -82,8 +83,13 @@ export class Room {
   private rescueEventSequence = 0
   private contributionEventSequence = 0
   private preparationsResolvedForMissionId: string | null = null
+  private seasonOutcomeClaimedForMissionId: string | null = null
 
-  constructor(code: string, private readonly getRotationWindow: (now: number) => SheriffRotationWindow = rotationWindowAt) {
+  constructor(
+    code: string,
+    private readonly getRotationWindow: (now: number) => SheriffRotationWindow = rotationWindowAt,
+    private readonly getSeasonSnapshot: (now: number) => SherwoodSeasonSnapshot | null = () => null,
+  ) {
     this.code = code
   }
 
@@ -362,6 +368,7 @@ export class Room {
     this.selectedContributionIds.clear()
     this.missionId = randomUUID()
     this.preparationsResolvedForMissionId = null
+    this.seasonOutcomeClaimedForMissionId = null
     this.leaderboardPersistence = "idle"
     for (const player of this.players.values()) this.resetPlayerForHub(player)
     this.broadcastRoomState()
@@ -447,6 +454,23 @@ export class Room {
 
   finishLeaderboardPersistence(success: boolean): void {
     this.leaderboardPersistence = success ? "done" : "idle"
+  }
+
+  claimSeasonOutcome(now = Date.now()): SeasonalMissionOutcome | null {
+    if (!this.mission || this.mission.status === "active" || this.seasonOutcomeClaimedForMissionId === this.missionId) return null
+    if (this.mission.status === "succeeded" && !this.mission.vote?.resolved) return null
+    this.seasonOutcomeClaimedForMissionId = this.missionId
+    return {
+      eventId: this.missionId,
+      occurredAt: now,
+      status: this.mission.status,
+      project: this.mission.vote?.winner ?? null,
+      communityCoin: this.mission.result?.communityCoin ?? 0,
+      rescues: [...this.players.values()].reduce((sum, player) => sum + player.rescueCount, 0),
+      cleanEscape: this.mission.status === "succeeded" && this.mission.damageTaken === 0,
+      tacticalScore: this.mission.result?.score ?? 0,
+      rotationId: this.mission.rotationId,
+    }
   }
 
   update(dt: number, now = Date.now()): void {
@@ -628,6 +652,7 @@ export class Room {
         .sort((left, right) => right.createdAt - left.createdAt)
         .map((contribution) => ({ ...contribution })),
       selectedContributionIds: [...this.selectedContributionIds],
+      season: this.getSeasonSnapshot(now),
       players: [...this.players.values()].map((player) => this.publicPlayer(player)),
       village: { ...this.village },
       lastResult: this.lastResult ? { ...this.lastResult } : null,

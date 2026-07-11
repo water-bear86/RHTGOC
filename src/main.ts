@@ -23,6 +23,7 @@ import { chooseRenderProfile } from "./render-profile"
 import type { BandContribution, ContributionType, LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionPreparation, MissionSnapshot, MissionTrap, PingKind, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
+import type { SherwoodSeasonSnapshot } from "../shared/sherwood-season"
 import {
   ACTION_LABELS,
   DEFAULT_INPUT_SETTINGS,
@@ -117,6 +118,14 @@ const rejoinRoomButton = document.querySelector<HTMLButtonElement>("#rejoin-room
 const hubPanel = document.querySelector<HTMLElement>("#hub-panel")!
 const hubRoomCode = document.querySelector<HTMLElement>("#hub-room-code")!
 const hubRecent = document.querySelector<HTMLElement>("#hub-recent")!
+const hubSeason = document.querySelector<HTMLElement>("#hub-season")!
+const hubSeasonPhase = document.querySelector<HTMLElement>("#hub-season-phase")!
+const hubSeasonName = document.querySelector<HTMLElement>("#hub-season-name")!
+const hubSeasonCopy = document.querySelector<HTMLElement>("#hub-season-copy")!
+const hubSeasonPressure = document.querySelector<HTMLElement>("#hub-season-pressure")!
+const hubSeasonPressureFill = document.querySelector<HTMLElement>("#hub-season-pressure-fill")!
+const hubSeasonProjects = document.querySelector<HTMLElement>("#hub-season-projects")!
+const hubSeasonFinale = document.querySelector<HTMLElement>("#hub-season-finale")!
 const hubRotations = document.querySelector<HTMLDivElement>("#hub-rotations")!
 const hubRotationState = document.querySelector<HTMLElement>("#hub-rotation-state")!
 const hubRescue = document.querySelector<HTMLElement>("#hub-rescue")!
@@ -198,6 +207,7 @@ let upcomingRotations: SheriffRotation[] = []
 let rotationsPaused = false
 let selectedRotationId: string | null = null
 let currentRescueOffer: RescueOffer | null = null
+let currentSeason: SherwoodSeasonSnapshot | null = null
 let currentContributions: BandContribution[] = []
 let selectedContributionIds: string[] = []
 let signalSabotaged = false
@@ -718,7 +728,7 @@ const multiplayer = new MultiplayerClient({
     lobbyStatus.textContent = "Share this code, then ready up together."
     enterHub(true)
   },
-  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer, contributions, nextSelectedContributionIds) => {
+  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer, contributions, nextSelectedContributionIds, season) => {
     currentRoomPlayers = players
     currentMissionSlug = missionSlug
     currentVillage = { ...village }
@@ -728,6 +738,7 @@ const multiplayer = new MultiplayerClient({
     currentRotations = nextRotations
     upcomingRotations = nextUpcomingRotations
     currentRescueOffer = rescueOffer
+    currentSeason = season
     currentContributions = contributions
     selectedContributionIds = nextSelectedContributionIds
     renderParty(players)
@@ -742,7 +753,7 @@ const multiplayer = new MultiplayerClient({
     readyButton.textContent = localReady ? "NOT READY" : "READY UP"
     hubReady.textContent = localReady ? "NOT READY" : "READY UP"
     hubLoadout.value = localPlayer?.loadoutId ?? "balanced"
-    applyVillageState(village)
+    applyVillageState(visibleVillageState(village))
     renderHub()
     if (phase === "lobby") {
       multiplayerActive = false
@@ -841,6 +852,7 @@ function renderHub(): void {
   renderRotationCountdown()
   renderRescueOffer()
   renderContributions()
+  renderSeason()
   hubMissions.replaceChildren()
   for (const mission of MISSION_CATALOG.values()) {
     const button = document.createElement("button")
@@ -971,6 +983,53 @@ function renderContributions(): void {
   hubContributionState.textContent = roomConnected
     ? `${selectedContributionIds.length}/3 selected for the next mission · ${available.length}/6 available · readiness locks the set.`
     : "Form a band to share preparation."
+}
+
+function renderSeason(): void {
+  const season = currentSeason
+  hubSeason.classList.toggle("hidden", !season)
+  if (!season) return
+  hubSeasonPhase.textContent = season.phase.toUpperCase()
+  hubSeasonName.textContent = season.name
+  hubSeasonPressure.textContent = String(season.pressure)
+  hubSeasonPressureFill.style.width = `${season.pressure}%`
+  const phaseCopy: Record<SherwoodSeasonSnapshot["phase"], string> = {
+    active: "Every verified redistribution, rescue, clean escape, and shared preparation changes the same Sherwood.",
+    paused: "Campaign scoring is paused for operator review; permanent band and identity data are untouched.",
+    finale: "The Sheriff is exposed. Complete verified daily marks before his counter-campaign closes the roads.",
+    succeeded: "Sherwood broke the campaign. The season awaits archival and permanent recognition.",
+    failed: "The Sheriff held this campaign. Village work and permanent recognition remain intact.",
+    archived: "This campaign is preserved as history. No permanent identity or entitlement was reset.",
+  }
+  hubSeasonCopy.textContent = phaseCopy[season.phase]
+  hubSeasonProjects.replaceChildren()
+  for (const project of Object.values(season.projects)) {
+    const item = document.createElement("div")
+    item.className = "season-project"
+    const label = document.createElement("b")
+    const value = document.createElement("span")
+    const track = document.createElement("i")
+    const fill = document.createElement("em")
+    label.textContent = project.label
+    value.textContent = `TIER ${project.tier} · ${project.total.toLocaleString()}${project.nextThreshold ? `/${project.nextThreshold.toLocaleString()}` : " · COMPLETE"}`
+    const denominator = project.nextThreshold ?? Math.max(1, project.total)
+    fill.style.width = `${Math.min(100, (project.total / denominator) * 100)}%`
+    track.append(fill)
+    item.append(label, value, track)
+    hubSeasonProjects.append(item)
+  }
+  hubSeasonFinale.textContent = season.phase === "finale" || season.phase === "succeeded" || season.phase === "failed"
+    ? `Finale: ${season.finale.successes}/${season.finale.target} successful marks · ${season.finale.attempts}/${season.finale.maxAttempts} attempts.`
+    : `Complete all three Tier 3 projects to expose the finale · revision ${season.revision}.`
+}
+
+function visibleVillageState(village: VillageState): VillageState {
+  if (!currentSeason) return village
+  return {
+    granary: Math.max(village.granary, currentSeason.projects.granary.tier),
+    infirmary: Math.max(village.infirmary, currentSeason.projects.infirmary.tier),
+    watchtower: Math.max(village.watchtower, currentSeason.projects.watchtower.tier),
+  }
 }
 
 function enterHub(online: boolean): void {
@@ -1339,7 +1398,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   signalView.traverse((child) => {
     if (child instanceof THREE.Mesh && child.userData.signalFlag) (child.material as THREE.MeshStandardMaterial).color.setHex(mission.signalSabotaged ? 0x5f5b45 : 0xa94132)
   })
-  applyVillageState(mission.village)
+  applyVillageState(visibleVillageState(mission.village))
   renderMissionResolution(mission)
   updateMissionDebug()
 }
@@ -1786,7 +1845,12 @@ function renderMissionResolution(mission: MissionSnapshot): void {
 
 function applyVillageState(village: VillageState): void {
   for (const choice of ["granary", "infirmary", "watchtower"] as VoteChoice[]) {
-    if (village[choice] <= 0 || villageUpgradeViews.has(choice)) continue
+    if (village[choice] <= 0) continue
+    const existing = villageUpgradeViews.get(choice)
+    if (existing) {
+      updateVillageUpgradeTier(existing, village[choice])
+      continue
+    }
     const view = new THREE.Group()
     if (choice === "granary") {
       for (let index = 0; index < 4; index += 1) {
@@ -1813,7 +1877,22 @@ function applyVillageState(village: VillageState): void {
     }
     villageUpgradeViews.set(choice, view)
     scene.add(view)
+    updateVillageUpgradeTier(view, village[choice])
   }
+}
+
+function updateVillageUpgradeTier(view: THREE.Group, tier: number): void {
+  const boundedTier = Math.max(1, Math.min(3, tier))
+  view.scale.setScalar(1 + (boundedTier - 1) * 0.14)
+  const renderedTier = Number(view.userData.tier ?? 0)
+  for (let level = renderedTier + 1; level <= boundedTier; level += 1) {
+    const beacon = mesh(new THREE.SphereGeometry(0.11 + level * 0.025, 8, 6), level === 3 ? 0xf2c65e : 0x8eb875, { cast: false })
+    beacon.position.set((level - 2) * 0.42, 2.25 + level * 0.34, 0)
+    const light = new THREE.PointLight(level === 3 ? 0xf2c65e : 0x8eb875, level * 0.55, 4)
+    light.position.copy(beacon.position)
+    view.add(beacon, light)
+  }
+  view.userData.tier = boundedTier
 }
 
 function renderParty(players: RoomPlayer[]): void {

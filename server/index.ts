@@ -13,6 +13,9 @@ import type { SheriffRotation } from "../shared/sheriff-rotation"
 import { SheriffRotationService } from "./rotation-service"
 import { createRescueOfferStoreFromEnv } from "./rescue-offer-store"
 import { createContributionStoreFromEnv } from "./contribution-store"
+import { SherwoodSeasonService, type SeasonTransition } from "./season-service"
+import { campaignRotationWindow } from "../shared/sherwood-season"
+import { createSeasonStoreFromEnv } from "./season-store"
 
 const port = Number(process.env.PORT ?? 8787)
 const rooms = new Map<string, Room>()
@@ -20,8 +23,11 @@ const bandStore = createBandStoreFromEnv()
 const leaderboardStore = createLeaderboardStoreFromEnv()
 const rescueOfferStore = createRescueOfferStoreFromEnv()
 const contributionStore = createContributionStoreFromEnv()
+const seasonStore = createSeasonStoreFromEnv()
+let seasonReady = seasonStore === null
 const telemetry = new Telemetry()
 const rotationService = new SheriffRotationService()
+const seasonService = new SherwoodSeasonService()
 const opsAdminSecret = process.env.OPS_ADMIN_SECRET
 const defaultMission = getMissionDefinition()
 const observedRoomPhases = new Map<string, string>()
@@ -33,6 +39,8 @@ const pendingRescueTransitions = new Map<string, { transition: RescueOfferTransi
 let rescuePersistenceFlushing = false
 const pendingContributionTransitions = new Map<string, { transition: ContributionTransition; attempts: number; nextAttemptAt: number }>()
 let contributionPersistenceFlushing = false
+const pendingSeasonTransitions = new Map<string, { transition: SeasonTransition; attempts: number; nextAttemptAt: number }>()
+let seasonPersistenceFlushing = false
 
 function roomCode(): string {
   let code = ""
@@ -146,10 +154,43 @@ async function flushContributionTransitions(now = Date.now()): Promise<void> {
   }
 }
 
+function enqueueSeasonTransition(transition: SeasonTransition): void {
+  if (!seasonStore) return
+  pendingSeasonTransitions.set(transition.eventId, { transition, attempts: 0, nextAttemptAt: Date.now() })
+  telemetry.gauge("season_persistence_queue", pendingSeasonTransitions.size)
+}
+
+async function flushSeasonTransitions(now = Date.now()): Promise<void> {
+  if (!seasonStore || seasonPersistenceFlushing) return
+  seasonPersistenceFlushing = true
+  try {
+    for (const [key, pending] of pendingSeasonTransitions) {
+      if (pending.nextAttemptAt > now) continue
+      try {
+        await seasonStore.recordTransition(pending.transition)
+        pendingSeasonTransitions.delete(key)
+        telemetry.increment("season_persistence_success_total")
+      } catch (error) {
+        pending.attempts += 1
+        pending.nextAttemptAt = now + Math.min(60_000, 1_000 * 2 ** Math.min(6, pending.attempts))
+        telemetry.increment("season_persistence_retry_total")
+        structuredLog("season_persistence_retry", { eventId: pending.transition.eventId, attempts: pending.attempts, reason: error instanceof Error ? error.message : "unknown" }, "error")
+      }
+    }
+  } finally {
+    seasonPersistenceFlushing = false
+    telemetry.gauge("season_persistence_queue", pendingSeasonTransitions.size)
+  }
+}
+
 const httpServer = createServer(async (request, response) => {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname
   if (pathname === "/rotations" && request.method === "GET") {
-    json(response, 200, rotationService.window())
+    json(response, 200, campaignRotationWindow(rotationService.window(), seasonService.snapshot()))
+    return
+  }
+  if (pathname === "/season" && request.method === "GET") {
+    json(response, 200, seasonService.snapshot())
     return
   }
   if (pathname.startsWith("/admin/rotations/") && request.method === "POST") {
@@ -186,6 +227,42 @@ const httpServer = createServer(async (request, response) => {
     }
     return
   }
+  if (pathname.startsWith("/admin/season/") && request.method === "POST") {
+    if (!opsAdminSecret) {
+      json(response, 503, { error: "Operator controls are not configured" })
+      return
+    }
+    if (!operatorAuthorized(request)) {
+      telemetry.increment("season_admin_unauthorized_total")
+      json(response, 401, { error: "Unauthorized" })
+      return
+    }
+    try {
+      const operation = pathname.split("/").at(-1) ?? "unknown"
+      if (operation === "pause") seasonService.pause()
+      else if (operation === "resume") seasonService.resume()
+      else if (operation === "extend") {
+        const body = await readJsonBody(request) as { endsAt?: unknown }
+        seasonService.extend(Number(body.endsAt))
+      } else if (operation === "archive") seasonService.archive()
+      else if (operation === "rollback") seasonService.rollback()
+      else if (operation === "start") {
+        const body = await readJsonBody(request) as { slug?: unknown; name?: unknown; startsAt?: unknown; endsAt?: unknown }
+        seasonService.start({ slug: String(body.slug ?? ""), name: String(body.name ?? ""), startsAt: Number(body.startsAt), endsAt: Number(body.endsAt) })
+      } else {
+        json(response, 404, { error: "Unknown season operation" })
+        return
+      }
+      telemetry.increment(`season_admin_${operation}_total`)
+      structuredLog("season_admin_changed", { operation })
+      const snapshot = seasonService.snapshot()
+      for (const room of rooms.values()) room.broadcastRoomState()
+      json(response, 200, snapshot)
+    } catch (error) {
+      json(response, 400, { error: error instanceof Error ? error.message : "Invalid season operation" })
+    }
+    return
+  }
   if (request.url === "/metrics") {
     response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" })
     response.end(JSON.stringify(telemetry.snapshot()))
@@ -201,10 +278,12 @@ const httpServer = createServer(async (request, response) => {
       verifiedLeaderboardWrites: leaderboardStore !== null,
       rescueOfferPersistence: rescueOfferStore !== null,
       contributionPersistence: contributionStore !== null,
+      seasonPersistence: seasonStore !== null,
       missionId: defaultMission.id,
       missionVersion: defaultMission.missionVersion,
       missionContentHash: defaultMission.contentHash,
       rotations: rotationService.window(),
+      season: seasonService.snapshot(),
     }))
     return
   }
@@ -262,7 +341,13 @@ sockets.on("connection", (socket) => {
 
     if (message.type === "create_room" || message.type === "join_room") {
       try {
-        const room = message.type === "create_room" ? new Room(roomCode(), (now) => rotationService.window(now)) : rooms.get(message.roomCode)
+        const room = message.type === "create_room"
+          ? new Room(
+            roomCode(),
+            (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)),
+            (now) => seasonService.snapshot(now),
+          )
+          : rooms.get(message.roomCode)
         if (!room) {
           send(socket, { type: "error", code: "ROOM_NOT_FOUND", message: "Merry Band room not found" })
           return
@@ -378,6 +463,7 @@ sockets.on("connection", (socket) => {
 
 setInterval(() => {
   let activePlayers = 0
+  let seasonChanged = false
   for (const [code, room] of rooms) {
     room.update(1 / 20)
     for (const transition of room.drainRescueOfferEvents()) {
@@ -394,6 +480,7 @@ setInterval(() => {
     }
     for (const transition of room.drainContributionEvents()) {
       enqueueContributionTransition(transition)
+      if (transition.contribution.status === "consumed") seasonChanged = seasonService.recordContribution({ eventId: transition.contribution.id, occurredAt: transition.at, type: transition.contribution.type }) || seasonChanged
       telemetry.increment(`contribution_${transition.contribution.status}_total`)
       structuredLog("contribution_transition", {
         traceId: roomTraces.get(code) ?? null,
@@ -403,6 +490,8 @@ setInterval(() => {
         missionId: transition.contribution.missionId,
       })
     }
+    const seasonOutcome = room.claimSeasonOutcome()
+    if (seasonOutcome) seasonChanged = seasonService.recordMission(seasonOutcome) || seasonChanged
     const verifiedRuns = leaderboardStore?.recordVerifiedRun ? room.claimVerifiedRuns() : null
     if (verifiedRuns) {
       void Promise.all(verifiedRuns.map((run) => leaderboardStore!.recordVerifiedRun(run)))
@@ -454,25 +543,53 @@ setInterval(() => {
   }
   telemetry.gauge("active_rooms", rooms.size)
   telemetry.gauge("active_players", activePlayers)
+  if (seasonReady) {
+    for (const transition of seasonService.drainTransitions()) {
+      enqueueSeasonTransition(transition)
+      telemetry.increment(`season_${transition.eventType}_events_total`)
+      telemetry.gauge("season_pressure", transition.snapshot.pressure)
+      structuredLog("season_transition", { eventId: transition.eventId, eventType: transition.eventType, phase: transition.snapshot.phase, revision: transition.snapshot.revision })
+    }
+  }
+  if (seasonChanged) for (const room of rooms.values()) room.broadcastRoomState()
 }, 50)
 
 setInterval(() => void flushRescueTransitions(), 1_000)
 setInterval(() => void flushContributionTransitions(), 1_000)
+setInterval(() => void flushSeasonTransitions(), 1_000)
 
 setInterval(() => {
   for (const room of rooms.values()) room.broadcastSnapshot()
 }, 100)
 
-httpServer.listen(port, "0.0.0.0", () => {
-  structuredLog("server_started", {
-    port,
-    protocolVersion: PROTOCOL_VERSION,
-    bandPersistence: bandStore !== null,
-    verifiedLeaderboardWrites: leaderboardStore !== null,
-    rescueOfferPersistence: rescueOfferStore !== null,
-    contributionPersistence: contributionStore !== null,
-    missionId: defaultMission.id,
-    missionVersion: defaultMission.missionVersion,
-    missionContentHash: defaultMission.contentHash,
+async function startServer(): Promise<void> {
+  if (seasonStore) {
+    const recovered = await seasonStore.loadCurrent()
+    if (recovered) {
+      seasonService.hydrate(recovered.snapshot, recovered.processedEventIds)
+      structuredLog("season_recovered", { seasonSlug: recovered.snapshot.slug, phase: recovered.snapshot.phase, revision: recovered.snapshot.revision, replayIds: recovered.processedEventIds.length })
+    }
+    seasonReady = true
+  }
+  httpServer.listen(port, "0.0.0.0", () => {
+    structuredLog("server_started", {
+      port,
+      protocolVersion: PROTOCOL_VERSION,
+      bandPersistence: bandStore !== null,
+      verifiedLeaderboardWrites: leaderboardStore !== null,
+      rescueOfferPersistence: rescueOfferStore !== null,
+      contributionPersistence: contributionStore !== null,
+      seasonPersistence: seasonStore !== null,
+      seasonSlug: seasonService.snapshot().slug,
+      seasonPhase: seasonService.snapshot().phase,
+      missionId: defaultMission.id,
+      missionVersion: defaultMission.missionVersion,
+      missionContentHash: defaultMission.contentHash,
+    })
   })
+}
+
+void startServer().catch((error) => {
+  structuredLog("server_start_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+  process.exit(1)
 })
