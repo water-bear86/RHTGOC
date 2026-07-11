@@ -13,10 +13,10 @@ The same AWS Lightsail HTTPS origin serves the 3D client, health endpoint, and M
 | Plane | Current state |
 | --- | --- |
 | Live production | M7 gameplay and social alpha. Playable, but all six persistence flags currently report `false`; band/social/campaign writes and verified leaderboard submissions are disabled. |
-| Pushed development | Draft PR [#38](https://github.com/water-bear86/sherwood-rebellion/pull/38) contains the M8 asset gate and core restrained cel shading. It is not deployed. |
-| Local worktree | A curated CC0 village candidate and shared collision work are paused before runtime integration. They are neither committed nor playable. |
+| Pushed development | Draft PR [#38](https://github.com/water-bear86/sherwood-rebellion/pull/38) completes M8: hardened asset gate, restrained cel shading, and the curated CC0 cottage/wagon runtime slice. It is not deployed. |
+| Local worktree | M8 has no intentionally deferred asset staging. New work starts from the production/mainline gates. |
 
-The next implementation sprint does not begin until #9, #10, #14, and M8 #35–#37 pass. The ordered M9 backlog is #39–#50.
+The next feature sprint does not begin until #9, #10, #14, and the releasable-mainline gate #39 pass. The ordered M9 backlog is #39–#50.
 
 ## Run locally
 
@@ -65,7 +65,7 @@ npm run test:operator
 npm run test:load
 ```
 
-Asset validation still has open hardening work in #35; passing the present command is not yet the final production asset-gate claim.
+The asset gate includes official byte-level Khronos validation, license-evidence hashes, SPDX validation, renderer-accurate transparent submissions, and portable lockfile-pinned conversion tooling.
 
 ## Documents
 

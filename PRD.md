@@ -6,9 +6,9 @@
 
 **Production:** M7 is playable on the permanent AWS Lightsail origin. The live service is not yet a persistence-enabled release.
 
-**Active pull request:** [#38 — M8 Storybook Sherwood Art Pass](https://github.com/water-bear86/sherwood-rebellion/pull/38), pushed through the core cel-shading checkpoint and intentionally paused before village integration.
+**Active pull request:** [#38 — M8 Storybook Sherwood Art Pass](https://github.com/water-bear86/sherwood-rebellion/pull/38), completing the hardened asset gate, shared cel shading, and curated village runtime slice.
 
-**Local worktree:** A deterministic village candidate and shared collision work are prepared but uncommitted and not visible in production.
+**Development status:** M8 is complete on its stacked branch but is not the production build. M9 remains gated by production activation and a traceable mainline release.
 
 **Core technology:** Three.js, TypeScript, Vite
 
@@ -103,7 +103,7 @@ The permanent M7 playtest establishes:
 - Seasonal leaderboard schemas, privacy-filtered reads, authoritative write paths, quarantine review, and finalization rules.
 - Authored Robin and tree GLBs alongside procedural scenery, with automated mission, simulation, networking, persistence, social, and browser checks.
 
-The pushed M8 branch adds the shared four-step toon-material system and its standard/degraded render profiles. It is not the production build. The village candidate, shared cottage collision, and client asset helpers exist only in the paused local worktree; the cottage and wagon are not yet rendered in gameplay.
+The completed M8 branch adds the shared four-step toon-material system, standard/degraded render profiles, a deterministic 677,248-byte CC0 village catalog, one authored cottage, and the authored tax/prison wagon shell. The official asset validator checks actual GLB bytes and bound license evidence. Shared cottage collision now governs solo, public-hub, client-predicted, and authoritative mission movement. M8 is not yet the production build.
 
 Production remains deliberately fail-closed without the server-only Supabase credential. Persistent band, rescue, contribution, season, social, and verified-leaderboard writes are inactive until #9, #10, and #14 pass their production proofs. Operator-secret rotation and the explicitly approved temporary-project restore drill are release gates.
 
@@ -313,10 +313,10 @@ The primary qualitative test is whether players naturally tell stories about sav
 | M5 · Replayable Alpha | Open | Routes, modifiers, assets, accessibility, and telemetry are delivered; production operations remain gated by #14. |
 | M6 · Four Heroes & Mission Kit | Closed | Robin, Marian, Little John, and Much; campfire hub; three versioned missions. |
 | M7 · Living Sherwood Playtest | Closed | Public campfire, friends/invites, rotations, rescue chains, preparations, and seasonal campaigns. |
-| M8 · Storybook Sherwood Art Pass | In progress | Asset gate, restrained cel shading, and curated village integration tracked in #35–#37 and draft PR #38. |
+| M8 · Storybook Sherwood Art Pass | Closed | Hardened asset gate, restrained cel shading, and curated cottage/wagon integration delivered in draft PR #38. |
 | M9 · Deeper Sherwood Public Alpha | Planned | Twelve ordered issues (#39–#50) covering release promotion, onboarding, mastery, stealth, planning, authored world composition, Nottingham, matchmaking, replays, accessibility, performance, and public playtesting. |
 
-M9 is a planning milestone, not active implementation. Its entry gate is a traceable mainline production release plus closure of #9, #10, #14, and M8 #35–#37.
+M9 is a planning milestone, not active feature implementation. Its entry gate is a traceable mainline production release plus closure of #9, #10, #14, and #39.
 
 ## 17. Non-goals for the social MVP
 

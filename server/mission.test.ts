@@ -5,6 +5,8 @@ import type { CharacterId } from "../shared/protocol"
 import referencePackage from "../missions/peoples-purse.v1.json"
 import { missionContentHash, parseMissionDefinition } from "../shared/mission-definition"
 import { PRISON_WAGON_MISSION, ROYAL_STOREHOUSE_MISSION } from "../shared/mission-catalog"
+import { VILLAGE_COTTAGE_COLLIDER, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
+import { createInitialState, updateSimulation } from "../src/simulation"
 
 function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer {
   return {
@@ -117,6 +119,33 @@ describe("authoritative mission", () => {
     for (let index = 0; index < 100; index += 1) mission.update(0.05)
     expect(robin.position.x).toBeLessThanOrEqual(22)
     expect(robin.position.z).toBeLessThanOrEqual(22)
+  })
+
+  it("keeps solo prediction and authoritative movement identical at the rotated cottage", () => {
+    const cosine = Math.cos(VILLAGE_COTTAGE_COLLIDER.rotation)
+    const sine = Math.sin(VILLAGE_COTTAGE_COLLIDER.rotation)
+    const start = {
+      x: VILLAGE_COTTAGE_COLLIDER.center.x + cosine * -4 + sine * -1.5,
+      z: VILLAGE_COTTAGE_COLLIDER.center.z - sine * -4 + cosine * -1.5,
+    }
+    const diagonal = 1 / Math.sqrt(2)
+    const move = {
+      x: cosine * diagonal + sine * diagonal,
+      z: -sine * diagonal + cosine * diagonal,
+    }
+    const local = createInitialState("robin")
+    local.player.position = { ...start }
+    const remote = player("remote", "robin")
+    remote.position = { ...start }
+    const mission = new Mission("COTTAGE", new Map([[remote.id, remote]]))
+
+    updateSimulation(local, { move }, 0.5)
+    expect(mission.setInput(remote.id, 1, move, 100)).toBe(true)
+    mission.update(0.5)
+
+    expect(remote.position.x).toBeCloseTo(local.player.position.x, 10)
+    expect(remote.position.z).toBeCloseTo(local.player.position.z, 10)
+    expect(isSherwoodPlayerPositionBlocked(remote.position)).toBe(false)
   })
 
   it("requires proximity for revive and loot transfer and scores support", () => {

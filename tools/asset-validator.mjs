@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
 import { readFile, readdir, realpath, stat } from "node:fs/promises"
 import { extname, isAbsolute, relative, resolve, sep } from "node:path"
+import { validateBytes as validateGltfBytes } from "gltf-validator"
+import parseSpdxExpression from "spdx-expression-parse"
 import { Matrix4, Quaternion, Vector3 } from "three"
 
 export const ASSET_CATEGORIES = [
@@ -15,7 +17,6 @@ export const ASSET_BOUNDS_TOLERANCE = 1e-4
 
 const STABLE_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/
 const SHA256 = /^[a-f0-9]{64}$/
-const SPDX_LIKE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9.+-]*(?: WITH [A-Za-z0-9][A-Za-z0-9.+-]*)?$/
 const PROJECT_AUTHORIZED_LICENSE = "LicenseRef-Project-Owner-Authorized"
 const EXTERNAL_PATH = /^(?:[a-z][a-z0-9+.-]*:|\/\/|[a-z]:[\\/])/i
 const RAW_3D_EXTENSIONS = new Set([
@@ -130,6 +131,45 @@ async function validateEvidencePath(rootDir, value, label, failures) {
   } catch {
     failures.push(`${label}: referenced evidence does not exist (${value})`)
     return undefined
+  }
+}
+
+function sha256(data) {
+  return createHash("sha256").update(data).digest("hex")
+}
+
+function normalizedLicenseToken(value) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "")
+}
+
+function evidenceIdentifiesLicense(contents, status, identifier) {
+  const text = contents.toString("utf8")
+  if (status === "project-authorized") {
+    return /project[- ]authorized/i.test(text)
+      && /(?:project owner|owner supplied|supplied[^\n]{0,80}owner)/i.test(text)
+  }
+  const token = normalizedLicenseToken(identifier)
+  return token.length > 0 && normalizedLicenseToken(text).includes(token)
+}
+
+async function validateWithKhronos(buffer, label, failures) {
+  try {
+    const report = await validateGltfBytes(new Uint8Array(buffer), {
+      uri: label,
+      format: "glb",
+      maxIssues: 0,
+      writeTimestamp: false,
+    })
+    for (const issue of report?.issues?.messages ?? []) {
+      if (issue.severity !== 0) continue
+      const pointer = hasText(issue.pointer) ? ` at ${issue.pointer}` : ""
+      failures.push(`${label}: Khronos ${issue.code ?? "VALIDATION_ERROR"}${pointer}: ${issue.message ?? "glTF validation error"}`)
+    }
+    if ((report?.issues?.numErrors ?? 0) > 0 && !(report?.issues?.messages ?? []).some((issue) => issue.severity === 0)) {
+      failures.push(`${label}: Khronos validator reported ${report.issues.numErrors} error(s)`)
+    }
+  } catch (error) {
+    failures.push(`${label}: Khronos validator could not validate GLB (${error instanceof Error ? error.message : String(error)})`)
   }
 }
 
@@ -386,7 +426,8 @@ function deriveGlbMetrics(container, label, failures) {
     usedAccessors.add(positionIndex)
     if (Number.isInteger(primitive.indices)) usedAccessors.add(primitive.indices)
     if (rendered) {
-      sceneDrawCalls += 1
+      const material = Number.isInteger(primitive.material) ? materials[primitive.material] : undefined
+      sceneDrawCalls += material?.alphaMode === "BLEND" && material.doubleSided === true ? 2 : 1
       renderVertices += renderedVertexCount(primitive, accessors)
       triangles += triangleCount(primitive, accessors, primitiveLabel, failures)
       expandWorldBounds(position, worldMatrix, primitiveLabel)
@@ -590,16 +631,32 @@ async function validateLicense(asset, label, rootDir, failures) {
   if (status === "project-authorized" && identifier !== PROJECT_AUTHORIZED_LICENSE) {
     failures.push(`${label}.license.identifier: project-authorized assets must use ${PROJECT_AUTHORIZED_LICENSE}`)
   }
-  if (status === "verified" && identifier && (identifier.startsWith("LicenseRef-") || !SPDX_LIKE_IDENTIFIER.test(identifier))) {
-    failures.push(`${label}.license.identifier: verified assets require a conventional non-LicenseRef identifier`)
+  if (status === "verified" && identifier) {
+    try {
+      if (identifier.startsWith("LicenseRef-")) throw new Error("LicenseRef is not independently verified")
+      parseSpdxExpression(identifier)
+    } catch {
+      failures.push(`${label}.license.identifier: verified assets require a valid SPDX expression without LicenseRef identifiers`)
+    }
   }
   const evidence = requireText(asset.license, "evidence", `${label}.license`, failures)
+  const evidenceSha256 = requireText(asset.license, "evidenceSha256", `${label}.license`, failures)
+  if (evidenceSha256 && !SHA256.test(evidenceSha256)) {
+    failures.push(`${label}.license.evidenceSha256: must be 64 lowercase hexadecimal characters`)
+  }
   if (evidence) {
     const evidencePath = await validateEvidencePath(rootDir, evidence, `${label}.license.evidence`, failures)
     if (evidencePath) {
       try {
-        const contents = await readFile(evidencePath, "utf8")
-        if (!contents.trim()) failures.push(`${label}.license.evidence: referenced evidence file is empty`)
+        const contents = await readFile(evidencePath)
+        if (!contents.toString("utf8").trim()) failures.push(`${label}.license.evidence: referenced evidence file is empty`)
+        const actualEvidenceSha256 = sha256(contents)
+        if (SHA256.test(evidenceSha256) && evidenceSha256 !== actualEvidenceSha256) {
+          failures.push(`${label}.license.evidenceSha256: checksum mismatch (actual ${actualEvidenceSha256})`)
+        }
+        if (status && identifier && contents.length > 0 && !evidenceIdentifiesLicense(contents, status, identifier)) {
+          failures.push(`${label}.license.evidence: does not identify the declared ${identifier} license basis`)
+        }
       } catch {
         failures.push(`${label}.license.evidence: referenced evidence file cannot be read`)
       }
@@ -955,6 +1012,7 @@ async function validateAssetFile(asset, label, publicDir, categoryBudget, failur
     failures.push(`${label}.sha256: checksum mismatch (actual ${checksum})`)
   }
 
+  await validateWithKhronos(buffer, label, failures)
   const gltf = parseGlb(buffer, label, failures)
   if (gltf) {
     const resourceUris = findResourceUris(gltf.json)

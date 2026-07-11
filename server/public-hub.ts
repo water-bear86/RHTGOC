@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
 import type { CharacterId, PublicHubPlayer, ServerMessage } from "../shared/protocol"
+import { PUBLIC_HUB_WORLD_BOUNDS, resolveSherwoodPlayerMovement } from "../shared/world-collisions"
 
 export const PUBLIC_HUB_CAPACITY = 12
 export const PUBLIC_HUB_IDLE_MS = 60_000
@@ -39,9 +40,13 @@ export class PublicHubService {
     })[0] ?? this.createInstance()
     const index = instance.participants.size
     const angle = index / PUBLIC_HUB_CAPACITY * Math.PI * 2
+    const spawn = resolveSherwoodPlayerMovement({
+      x: -11 + Math.cos(angle) * 4.5,
+      z: 9 + Math.sin(angle) * 4.5,
+    }, { x: 0, z: 0 }, PUBLIC_HUB_WORLD_BOUNDS)
     const participant: HubParticipant = {
       id: randomUUID(), userId, friendUserIds: new Set(friendUserIds), blockedUserIds: blocked, socket, displayName, characterId,
-      position: { x: -11 + Math.cos(angle) * 4.5, z: 9 + Math.sin(angle) * 4.5 },
+      position: spawn,
       looking: false, targetPreference: "any", desiredPartySize: 2,
       emote: null, emoteExpiresAt: 0, ping: null, pingExpiresAt: 0,
       lastActivityAt: now, lastSequence: 0, lastEmoteAt: 0, lastPingAt: 0, lastReportAt: 0, reportedUserIds: new Set(),
@@ -76,8 +81,12 @@ export class PublicHubService {
     const participant = this.participant(participantId)
     if (!participant || sequence <= participant.lastSequence || now - participant.lastActivityAt < 20) return false
     const length = Math.hypot(move.x, move.z) || 1
-    participant.position.x = Math.max(-18, Math.min(-4, participant.position.x + move.x / Math.max(1, length) * 0.35))
-    participant.position.z = Math.max(2, Math.min(16, participant.position.z + move.z / Math.max(1, length) * 0.35))
+    const resolved = resolveSherwoodPlayerMovement(participant.position, {
+      x: move.x / Math.max(1, length) * 0.35,
+      z: move.z / Math.max(1, length) * 0.35,
+    }, PUBLIC_HUB_WORLD_BOUNDS)
+    participant.position.x = resolved.x
+    participant.position.z = resolved.z
     participant.lastSequence = sequence
     participant.lastActivityAt = now
     return true

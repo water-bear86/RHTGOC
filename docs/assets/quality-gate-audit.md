@@ -17,15 +17,15 @@ The supplied Standard pack declares CC0 1.0 Universal in `License_Standard.txt` 
 
 The FBX set is rejected as a runtime source because it contains absolute Windows texture paths. The matching glTF set is the material and hierarchy reference. The complete 176-model library is rejected as a shipping unit: its raw textures would cost roughly 310 MiB uncompressed on the GPU, while most of the geometry is light. Only a curated conversion may enter `public/`.
 
-### Worktree candidate
+### Accepted village slice
 
 The village slice has three deliberately separate decisions:
 
 | Stage | Status | Meaning |
 | --- | --- | --- |
 | Source audition | Accepted for conversion | The selected CC0 modules have useful silhouettes and acceptable repair cost. |
-| Browser artifact | Candidate in the local worktree | A deterministic, embedded GLB passes current metrics and Khronos validation but is not committed. |
-| Runtime integration | Not accepted | The module catalog is not imported by `src/main.ts`; cottage/wagon visuals and client prediction have not passed gameplay QA. |
+| Browser artifact | Accepted | A deterministic, embedded GLB passes manifest budgets, license binding, byte-level Khronos validation, and offline reproduction. |
+| Runtime integration | Accepted | One authored cottage and wagon shell are loaded through the shared toon adapter; client/server collision, LOD fallbacks, cross-mission routes, resize, and context restoration pass. |
 
 The following sources make up the offline conversion candidate:
 
@@ -42,7 +42,7 @@ The following sources make up the offline conversion candidate:
 - `Prop_WoodenFence_Extension1.gltf`
 - `Prop_Vine2.gltf`
 
-Together these sources are about 370 KB of geometry/JSON, 5,410 triangles, and 21 stored primitives. Their raw textures are about 42.7 MB. The worktree candidate embeds sixteen resized 512-pixel WebPs and seven material families; the final decision remains open in #37.
+Together these sources are about 370 KB of geometry/JSON, 5,410 triangles, and 21 stored primitives. Their raw textures are about 42.7 MB. The accepted browser artifact embeds sixteen resized 512-pixel WebPs and seven material families.
 
 ### Rejected from the first slice
 
@@ -50,7 +50,7 @@ Together these sources are about 370 KB of geometry/JSON, 5,410 triangles, and 2
 - The 6-by-8 round-tile roof: oversized for the first compact cottage; use `Roof_RoundTiles_4x4.gltf`.
 - Any source module that depends on a missing texture, uses a broken external path, creates a false traversal affordance, or fails the shared collision/route audit.
 
-The first conversion target is one `sherwood-village-slice.glb` at or below 3 MB, 24 LOD0 renderer submissions, and seven shared material families. The current file is 677,248 bytes, but two double-sided transparent window primitives may produce 23 Three.js submissions rather than the 21 stored primitives. It must replace one cottage and the procedural wagon body, share authoritative collision with client prediction, and pass both render profiles before acceptance.
+The accepted `sherwood-village-slice.glb` is 677,248 bytes with 23 measured Three.js submissions: 21 stored primitives plus the second pass for two double-sided transparent window primitives. It replaces one cottage and the procedural wagon body at LOD0, shares the authored cottage collision resolver across solo, public-hub, client prediction, and mission-server movement, and passed standard/degraded rendering across all three authoritative missions.
 
 ## Unlicensed voxel free sample
 

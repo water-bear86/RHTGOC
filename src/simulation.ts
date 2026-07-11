@@ -1,4 +1,5 @@
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
+import { SHERWOOD_MISSION_WORLD_BOUNDS, resolveSherwoodPlayerMovement } from "../shared/world-collisions"
 
 export interface Vec2 { x: number; z: number }
 
@@ -112,18 +113,22 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   state.stats.elapsedSeconds += dt
 
   const moveLength = Math.hypot(input.move.x, input.move.z)
+  let playerDisplacement: Vec2 = { x: 0, z: 0 }
   if (moveLength > 0.001) {
     const speed = player.characterId === "marian" ? 6.75 : player.characterId === "little-john" ? 5.9 : 6.2
     const lootPenalty = player.characterId === "little-john"
       ? Math.max(0.82, 1 - player.loot / 1_100)
       : Math.max(0.68, 1 - player.loot / 600)
     const movement = speed * lootPenalty * dt
-    player.position.x += (input.move.x / moveLength) * movement
-    player.position.z += (input.move.z / moveLength) * movement
+    playerDisplacement = {
+      x: (input.move.x / moveLength) * movement,
+      z: (input.move.z / moveLength) * movement,
+    }
     state.stats.distanceTravelled += movement
-    player.position.x = Math.max(-22, Math.min(22, player.position.x))
-    player.position.z = Math.max(-22, Math.min(22, player.position.z))
   }
+  const resolvedPlayerPosition = resolveSherwoodPlayerMovement(player.position, playerDisplacement, SHERWOOD_MISSION_WORLD_BOUNDS)
+  player.position.x = resolvedPlayerPosition.x
+  player.position.z = resolvedPlayerPosition.z
 
   player.invulnerableFor = Math.max(0, player.invulnerableFor - dt)
   player.signatureCooldown = Math.max(0, player.signatureCooldown - dt)
@@ -175,8 +180,12 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       state.stats.damageTaken += 1
       player.invulnerableFor = 2
       state.heat = Math.min(100, state.heat + 15)
-      player.position.x -= (guard.position.x - player.position.x) * 1.8
-      player.position.z -= (guard.position.z - player.position.z) * 1.8
+      const knockback = resolveSherwoodPlayerMovement(player.position, {
+        x: -(guard.position.x - player.position.x) * 1.8,
+        z: -(guard.position.z - player.position.z) * 1.8,
+      }, SHERWOOD_MISSION_WORLD_BOUNDS)
+      player.position.x = knockback.x
+      player.position.z = knockback.z
       events.push("player-hit")
       if (player.health <= 0) {
         state.lost = true

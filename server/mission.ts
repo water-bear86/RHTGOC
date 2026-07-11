@@ -2,6 +2,7 @@ import type { BandContribution, CharacterId, LoadoutId, MissionAlarm, MissionCap
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
+import { resolveSherwoodPlayerMovement } from "../shared/world-collisions"
 
 export interface MissionOptions {
   rotation?: SheriffRotation | null
@@ -298,16 +299,21 @@ export class Mission {
       }
       if (!player.connected || player.health <= 0 || player.captured) continue
       const moveLength = Math.hypot(player.input.x, player.input.z)
+      let displacement = { x: 0, z: 0 }
       if (moveLength > 0.001) {
         const roleSpeed = player.characterId === "marian" ? 6.75 : player.characterId === "little-john" ? 5.9 : 6.2
         const lootPenalty = player.characterId === "little-john"
           ? Math.max(0.82, 1 - player.loot / 1_100)
           : Math.max(0.68, 1 - player.loot / 600)
         const movement = roleSpeed * lootPenalty * dt
-        const bounds = this.definition.rules.worldBounds
-        player.position.x = Math.max(-bounds, Math.min(bounds, player.position.x + (player.input.x / moveLength) * movement))
-        player.position.z = Math.max(-bounds, Math.min(bounds, player.position.z + (player.input.z / moveLength) * movement))
+        displacement = {
+          x: (player.input.x / moveLength) * movement,
+          z: (player.input.z / moveLength) * movement,
+        }
       }
+      const resolved = resolveSherwoodPlayerMovement(player.position, displacement, this.definition.rules.worldBounds)
+      player.position.x = resolved.x
+      player.position.z = resolved.z
     }
 
     const activePlayers = [...this.players.values()].filter((player) => player.connected && player.health > 0 && !player.captured)

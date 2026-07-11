@@ -12,6 +12,17 @@ Implementation is paused before the next sprint. This record separates live prod
 
 The user-visible playtest therefore remains M7. M8 screenshots or local browser evidence must not be described as production behavior.
 
+## Resolution after the pause
+
+The paused M8 work was resumed and completed on `agent/m8-storybook-art`:
+
+- #35 now runs lockfile-pinned Khronos validation against actual GLB bytes, binds license evidence by SHA-256, validates SPDX expressions, counts Three.js transparent double-sided passes, and includes adversarial regression fixtures.
+- #37 now loads the accepted cottage and wagon shell through the shared toon adapter, uses shared cottage collision in solo/public/client-predicted/server movement, and switches to procedural silhouettes across the documented LOD bands.
+- #36 passed standard/degraded authoritative tax-cart, prison-wagon, and storehouse smoke tests, responsive resize, and deliberate WebGL context loss/restoration.
+- The accepted GLB remains byte-identical at SHA-256 `9af770b514072dd55d13c29ffd95b4e1b39659e8baaf17b68e32ee80f4b150eb`; its portable byte-sorted source fingerprint is `71d564c9a2f3a4e94933bf9091ab08e2b2f5540650e200eb8afbf4a574399068`.
+
+This resolves the M8 local-worktree limits recorded below. The permanent public playtest still remains M7 until a traceable mainline promotion is deployed.
+
 ## Pushed M8 checkpoints
 
 ### Asset foundation — `c090bbf`

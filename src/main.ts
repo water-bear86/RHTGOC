@@ -44,6 +44,12 @@ import {
   type PointerAction,
 } from "./input-settings"
 import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, sendMagicLink, signOutSocial, updateSocialPresence, type SocialState } from "./social"
+import { createVillageCottage, createVillageWagonShell } from "./village-assets"
+import {
+  PUBLIC_HUB_WORLD_BOUNDS,
+  SHERWOOD_MISSION_WORLD_BOUNDS,
+  resolveSherwoodPlayerMovement,
+} from "../shared/world-collisions"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -139,6 +145,7 @@ const captionsSetting = document.querySelector<HTMLInputElement>("#setting-capti
 const readableTextSetting = document.querySelector<HTMLInputElement>("#setting-readable-text")!
 const mobileSpectatorSetting = document.querySelector<HTMLInputElement>("#setting-mobile-spectator")!
 const missionDebugButton = document.querySelector<HTMLButtonElement>("#mission-debug-button")!
+const graphicsRestoreButton = document.querySelector<HTMLButtonElement>("#graphics-restore-button")!
 const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
 const rejoinRoomButton = document.querySelector<HTMLButtonElement>("#rejoin-room")!
 const joinPublicHubButton = document.querySelector<HTMLButtonElement>("#join-public-hub")!
@@ -301,6 +308,11 @@ const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
 let treeGroveAssetPromise: Promise<THREE.Group> | null = null
+let villageAssetPromise: Promise<THREE.Group> | null = null
+let villageCottageFallback: THREE.Group | null = null
+let villageCottageView: THREE.Group | null = null
+let proceduralWagonShellView: THREE.Group | null = null
+let villageWagonShellView: THREE.Group | null = null
 let robinRangerMixer: THREE.AnimationMixer | null = null
 let robinRangerActions = new Map<string, THREE.AnimationAction>()
 let robinRangerMotion = ""
@@ -436,7 +448,7 @@ function createWorld(): void {
   }
 
   createHut(-14, 11, 0.35)
-  createHut(-10, 14, -0.55)
+  villageCottageFallback = createHut(-10, 14, -0.55)
   createHut(-15, 6, 1.1)
   const villageCircle = mesh(new THREE.TorusGeometry(2.35, 0.08, 6, 48), palette.gold, { cast: false })
   villageCircle.position.set(VILLAGE_POSITION.x, 0.06, VILLAGE_POSITION.z)
@@ -550,6 +562,42 @@ function loadTreeGrove(): Promise<THREE.Group> {
   return treeGroveAssetPromise
 }
 
+function loadVillageCatalog(): Promise<THREE.Group> {
+  villageAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-village-slice.glb")
+    .then((asset) => convertObjectToToon(asset.scene))
+  return villageAssetPromise
+}
+
+function prepareVillageRuntimeObject<T extends THREE.Object3D>(root: T): T {
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return
+    child.castShadow = true
+    child.receiveShadow = true
+    child.frustumCulled = true
+  })
+  return root
+}
+
+function attachVillageSlice(cart: THREE.Group): void {
+  void loadVillageCatalog().then((source) => {
+    const cottage = prepareVillageRuntimeObject(createVillageCottage(source))
+    cottage.position.set(-10, 0, 14)
+    cottage.rotation.y = -0.55
+    cottage.visible = false
+    villageCottageView = cottage
+    cameraOccluders.push({ view: cottage, radius: 3.2 })
+    scene.add(cottage)
+
+    const wagonShell = prepareVillageRuntimeObject(createVillageWagonShell(source))
+    wagonShell.visible = false
+    villageWagonShellView = wagonShell
+    cart.add(wagonShell)
+  }).catch((error) => {
+    console.error("Authored village kit failed to initialize", error)
+    showToast("The authored village kit could not be loaded; procedural fallbacks remain active")
+  })
+}
+
 function attachTreeGroves(): void {
   const placements = renderProfile.tier === "degraded"
     ? [{ x: -18, z: -15, scale: 10, rotation: 0.35 }]
@@ -622,17 +670,22 @@ function createCart(): THREE.Group {
   const cart = new THREE.Group()
   cart.position.set(CART_POSITION.x, 0, CART_POSITION.z)
   cart.rotation.y = -0.75
+  const proceduralShell = new THREE.Group()
+  proceduralShell.name = "ProceduralWagonFallback"
+  proceduralShell.userData.proceduralWagonShell = true
   const bed = mesh(new THREE.BoxGeometry(2.8, 0.7, 1.65), 0x7a4e2d)
   bed.position.y = 1
-  cart.add(bed)
+  proceduralShell.add(bed)
   for (const x of [-1.05, 1.05]) {
     for (const z of [-0.9, 0.9]) {
       const wheel = mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.18, 12), 0x3b2a21)
       wheel.position.set(x, 0.55, z)
       wheel.rotation.x = Math.PI / 2
-      cart.add(wheel)
+      proceduralShell.add(wheel)
     }
   }
+  proceduralWagonShellView = proceduralShell
+  cart.add(proceduralShell)
   for (let i = 0; i < 5; i += 1) {
     const coin = mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.08, 12), palette.gold)
     coin.position.set(-0.6 + i * 0.3, 1.45 + (i % 2) * 0.1, 0)
@@ -767,6 +820,7 @@ state.guards.forEach(() => {
   scene.add(guard)
 })
 const cartView = createCart()
+attachVillageSlice(cartView)
 const signalView = createSignalPost()
 const missionBoardView = createMissionBoard()
 const storehouseView = createRoyalStorehouse()
@@ -2566,12 +2620,32 @@ function showEnding(won: boolean): void {
   startButton.onclick = () => window.location.reload()
 }
 
+function syncVillageLods(player: Vec2): void {
+  const cottageDistance = Math.hypot(player.x + 10, player.z - 14)
+  const authoredCottageAvailable = villageCottageView !== null
+  if (villageCottageView) villageCottageView.userData.lodVisible = cottageDistance <= 34
+  if (villageCottageFallback) {
+    villageCottageFallback.userData.lodVisible = authoredCottageAvailable
+      ? cottageDistance > 34 && cottageDistance <= 58
+      : cottageDistance <= 58
+  }
+
+  const wagonDistance = Math.hypot(player.x - cartView.position.x, player.z - cartView.position.z)
+  if (villageWagonShellView) villageWagonShellView.visible = wagonDistance <= 34
+  if (proceduralWagonShellView) {
+    proceduralWagonShellView.visible = villageWagonShellView
+      ? wagonDistance > 34 && wagonDistance <= 58
+      : wagonDistance <= 58
+  }
+}
+
 function syncViews(elapsed: number, dt: number): void {
   if (!multiplayerActive) {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
   }
   const player = state.player.position
   const groveDistance = renderProfile.tier === "degraded" ? 30 : 38
+  syncVillageLods(player)
   const cameraToPlayer = { x: player.x - camera.position.x, z: player.z - camera.position.z }
   const cameraToPlayerLengthSquared = cameraToPlayer.x ** 2 + cameraToPlayer.z ** 2
   for (const occluder of cameraOccluders) {
@@ -2583,7 +2657,8 @@ function syncViews(elapsed: number, dt: number): void {
       x: camera.position.x + cameraToPlayer.x * segmentPosition,
       z: camera.position.z + cameraToPlayer.z * segmentPosition,
     }
-    occluder.view.visible = !(segmentPosition > 0.05 && segmentPosition < 0.95
+    occluder.view.visible = occluder.view.userData.lodVisible !== false
+      && !(segmentPosition > 0.05 && segmentPosition < 0.95
       && Math.hypot(occluder.view.position.x - sightline.x, occluder.view.position.z - sightline.z) < occluder.radius)
   }
   for (const grove of authoredGroveViews) {
@@ -2710,14 +2785,18 @@ function animate(): void {
       multiplayer.sendHubMove(move)
       const length = Math.hypot(move.x, move.z)
       if (length > 0.001) {
-        state.player.position.x = Math.max(-18, Math.min(-4, state.player.position.x + (move.x / length) * 5.8 * dt))
-        state.player.position.z = Math.max(2, Math.min(16, state.player.position.z + (move.z / length) * 5.8 * dt))
+        state.player.position = resolveSherwoodPlayerMovement(state.player.position, {
+          x: (move.x / length) * 5.8 * dt,
+          z: (move.z / length) * 5.8 * dt,
+        }, PUBLIC_HUB_WORLD_BOUNDS)
       }
     } else if (inHub) {
       const length = Math.hypot(move.x, move.z)
       if (length > 0.001) {
-        state.player.position.x = Math.max(-20, Math.min(20, state.player.position.x + (move.x / length) * 5.8 * dt))
-        state.player.position.z = Math.max(-20, Math.min(20, state.player.position.z + (move.z / length) * 5.8 * dt))
+        state.player.position = resolveSherwoodPlayerMovement(state.player.position, {
+          x: (move.x / length) * 5.8 * dt,
+          z: (move.z / length) * 5.8 * dt,
+        }, 20)
       }
     } else if (multiplayerActive) {
       multiplayer.sendInput(move)
@@ -2748,8 +2827,10 @@ function predictMultiplayerMovement(move: Vec2, dt: number): void {
   const lootPenalty = state.player.characterId === "little-john"
     ? Math.max(0.82, 1 - state.player.loot / 1_100)
     : Math.max(0.68, 1 - state.player.loot / 600)
-  state.player.position.x = Math.max(-22, Math.min(22, state.player.position.x + (move.x / length) * speed * lootPenalty * dt))
-  state.player.position.z = Math.max(-22, Math.min(22, state.player.position.z + (move.z / length) * speed * lootPenalty * dt))
+  state.player.position = resolveSherwoodPlayerMovement(state.player.position, {
+    x: (move.x / length) * speed * lootPenalty * dt,
+    z: (move.z / length) * speed * lootPenalty * dt,
+  }, SHERWOOD_MISSION_WORLD_BOUNDS)
 }
 
 function nearbyTeammate(predicate: (player: RoomPlayer) => boolean): RoomPlayer | null {
@@ -2920,6 +3001,18 @@ missionDebugButton.addEventListener("click", () => {
   missionDebug.classList.toggle("hidden")
   updateMissionDebug()
 })
+if (new URLSearchParams(location.search).get("debug") === "webgl") {
+  graphicsRestoreButton.hidden = false
+  graphicsRestoreButton.addEventListener("click", () => {
+    const extension = renderer.getContext().getExtension("WEBGL_lose_context")
+    if (!extension) {
+      showToast("Graphics restore test is unavailable")
+      return
+    }
+    extension.loseContext()
+    window.setTimeout(() => extension.restoreContext(), 250)
+  })
+}
 leaderboardButton.addEventListener("click", () => void openLeaderboard())
 closeLeaderboard.addEventListener("click", () => closePanel(leaderboardPanel))
 for (const filter of [boardKind, boardCharacter, boardParty, boardScope, boardMission, boardSeason]) filter.addEventListener("change", () => void openLeaderboard())

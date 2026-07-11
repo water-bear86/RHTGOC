@@ -1,0 +1,2 @@
+# Preserve the byte-identical upstream license evidence used by the asset gate.
+docs/assets/licenses/medieval-village-megakit-cc0.txt -text whitespace=-trailing-space

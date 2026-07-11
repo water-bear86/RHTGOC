@@ -25,7 +25,8 @@
       "license": {
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
-        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts"
+        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
+        "evidenceSha256": "161201d180293b83709145d79a8f4a67a2644d7b19032c22b66a6428138ed429"
       },
       "uri": "assets/characters/robin-ranger-rigged.glb",
       "format": "glTF 2.0 GLB",
@@ -99,7 +100,8 @@
       "license": {
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
-        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts"
+        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
+        "evidenceSha256": "161201d180293b83709145d79a8f4a67a2644d7b19032c22b66a6428138ed429"
       },
       "uri": "assets/environment/sherwood-tree-grove.glb",
       "format": "glTF 2.0 GLB",
@@ -137,10 +139,81 @@
         { "level": 1, "maxDistance": 48, "asset": "procedural perimeter trees" },
         { "level": 2, "maxDistance": 120, "asset": "hidden in fog" }
       ]
+    },
+    {
+      "id": "environment.sherwood.village-slice",
+      "category": "modular-environment",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-11",
+        "rationale": "Twelve CC0 village roots curated into one deterministic, grounded, self-contained module catalog with seven material families, measured browser cost, and shared runtime collision policy."
+      },
+      "provenance": {
+        "sourceAsset": "Medieval Village MegaKit[Standard] curated 12-root slice",
+        "sourceSha256": "71d564c9a2f3a4e94933bf9091ab08e2b2f5540650e200eb8afbf4a574399068",
+        "sourceBytes": 43055344,
+        "sourceGenerator": "Khronos glTF Blender I/O v4.0.44",
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/build-sherwood-village-slice.mjs",
+        "conversionDoc": "docs/assets/medieval-village-slice.md",
+        "optimizer": "glTF Transform 4.4.1"
+      },
+      "license": {
+        "status": "verified",
+        "identifier": "CC0-1.0",
+        "evidence": "docs/assets/licenses/medieval-village-megakit-cc0.txt",
+        "evidenceSha256": "ec6fd5004514cb0515a7dc1065f474644d31698861597b32e1745945ffec71de"
+      },
+      "uri": "assets/environment/sherwood-village-slice.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "9af770b514072dd55d13c29ffd95b4e1b39659e8baaf17b68e32ee80f4b150eb",
+      "bytesMax": 3000000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 16230,
+        "uploadVertices": 7601,
+        "triangles": 5410,
+        "uniquePrimitives": 21,
+        "sceneDrawCalls": 23
+      },
+      "materials": {
+        "count": 7,
+        "names": ["MI_WoodTrim", "MI_Plaster", "MI_RockTrim", "MI_Brick", "MI_RoundTiles", "MI_WindowGlass", "MI_Vine"]
+      },
+      "texture": {
+        "count": 16,
+        "format": "webp",
+        "width": 512,
+        "height": 512,
+        "encodedBytes": 262418,
+        "gpuBytesApprox": 22369600
+      },
+      "clips": [],
+      "pivot": {
+        "policy": "bottom at origin ground plane",
+        "passes": true,
+        "evidence": "All 12 direct roots and conservative aggregate bounds have minY=0"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-2.756538152694702, 0, -3.1504321098327637],
+        "boundsMax": [2.756538152694702, 4.249392867088318, 2.8215668201446533]
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": {
+        "type": "runtime-xz-rectangle-union",
+        "reason": "Authored render modules use the shared deterministic client/server level collider contract rather than mesh collision"
+      },
+      "lod": [
+        { "level": 0, "maxDistance": 34, "asset": "self" },
+        { "level": 1, "maxDistance": 58, "asset": "procedural hut and wagon silhouettes" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
+      ]
     }
   ],
   "catalog": {
-    "shipped": ["character.robin.ranger", "environment.sherwood.tree-grove"],
+    "shipped": ["character.robin.ranger", "environment.sherwood.tree-grove", "environment.sherwood.village-slice"],
     "procedural": [
       "character.marian.scout",
       "character.little-john.vanguard",

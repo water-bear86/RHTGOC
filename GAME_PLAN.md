@@ -18,23 +18,26 @@ The permanent playtest is an alpha service, not a finished MMO. Small-group miss
 
 Production persistence is not active: the live container lacks the server-only Supabase credential, so all six persistence-backed capabilities remain fail-closed. Issues #9, #10, and #14 own that release boundary.
 
-## Current sprint boundary — M8
+## Completed art/runtime milestone — M8
 
-Pushed in draft PR [#38](https://github.com/water-bear86/sherwood-rebellion/pull/38):
+Delivered in draft PR [#38](https://github.com/water-bear86/sherwood-rebellion/pull/38):
 
 - A browser-ready GLB manifest and automated asset gate.
 - A repaired, grounded Robin model with bow, quiver, one skin, and three clips.
 - A shared restrained four-step toon-material system.
 - Measured standard and forced-degraded render profiles.
+- A deterministic 677,248-byte CC0 village module catalog with 12 stable roots, seven material families, sixteen embedded 512-pixel WebPs, and 23 renderer submissions.
+- One authored cottage and wagon shell with procedural LOD fallbacks and shared client/server cottage collision.
 
-Paused before integration:
+Verification completed:
 
-- #35 is reopened to add Khronos validation, cryptographic license-evidence binding, correct transparent draw accounting, a lockfile-pinned toolchain, and portable rebuilds.
-- #36 still needs village-route, resize, and WebGL context-restoration playtests.
-- #37 has a deterministic 677,248-byte CC0 village candidate and shared cottage collision in the local worktree, but no cottage or wagon is rendered in gameplay yet.
+- The gate runs the official Khronos validator against bytes, binds license evidence by SHA-256, validates SPDX, counts transparent two-pass materials, and rejects adversarial fixtures.
+- An offline rebuild from `/tmp` produced the accepted GLB hash without fetching executable tooling.
+- Standard and degraded profiles render all three authoritative missions under budget with no new browser errors.
+- Resize and deliberate WebGL context loss/restoration preserve the complete 3D scene.
 - The unlicensed `Free Sample` pack is rejected. Raw source packs remain outside the runtime.
 
-No M9 implementation starts until this boundary is reconciled, committed, reviewed, and deployed from a traceable mainline release.
+No M9 feature implementation starts until #9, #10, #14, and #39 produce a persistence-enabled, traceable mainline release.
 
 ## Next sprint — M9 Deeper Sherwood Public Alpha
 

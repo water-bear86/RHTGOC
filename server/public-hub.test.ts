@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { WebSocket } from "ws"
 import { PUBLIC_HUB_CAPACITY, PUBLIC_HUB_IDLE_MS, PublicHubService } from "./public-hub"
+import { isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
 
 function socket(): WebSocket {
   return { readyState: WebSocket.OPEN, OPEN: WebSocket.OPEN, send: () => undefined } as unknown as WebSocket
@@ -13,6 +14,7 @@ describe("opt-in public campfire", () => {
     let filler = friend
     for (let index = 1; index < PUBLIC_HUB_CAPACITY; index += 1) filler = hub.join(socket(), `user-${index}`, `Player ${index}`, "robin", [], 1_000)
     const overflow = hub.join(socket(), "overflow", "Overflow", "much", [], 1_000)
+    expect([...hub.instances.values()].flatMap((instance) => [...instance.participants.values()]).every((player) => !isSherwoodPlayerPositionBlocked(player.position))).toBe(true)
     hub.leave(filler.id, 1_001)
     expect(hub.instances.size).toBe(2)
     const preferred = hub.join(socket(), "preferred", "Preferred", "little-john", ["user-friend"], 1_002)
