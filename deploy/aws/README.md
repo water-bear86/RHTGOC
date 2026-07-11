@@ -24,6 +24,7 @@ Runtime port: `8080`. Health check: `/health`. WebSocket endpoint: `/rooms`.
 Runtime secrets are supplied only to the container deployment, never as Docker build arguments:
 
 - `SUPABASE_URL`
+- `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`
 
 Keep them in AWS Secrets Manager or the operator's encrypted password manager and inject them into the container environment. Rotate immediately after suspected disclosure. A deployment without these values remains playable but reports `bandPersistence: false` and `verifiedLeaderboardWrites: false` at `/health`.
@@ -53,14 +54,28 @@ aws lightsail push-container-image \
   --region ca-central-1
 ```
 
-Use the image reference returned by the push command in a new deployment:
+Use the image reference returned by the push command in a new deployment. Lightsail replaces the complete container configuration on each deployment, so construct the environment explicitly; omitting a key disables that subsystem. Keep the temporary JSON file mode at `0600` and delete it immediately after the API accepts the deployment:
 
 ```bash
+export IMAGE_REF=:sherwood-rebellion.app.N
+export DEPLOY_SPEC="$(mktemp)"
+chmod 600 "$DEPLOY_SPEC"
+jq -n \
+  --arg image "$IMAGE_REF" \
+  --arg url "$SUPABASE_URL" \
+  --arg publishable "$SUPABASE_PUBLISHABLE_KEY" \
+  --arg secret "$SUPABASE_SECRET_KEY" \
+  '{app:{image:$image,environment:{SUPABASE_URL:$url,SUPABASE_PUBLISHABLE_KEY:$publishable,SUPABASE_SECRET_KEY:$secret},ports:{"8080":"HTTP"}}}' \
+  > "$DEPLOY_SPEC"
+
 aws lightsail create-container-service-deployment \
   --service-name sherwood-rebellion \
   --region ca-central-1 \
-  --containers '{"app":{"image":":sherwood-rebellion.app.N","ports":{"8080":"HTTP"}}}' \
+  --containers "file://$DEPLOY_SPEC" \
   --public-endpoint '{"containerName":"app","containerPort":8080,"healthCheck":{"path":"/health","intervalSeconds":10,"timeoutSeconds":5,"healthyThreshold":2,"unhealthyThreshold":2,"successCodes":"200-399"}}'
+
+rm -f "$DEPLOY_SPEC"
+unset DEPLOY_SPEC SUPABASE_SECRET_KEY
 ```
 
 Confirm `RUNNING` and `ACTIVE` before announcing the release:
@@ -71,7 +86,7 @@ aws lightsail get-container-services \
   --region ca-central-1
 ```
 
-Then run the health, reconnect, and bounded load checks against the new origin and inspect `/metrics` for persistence failures.
+Then run the health, reconnect, and bounded load checks against the new origin and inspect `/metrics` for persistence failures. A persistence-enabled release is not accepted until `/health` reports all six persistence flags true and one authenticated production mission proves the band-history and verified-leaderboard write paths.
 
 ## Rollback
 

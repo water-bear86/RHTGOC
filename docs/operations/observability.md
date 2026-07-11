@@ -18,6 +18,7 @@ Key counters:
 - `client_metrics_reports_total`, `input_backlog_<bucket>_total`, `snapshot_gap_<bucket>_total`
 - `season_<mission|contribution|operator>_events_total`, `season_pressure`, `season_persistence_queue`, `season_persistence_<success|retry>_total`
 - `recent_players_persistence_queue`, `recent_players_persistence_<success|retry>_total`; Supabase `social_rate_events` is the source for friend-request and direct-invite abuse review.
+- `band_membership_<offers|accepts|declines|removals>_total`, `band_membership_<accept|remove>_failure_total`, `band_identity_<updates|update_failure>_total`, and `band_hero_role_update_<total|failure_total>`.
 - `public_hub_instances`, `public_hub_players`, `hub_opt_ins_total`, `hub_private_bands_formed_total`, `hub_<emote|ping>_*`, `hub_*_rate_limited_total`, `hub_reports_total`, and `hub_blocks_total`.
 
 Key gauges: `active_connections`, `active_rooms`, and `active_players`.

@@ -9,6 +9,8 @@ Enabled:
 - local mute of another player's pings;
 - fixed-reason reports stored as server audit events;
 - private-room removal and reconnect-token blocking by the current room moderator;
+- authenticated account blocking across friends, direct invitations, recent players, public-camp discovery, and leaderboard results;
+- consent-based persistent Merry Band membership controlled by fixed accept/decline actions;
 - validated player and band names;
 - server rate limits for movement and contextual pings.
 
@@ -20,6 +22,6 @@ Not enabled:
 - custom emotes;
 - free-text reports;
 - custom banners, images, or other user-generated content;
-- public invites or discovery without the separate safety work in M7.
+- unbounded public discovery or automatic matchmaking without explicit opt-in.
 
-The current block is room-scoped until authenticated player identity and persistent sanctions are connected. A blocked reconnect token cannot return to that room, but account-level blocking must not be claimed until issue #9's authenticated persistence wiring is complete.
+Room moderation and account blocking are intentionally separate. A room moderator can remove a disruptive session and invalidate its reconnect token for that room. A signed-in player can also create a persistent account block; the blocked account is excluded from friendships, pending invitations, recent-player discovery, public-camp visibility, and ranked results. Neither path exposes email addresses or permits free-text moderation content.

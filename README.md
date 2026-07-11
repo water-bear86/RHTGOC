@@ -23,7 +23,7 @@ Controls: WASD or click to move, `E` to interact, Space to fire, and `Q` to use 
 
 ## Supabase
 
-The global leaderboard reads verified scores from Supabase and listens for new verified runs through Realtime. Browser clients have read-only RLS access: they cannot insert or modify ranked results. Until the authoritative mission server submits verified outcomes, completed local runs remain in the browser's offline preview.
+The global leaderboard reads verified scores from Supabase and listens for new verified runs through Realtime. Browser clients have read-only RLS access: they cannot insert or modify ranked results. A room server configured with the server-only Supabase secret submits authoritative outcomes; an unconfigured server remains playable but keeps completed local runs in the browser's unverified offline preview.
 
 The reproducible schema is in [`supabase/migrations`](./supabase/migrations). Generated database types live in [`src/database.types.ts`](./src/database.types.ts).
 
