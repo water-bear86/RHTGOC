@@ -50,6 +50,8 @@ import {
   SHERWOOD_MISSION_WORLD_BOUNDS,
   resolveSherwoodPlayerMovement,
 } from "../shared/world-collisions"
+import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
+import { createSherwoodWater } from "./water"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -304,6 +306,7 @@ const preparationViews = new Map<string, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
 const authoredGroveViews: THREE.Group[] = []
 const cameraOccluders: Array<{ view: THREE.Group; radius: number }> = []
+const water = createSherwoodWater()
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
@@ -424,11 +427,10 @@ function createWorld(): void {
   ground.position.y = -0.04
   scene.add(ground)
 
-  const river = mesh(new THREE.PlaneGeometry(5, 54), palette.water, { receive: true, cast: false })
-  river.rotation.x = -Math.PI / 2
-  river.rotation.z = -0.1
-  river.position.set(1, 0.01, 0)
-  scene.add(river)
+  water.group.rotation.x = -Math.PI / 2
+  water.group.rotation.z = -0.1
+  water.group.position.set(1, 0.01, 0)
+  scene.add(water.group)
 
   const road = mesh(new THREE.PlaneGeometry(5.5, 48), palette.path, { receive: true, cast: false })
   road.rotation.x = -Math.PI / 2
@@ -462,21 +464,13 @@ function createWorld(): void {
   fire.position.set(VILLAGE_POSITION.x, 0.5, VILLAGE_POSITION.z)
   scene.add(fire)
 
-  let seed = 1937
+  for (const tree of SHERWOOD_TREE_LAYOUT) createTree(tree.x, tree.z, tree.scale)
+
+  let seed = 7331
   const random = (): number => {
     seed = (seed * 16807) % 2147483647
     return (seed - 1) / 2147483646
   }
-  for (let i = 0; i < 58; i += 1) {
-    const x = random() * 48 - 24
-    const z = random() * 48 - 24
-    const nearVillage = Math.hypot(x - VILLAGE_POSITION.x, z - VILLAGE_POSITION.z) < 6.5
-    const nearCart = Math.hypot(x - CART_POSITION.x, z - CART_POSITION.z) < 6
-    const nearRiver = Math.abs(x - 1 - z * 0.1) < 3.8
-    const nearRoad = Math.abs(z - x) < 3
-    if (!nearVillage && !nearCart && !nearRiver && !nearRoad) createTree(x, z, 0.7 + random() * 0.7)
-  }
-
   for (let i = 0; i < 18; i += 1) {
     const rock = mesh(new THREE.DodecahedronGeometry(0.25 + random() * 0.45, 0), 0x687060)
     rock.scale.y = 0.55
@@ -2640,6 +2634,7 @@ function syncVillageLods(player: Vec2): void {
 }
 
 function syncViews(elapsed: number, dt: number): void {
+  water.update(elapsed, renderProfile.motionScale)
   if (!multiplayerActive) {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
   }
@@ -2650,6 +2645,7 @@ function syncViews(elapsed: number, dt: number): void {
   const cameraToPlayerLengthSquared = cameraToPlayer.x ** 2 + cameraToPlayer.z ** 2
   for (const occluder of cameraOccluders) {
     const cameraToOccluder = { x: occluder.view.position.x - camera.position.x, z: occluder.view.position.z - camera.position.z }
+    const cameraDistance = Math.hypot(cameraToOccluder.x, cameraToOccluder.z)
     const segmentPosition = cameraToPlayerLengthSquared > 0
       ? Math.max(0, Math.min(1, (cameraToOccluder.x * cameraToPlayer.x + cameraToOccluder.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
       : 0
@@ -2658,6 +2654,7 @@ function syncViews(elapsed: number, dt: number): void {
       z: camera.position.z + cameraToPlayer.z * segmentPosition,
     }
     occluder.view.visible = occluder.view.userData.lodVisible !== false
+      && cameraDistance > occluder.radius * 2.35
       && !(segmentPosition > 0.05 && segmentPosition < 0.95
       && Math.hypot(occluder.view.position.x - sightline.x, occluder.view.position.z - sightline.z) < occluder.radius)
   }

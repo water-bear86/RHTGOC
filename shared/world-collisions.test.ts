@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   PUBLIC_HUB_WORLD_BOUNDS,
   SHERWOOD_PLAYER_RADIUS,
+  SHERWOOD_TREE_COLLIDERS,
   VILLAGE_COTTAGE_COLLIDER,
   isSherwoodPlayerPositionBlocked,
   resolveSherwoodPlayerMovement,
@@ -41,6 +42,17 @@ describe("shared Sherwood world collision contract", () => {
       rotation: -0.55,
     })
     expect(SHERWOOD_PLAYER_RADIUS).toBe(0.45)
+  })
+
+  it("makes every rendered procedural tree trunk authoritative and solid", () => {
+    expect(SHERWOOD_TREE_COLLIDERS.length).toBeGreaterThan(20)
+    const tree = SHERWOOD_TREE_COLLIDERS.find(({ center }) => Math.abs(center.x) < 18 && Math.abs(center.z) < 18)!
+    expect(isSherwoodPlayerPositionBlocked(tree.center)).toBe(true)
+
+    const start = { x: tree.center.x - 2, z: tree.center.z }
+    const resolved = resolveSherwoodPlayerMovement(start, { x: 4, z: 0 }, 24)
+    expect(resolved.x).toBeLessThan(tree.center.x)
+    expect(isSherwoodPlayerPositionBlocked(resolved)).toBe(false)
   })
 
   it("sweeps against the full cottage so a long normal tick cannot tunnel through", () => {

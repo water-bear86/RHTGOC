@@ -1,3 +1,5 @@
+import { SHERWOOD_TREE_LAYOUT } from "./world-layout"
+
 export interface XzPoint {
   x: number
   z: number
@@ -31,8 +33,19 @@ export const VILLAGE_COTTAGE_COLLIDER: OrientedRectangleCollider = Object.freeze
   rotation: -0.55,
 })
 
+/** Tight square trunk footprints; the player's radius rounds their effective corners. */
+export const SHERWOOD_TREE_COLLIDERS: readonly OrientedRectangleCollider[] = Object.freeze(
+  SHERWOOD_TREE_LAYOUT.map((tree, index) => Object.freeze({
+    id: `sherwood-tree-${index}`,
+    center: Object.freeze({ x: tree.x, z: tree.z }),
+    halfExtents: Object.freeze({ x: 0.3 * tree.scale, z: 0.3 * tree.scale }),
+    rotation: 0,
+  })),
+)
+
 export const SHERWOOD_STATIC_COLLIDERS: readonly OrientedRectangleCollider[] = Object.freeze([
   VILLAGE_COTTAGE_COLLIDER,
+  ...SHERWOOD_TREE_COLLIDERS,
 ])
 
 export const SHERWOOD_MISSION_WORLD_BOUNDS = 22
