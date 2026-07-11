@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { MissionPlayer } from "./mission"
-import { Mission, missionSeed } from "./mission"
+import { Mission, SIGNAL_POSITION, missionSeed } from "./mission"
 import type { CharacterId } from "../shared/protocol"
 
 function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer {
@@ -28,6 +28,8 @@ function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer
     protectionScore: 0,
     crowdControl: 0,
     heavyCarryPeak: 0,
+    trapHits: 0,
+    sabotageCount: 0,
   }
 }
 
@@ -145,6 +147,47 @@ describe("authoritative mission", () => {
     mission.setInput(robin.id, 1, { x: 1, z: 0 }, 100)
     mission.update(1)
     expect(john.position.x - johnBefore).toBeGreaterThan(robin.position.x - robinBefore)
+  })
+
+  it("validates Much's trap placement, duplicate actions, reconnect state, and cleanup", () => {
+    const much = player("much", "much")
+    const mission = new Mission("ABC234", new Map([[much.id, much]]))
+    much.position = { x: 0, z: 0 }
+    expect(mission.action(much.id, "signature")).toBe(false)
+    much.position = { x: 5, z: 5 }
+    expect(mission.action(much.id, "signature")).toBe(true)
+    expect(mission.action(much.id, "signature")).toBe(false)
+    expect(mission.snapshot().traps).toHaveLength(1)
+    much.connected = false
+    mission.update(0.05)
+    expect(mission.snapshot().traps).toHaveLength(1)
+    much.connected = true
+    for (let index = 0; index < 599; index += 1) mission.update(0.05)
+    expect(mission.snapshot().traps).toHaveLength(0)
+    much.signatureCooldown = 0
+    mission.phase = "extraction"
+    expect(mission.action(much.id, "signature")).toBe(false)
+  })
+
+  it("triggers readable traps and shares reinforcement sabotage state", () => {
+    const much = player("much", "much")
+    const robin = player("robin", "robin")
+    const mission = new Mission("ABC234", new Map([[much.id, much], [robin.id, robin]]))
+    much.position = { ...mission.guards[0].position }
+    expect(mission.action(much.id, "signature")).toBe(true)
+    mission.update(0.05)
+    expect(much.trapHits).toBe(1)
+    expect(mission.snapshot().traps).toHaveLength(0)
+    expect(mission.events.some((event) => event.type === "trap_triggered")).toBe(true)
+
+    much.signatureCooldown = 0
+    much.position = { ...SIGNAL_POSITION }
+    mission.heat = 60
+    expect(mission.action(much.id, "interact")).toBe(true)
+    expect(mission.action(much.id, "interact")).toBe(false)
+    expect(mission.snapshot()).toMatchObject({ signalSabotaged: true, reinforcementDelaySeconds: 30 })
+    expect(much.sabotageCount).toBe(1)
+    expect(mission.heat).toBe(40)
   })
 
   it("rate-limits contextual pings and expires them deterministically", () => {

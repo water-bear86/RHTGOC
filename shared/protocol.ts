@@ -69,6 +69,8 @@ export interface RoomPlayer {
   protectionScore: number
   crowdControl: number
   heavyCarryPeak: number
+  trapHits: number
+  sabotageCount: number
   position: { x: number; z: number }
   lastInputSequence: number
 }
@@ -82,7 +84,7 @@ export interface MissionGuard {
 export interface MissionEvent {
   sequence: number
   tick: number
-  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
+  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "trap_placed" | "trap_triggered" | "reinforcement_sabotaged" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
   playerId?: string
   value?: number
   detail?: string
@@ -94,6 +96,13 @@ export interface WorldPing {
   id: number
   kind: PingKind
   playerId: string
+  position: { x: number; z: number }
+  expiresAtTick: number
+}
+
+export interface MissionTrap {
+  id: number
+  ownerId: string
   position: { x: number; z: number }
   expiresAtTick: number
 }
@@ -121,6 +130,9 @@ export interface MissionSnapshot {
   modifiers: Array<{ id: "armored-escort" | "scarce-quivers" | "double-tithe" | "watchful-sheriff"; label: string; effect: string }>
   sheriffPlan: "patrol" | "pursuit" | "reinforcement"
   optionalObjectives: Array<{ id: "no-captures" | "share-the-wealth" | "two-roads"; label: string; completed: boolean; failed: boolean }>
+  traps: MissionTrap[]
+  reinforcementDelaySeconds: number
+  signalSabotaged: boolean
 }
 
 export type VoteChoice = "granary" | "infirmary" | "watchtower"
@@ -159,7 +171,7 @@ export interface VillageState {
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
   | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; players: RoomPlayer[] }
-  | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak">>; mission: MissionSnapshot }
+  | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string }
 

@@ -70,6 +70,17 @@ describe("Sherwood simulation", () => {
     expect(john.player.position.x).toBeGreaterThan(robin.player.position.x)
   })
 
+  it("gives Much a bounded visible snare that cleans up after triggering", () => {
+    const state = createInitialState("much")
+    state.player.position = { x: 7, z: -5 }
+    expect(activateSignature(state).event).toBe("much-snare")
+    expect(activateSignature(state).event).toBe("signature-unavailable")
+    expect(state.traps).toHaveLength(1)
+    expect(updateSimulation(state, { move: { x: 0, z: 0 } }, 0.05)).toContain("trap-triggered")
+    expect(state.traps).toHaveLength(0)
+    expect(state.guards[0].stunnedFor).toBe(4.5)
+  })
+
   it("scores speed, precision, survival, and generosity", () => {
     const state = createInitialState("marian")
     state.delivered = DELIVERY_TARGET

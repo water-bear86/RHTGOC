@@ -1,4 +1,4 @@
-import type { CharacterId, MissionEvent, MissionResult, MissionSnapshot, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { CharacterId, MissionEvent, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 
 export interface MissionPlayer {
   id: string
@@ -24,6 +24,8 @@ export interface MissionPlayer {
   protectionScore: number
   crowdControl: number
   heavyCarryPeak: number
+  trapHits: number
+  sabotageCount: number
 }
 
 interface MissionGuardState {
@@ -36,6 +38,7 @@ interface MissionGuardState {
 
 const CART_POSITION = { x: 10, z: -8 }
 const VILLAGE_POSITION = { x: -11, z: 9 }
+export const SIGNAL_POSITION = { x: 6, z: -14 }
 export const DELIVERY_TARGET = 600
 export const ENTRY_ROUTES = {
   forest: { x: -16, z: -4 },
@@ -67,6 +70,7 @@ export class Mission {
   readonly events: MissionEvent[] = []
   readonly guards: MissionGuardState[]
   readonly pings: WorldPing[] = []
+  readonly traps: MissionTrap[] = []
   status: "active" | "succeeded" | "failed" = "active"
   phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction" = "scout"
   entryRoute: "forest" | "river" | null = null
@@ -92,8 +96,11 @@ export class Mission {
   heat = 0
   cartCoin = 120
   cartRefill = 0
+  reinforcementDelaySeconds = 0
+  signalSabotaged = false
   delivered = 0
   tick = 0
+  private nextTrapId = 1
 
   constructor(roomCode: string, private readonly players: Map<string, MissionPlayer>) {
     this.seed = missionSeed(roomCode)
@@ -189,7 +196,11 @@ export class Mission {
     for (let index = this.pings.length - 1; index >= 0; index -= 1) {
       if (this.pings[index].expiresAtTick <= this.tick) this.pings.splice(index, 1)
     }
+    for (let index = this.traps.length - 1; index >= 0; index -= 1) {
+      if (this.traps[index].expiresAtTick <= this.tick) this.traps.splice(index, 1)
+    }
     this.cartRefill = Math.max(0, this.cartRefill - dt)
+    this.reinforcementDelaySeconds = Math.max(0, this.reinforcementDelaySeconds - dt)
     if (this.cartRefill === 0 && this.cartCoin === 0) this.cartCoin = this.cartValue
 
     for (const player of this.players.values()) {
@@ -248,7 +259,7 @@ export class Mission {
       cartCoin: this.cartCoin,
       delivered: this.delivered,
       target: this.deliveryTarget,
-      supportScore: [...this.players.values()].reduce((total, player) => total + player.rescueCount * 350 + player.transferCount * 100 + player.protectionScore + player.crowdControl * 75, 0),
+      supportScore: [...this.players.values()].reduce((total, player) => total + player.rescueCount * 350 + player.transferCount * 100 + player.protectionScore + player.crowdControl * 75 + player.trapHits * 125 + player.sabotageCount * 200, 0),
       guards: this.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, stunnedFor: guard.stunnedFor })),
       pings: this.pings.map((ping) => ({ ...ping, position: { ...ping.position } })),
       latestEvent: this.events.at(-1) ?? null,
@@ -262,10 +273,21 @@ export class Mission {
         { id: "share-the-wealth", label: "Transfer 120 coin between outlaws", completed: [...this.players.values()].reduce((sum, player) => sum + player.totalTransferred, 0) >= 120, failed: false },
         { id: "two-roads", label: "Use both forest and river routes", completed: this.entryRoutesUsed.size === 2 || this.escapeRoutesUsed.size === 2, failed: false },
       ],
+      traps: this.traps.map((trap) => ({ ...trap, position: { ...trap.position } })),
+      reinforcementDelaySeconds: this.reinforcementDelaySeconds,
+      signalSabotaged: this.signalSabotaged,
     }
   }
 
   private interact(player: MissionPlayer): boolean {
+    if (player.characterId === "much" && !this.signalSabotaged && this.phase !== "extraction" && distance(player.position, SIGNAL_POSITION) < 3.2) {
+      this.signalSabotaged = true
+      this.reinforcementDelaySeconds = 30
+      player.sabotageCount += 1
+      this.heat = Math.max(0, this.heat - 20)
+      this.record("reinforcement_sabotaged", player.id, 30, "signal-cut")
+      return true
+    }
     if (distance(player.position, CART_POSITION) < 3) {
       if (this.phase !== "robbery" || this.cartCoin === 0) return false
       const stolen = this.cartCoin
@@ -349,6 +371,8 @@ export class Mission {
         this.ambushStuns += targets.length
         if (this.ambushStuns >= this.ambushTarget) this.setPhase("robbery", player.id)
       }
+    } else if (player.characterId === "much") {
+      if (!this.placeTrap(player)) return false
     } else {
       const targets = this.guards
         .filter((guard) => distance(guard.position, player.position) < 11)
@@ -362,7 +386,8 @@ export class Mission {
       }
     }
     player.signatureCooldown = player.characterId === "little-john" ? 20 : 18
-    this.record("signature_used", player.id, undefined, player.characterId === "little-john" ? "little-john-sweep" : player.characterId)
+    const signatureDetail = player.characterId === "little-john" ? "little-john-sweep" : player.characterId === "much" ? "much-snare" : player.characterId
+    this.record("signature_used", player.id, undefined, signatureDetail)
     return true
   }
 
@@ -394,11 +419,21 @@ export class Mission {
   private updateGuard(guard: MissionGuardState, players: MissionPlayer[], dt: number): void {
     guard.stunnedFor = Math.max(0, guard.stunnedFor - dt)
     if (guard.stunnedFor > 0) return
+    const trapIndex = this.traps.findIndex((trap) => distance(trap.position, guard.position) < 1.35)
+    if (trapIndex >= 0) {
+      const [trap] = this.traps.splice(trapIndex, 1)
+      guard.stunnedFor = 4.5
+      const owner = this.players.get(trap.ownerId)
+      if (owner) owner.trapHits += 1
+      this.record("trap_triggered", trap.ownerId, guard.id, `trap:${trap.id}`)
+      return
+    }
     const target = players
       .filter((player) => player.veilFor <= 0)
       .sort((a, b) => distance(a.position, guard.position) - distance(b.position, guard.position))[0]
     if (target && this.heat > 8 && distance(target.position, guard.position) < 22) {
-      this.moveToward(guard.position, target.position, 3.35 + this.heat * 0.008, dt)
+      const disruption = this.reinforcementDelaySeconds > 0 ? 0.7 : 0
+      this.moveToward(guard.position, target.position, 3.35 + this.heat * 0.008 - disruption, dt)
       if (distance(target.position, guard.position) < 1.25 && target.invulnerableFor === 0) {
         target.health = Math.max(0, target.health - 1)
         this.damageTaken += 1
@@ -418,6 +453,23 @@ export class Mission {
       x: guard.home.x + Math.cos(guard.patrolAngle) * 2.2,
       z: guard.home.z + Math.sin(guard.patrolAngle) * 2.2,
     }, 1.5, dt)
+  }
+
+  private placeTrap(player: MissionPlayer): boolean {
+    if (this.phase === "extraction") return false
+    if (Math.abs(player.position.x) > 20 || Math.abs(player.position.z) > 20) return false
+    if (Math.abs(player.position.x) < 3.2 && Math.abs(player.position.z) < 18) return false
+    if (distance(player.position, CART_POSITION) < 3 || distance(player.position, VILLAGE_POSITION) < 3) return false
+    if (this.traps.some((trap) => trap.ownerId === player.id)) return false
+    const trap: MissionTrap = {
+      id: this.nextTrapId++,
+      ownerId: player.id,
+      position: { ...player.position },
+      expiresAtTick: this.tick + 600,
+    }
+    this.traps.push(trap)
+    this.record("trap_placed", player.id, trap.id, this.phase)
+    return true
   }
 
   private detectRoute(

@@ -30,6 +30,12 @@ describe("Merry Band room", () => {
     expect(room.publicPlayer(player)).toMatchObject({ characterId: "little-john", arrows: 3, ready: false, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0 })
   })
 
+  it("synchronizes Much selection and Saboteur contribution state", () => {
+    const room = new Room("ABC234")
+    const player = room.addPlayer(fakeSocket(), "Much", "much")
+    expect(room.publicPlayer(player)).toMatchObject({ characterId: "much", trapHits: 0, sabotageCount: 0 })
+  })
+
   it("keeps deterministic, collision-free spawns when a slot is pruned", () => {
     const room = new Room("ABC234")
     const first = room.addPlayer(fakeSocket(), "First", "robin")

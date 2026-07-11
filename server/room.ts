@@ -25,6 +25,8 @@ interface ConnectedPlayer extends RoomPlayer {
   protectionScore: number
   crowdControl: number
   heavyCarryPeak: number
+  trapHits: number
+  sabotageCount: number
 }
 
 function maxArrows(characterId: CharacterId): number {
@@ -91,6 +93,8 @@ export class Room {
       protectionScore: 0,
       crowdControl: 0,
       heavyCarryPeak: 0,
+      trapHits: 0,
+      sabotageCount: 0,
     }
     this.players.set(player.id, player)
     return player
@@ -236,6 +240,8 @@ export class Room {
       protectionScore: player.protectionScore,
       crowdControl: player.crowdControl,
       heavyCarryPeak: player.heavyCarryPeak,
+      trapHits: player.trapHits,
+      sabotageCount: player.sabotageCount,
       position: player.position,
       lastInputSequence: player.lastInputSequence,
     }
@@ -261,7 +267,7 @@ export class Room {
     this.broadcast({
       type: "snapshot",
       tick: this.tick,
-      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak })),
+      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount })),
       mission: this.mission.snapshot(),
     })
   }

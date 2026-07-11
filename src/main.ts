@@ -20,7 +20,7 @@ import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type L
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
-import type { MissionEvent, MissionSnapshot, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { MissionEvent, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import {
   ACTION_LABELS,
   DEFAULT_INPUT_SETTINGS,
@@ -159,6 +159,7 @@ let missionTarget = DELIVERY_TARGET
 let missionObjective = "Find the Sheriff's tax cart"
 let missionPrompt = "Scout together and signal a route"
 let currentMissionPhase: MissionSnapshot["phase"] = "scout"
+let signalSabotaged = false
 let capturingAction: GameAction | null = null
 let previousGamepadButtons: boolean[] = []
 let lastPanelTrigger: HTMLElement | null = null
@@ -181,6 +182,7 @@ interface RemoteView {
 
 const remoteViews = new Map<string, RemoteView>()
 const pingViews = new Map<number, THREE.Group>()
+const trapViews = new Map<number, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
@@ -205,6 +207,8 @@ const palette = {
   green: 0x315f37,
   water: 0x5c8791,
 }
+
+const SIGNAL_POSITION = { x: 6, z: -14 }
 
 const characterNames: Record<CharacterId, string> = {
   robin: "Robin Hood",
@@ -387,6 +391,15 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
       mantle.rotation.x = 0.08
       character.add(mantle)
     }
+    if (role === "much") {
+      const satchel = mesh(new THREE.BoxGeometry(0.48, 0.42, 0.24), 0x8b6234)
+      satchel.position.set(0.43, 1.04, 0.28)
+      satchel.rotation.z = -0.18
+      const fuse = mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.6, 5), 0xd4b15e)
+      fuse.position.set(0.36, 1.55, 0.22)
+      fuse.rotation.z = -0.55
+      character.add(satchel, fuse)
+    }
   } else if (isLittleJohn) {
     const staff = mesh(new THREE.CylinderGeometry(0.055, 0.065, 2.9, 8), 0x654225)
     staff.position.set(0.55, 1.25, 0)
@@ -475,6 +488,21 @@ function createCart(): THREE.Group {
   return cart
 }
 
+function createSignalPost(): THREE.Group {
+  const signal = new THREE.Group()
+  const pole = mesh(new THREE.CylinderGeometry(0.08, 0.1, 3.8, 8), 0x513824)
+  pole.position.y = 1.9
+  const arm = mesh(new THREE.BoxGeometry(1.35, 0.1, 0.1), 0x513824)
+  arm.position.set(0.55, 3.45, 0)
+  const flag = mesh(new THREE.PlaneGeometry(1.1, 0.65), 0xa94132, { cast: false })
+  flag.position.set(0.68, 3.04, 0.04)
+  flag.userData.signalFlag = true
+  signal.add(pole, arm, flag)
+  signal.position.set(SIGNAL_POSITION.x, 0, SIGNAL_POSITION.z)
+  scene.add(signal)
+  return signal
+}
+
 addLighting()
 createWorld()
 
@@ -487,6 +515,7 @@ state.guards.forEach(() => {
   scene.add(guard)
 })
 const cartView = createCart()
+const signalView = createSignalPost()
 
 const destinationMarker = new THREE.Mesh(
   new THREE.RingGeometry(0.42, 0.56, 24),
@@ -587,7 +616,7 @@ function refreshControlCopy(): void {
   helpMove.textContent = `${keyLabel(key.moveUp)} / ${keyLabel(key.moveLeft)} / ${keyLabel(key.moveDown)} / ${keyLabel(key.moveRight)}, controller stick, or mapped pointer movement`
   helpInteract.textContent = `${keyLabel(key.interact)} near the cart or village fire`
   helpFire.textContent = `${keyLabel(key.fire)} stuns the nearest guard in range`
-  helpSignature.textContent = `${keyLabel(key.signature)} uses Twin Shot, Marian's Veil, or Little John's Oak Sweep`
+  helpSignature.textContent = `${keyLabel(key.signature)} uses Twin Shot, Marian's Veil, Oak Sweep, or Much's Road Snare`
   signatureKeyElement.textContent = keyLabel(key.signature)
   helpSignals.textContent = `${keyLabel(key.pingDanger)} / ${keyLabel(key.pingTarget)} / ${keyLabel(key.pingRoute)} / ${keyLabel(key.pingLoot)} / ${keyLabel(key.pingRegroup)} place symbol-coded signals`
   helpSupport.textContent = `${keyLabel(key.revive)} revives a nearby outlaw · ${keyLabel(key.transferLoot)} transfers up to 60 coin`
@@ -758,6 +787,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   state.delivered = mission.delivered
   state.won = mission.status === "succeeded"
   state.lost = mission.status === "failed"
+  signalSabotaged = mission.signalSabotaged
   missionTarget = mission.target
   const objectives: Record<MissionSnapshot["phase"], string> = {
     scout: `Scout the forest or river approach · shipment ${mission.cycle}`,
@@ -771,7 +801,8 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   currentMissionPhase = mission.phase
   missionPrompt = missionPromptForPhase(mission.phase)
   const completedOptional = mission.optionalObjectives.filter((objective) => objective.completed).length
-  missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
+  const sabotageState = mission.signalSabotaged ? ` · SIGNAL CUT ${Math.ceil(mission.reinforcementDelaySeconds)}s` : ""
+  missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
   if (mission.phase === "robbery") localStorage.setItem("sherwood:tutorial-complete", "true")
   while (guardViews.length < mission.guards.length) {
     const guardState = mission.guards[guardViews.length]
@@ -797,6 +828,11 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
     showMissionEvent(mission.latestEvent)
   }
   syncPingViews(mission.pings)
+  syncTrapViews(mission.traps)
+  signalView.rotation.z = mission.signalSabotaged ? Math.PI / 2.8 : 0
+  signalView.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.userData.signalFlag) (child.material as THREE.MeshStandardMaterial).color.setHex(mission.signalSabotaged ? 0x5f5b45 : 0xa94132)
+  })
   applyVillageState(mission.village)
   renderMissionResolution(mission)
 }
@@ -809,6 +845,9 @@ function showMissionEvent(event: MissionEvent): void {
     crowd_controlled: "OAK SWEEP — ESCORT SCATTERED",
     ally_protected: "VANGUARD PROTECTION",
     heavy_carry: "HEAVY CARRY SECURED",
+    trap_placed: "ROAD SNARE SET",
+    trap_triggered: "SNARE CAUGHT AN ESCORT",
+    reinforcement_sabotaged: "SHERIFF'S SIGNAL CUT",
     player_hit: "The Sheriff strikes!",
     player_downed: "AN OUTLAW IS DOWN",
     player_revived: "OUTLAW RESCUED",
@@ -824,6 +863,8 @@ function showMissionEvent(event: MissionEvent): void {
   if (event.type === "signature_used" && event.detail === "little-john-sweep") showVanguardImpact(event.playerId)
   const message = event.type === "signature_used" && event.detail === "little-john-sweep"
     ? "OAK SWEEP — HOLD THE LINE"
+    : event.type === "signature_used" && event.detail === "much-snare"
+      ? "ROAD SNARE SET — DRAW THEM IN"
     : messages[event.type]
   if (message) showToast(message)
 }
@@ -844,6 +885,47 @@ function syncPingViews(pings: WorldPing[]): void {
     if (activeIds.has(id)) continue
     scene.remove(view)
     pingViews.delete(id)
+  }
+}
+
+function createTrapView(trap: MissionTrap): THREE.Group {
+  const group = new THREE.Group()
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.68, 0.92, 24),
+    new THREE.MeshBasicMaterial({ color: 0xe7bd5a, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+  )
+  ring.rotation.x = -Math.PI / 2
+  ring.position.y = 0.05
+  for (const rotation of [-0.7, 0.7]) {
+    const bar = mesh(new THREE.BoxGeometry(1.55, 0.14, 0.14), 0x553923)
+    bar.position.y = 0.11
+    bar.rotation.y = rotation
+    group.add(bar)
+  }
+  const marker = mesh(new THREE.ConeGeometry(0.16, 0.62, 5), 0xe7bd5a)
+  marker.position.set(0, 0.78, 0)
+  for (const x of [-0.72, 0.72]) {
+    const stake = mesh(new THREE.CylinderGeometry(0.055, 0.075, 0.85, 6), 0xe7bd5a)
+    stake.position.set(x, 0.43, 0)
+    group.add(stake)
+  }
+  group.add(ring, marker)
+  group.position.set(trap.position.x, 0, trap.position.z)
+  return group
+}
+
+function syncTrapViews(traps: MissionTrap[]): void {
+  const activeIds = new Set(traps.map((trap) => trap.id))
+  for (const trap of traps) {
+    if (trapViews.has(trap.id)) continue
+    const view = createTrapView(trap)
+    trapViews.set(trap.id, view)
+    scene.add(view)
+  }
+  for (const [id, view] of trapViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(view)
+    trapViews.delete(id)
   }
 }
 
@@ -941,6 +1023,13 @@ function renderMissionResolution(mission: MissionSnapshot): void {
     detail.textContent = `${localPlayer.protectionScore} protection · ${localPlayer.crowdControl} controlled · ${localPlayer.heavyCarryPeak} max carry`
     resultBreakdown.append(term, detail)
   }
+  if (localPlayer?.characterId === "much") {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = "Saboteur impact"
+    detail.textContent = `${localPlayer.trapHits} traps triggered · ${localPlayer.sabotageCount} signals cut`
+    resultBreakdown.append(term, detail)
+  }
   communityAllocation.textContent = `${mission.result.communityCoin} crown coin is locked for the winning village project. Personal renown cannot reduce it.`
   for (const button of voteButtons) {
     const choice = button.dataset.vote as VoteChoice
@@ -1009,7 +1098,7 @@ function renderParty(players: RoomPlayer[]): void {
     vitality.className = "vitality"
     vitality.textContent = player.downedFor > 0
       ? `DOWN ${Math.ceil(player.downedFor)}s`
-      : `${"♥".repeat(Math.max(0, player.health))}${player.characterId === "little-john" ? ` · 🛡${player.protectionScore} ⚒${player.crowdControl}` : ""}`
+      : `${"♥".repeat(Math.max(0, player.health))}${player.characterId === "little-john" ? ` · 🛡${player.protectionScore} ⚒${player.crowdControl}` : player.characterId === "much" ? ` · ⛓${player.trapHits} ✂${player.sabotageCount}` : ""}`
     compact.append(presence, identity, vitality)
     missionPartyList.append(compact)
   }
@@ -1168,10 +1257,14 @@ function useSignature(): void {
     "marian-veil": "MARIAN'S VEIL — PURSUIT BROKEN",
     "robin-volley": "TWIN SHOT — GUARDS PINNED",
     "little-john-sweep": "OAK SWEEP — HOLD THE LINE",
+    "much-snare": "ROAD SNARE SET — DRAW THEM IN",
     "volley-missed": "No guards in Twin Shot range",
     "signature-unavailable": `Signature ready in ${Math.ceil(state.player.signatureCooldown)}s`,
   }
   if (result.event === "little-john-sweep") showVanguardImpact()
+  if (result.event === "much-snare") {
+    syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
+  }
   showToast(messages[result.event] ?? result.event)
 }
 
@@ -1253,8 +1346,11 @@ function updateUI(): void {
   heatWrap.setAttribute("aria-valuetext", state.heat > 60 ? "High pursuit" : state.heat > 20 ? "Sheriff searching" : "Hidden")
   heatWrap.classList.toggle("visible", state.heat > 3)
   progressElement.style.width = `${Math.min(100, (state.delivered / missionTarget) * 100)}%`
+  const atSignal = multiplayerActive && selectedCharacter === "much" && !signalSabotaged && Math.hypot(state.player.position.x - SIGNAL_POSITION.x, state.player.position.z - SIGNAL_POSITION.z) < 3.2
   promptElement.textContent = isMobileSpectator()
     ? "Spectating the Merry Band · disable spectator mode in accessibility settings to play"
+    : atSignal
+      ? `${keyLabel(inputSettings.keyboard.interact)}  CUT THE SHERIFF'S REINFORCEMENT SIGNAL`
     : localDownedFor > 0
     ? `DOWNED · ${Math.ceil(localDownedFor)}s for a teammate to revive you`
     : multiplayerActive
@@ -1301,6 +1397,9 @@ function showEnding(won: boolean): void {
 }
 
 function syncViews(elapsed: number, dt: number): void {
+  if (!multiplayerActive) {
+    syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
+  }
   const player = state.player.position
   playerView.position.set(player.x, Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale, player.z)
   playerView.traverse((child) => {
