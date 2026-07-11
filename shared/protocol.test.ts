@@ -25,6 +25,8 @@ describe("Merry Band protocol", () => {
     expect(parseClientMessage({ type: "select_loadout", loadoutId: "smoke" })).not.toBeNull()
     expect(parseClientMessage({ type: "select_loadout", loadoutId: "pay-to-win" })).toBeNull()
     expect(parseClientMessage({ type: "return_to_hub" })).toEqual({ type: "return_to_hub" })
+    expect(parseClientMessage({ type: "accept_rescue", offerId: "8c02777e-2bb5-5afd-9f42-7a7b1ca4c622" })).not.toBeNull()
+    expect(parseClientMessage({ type: "abandon_rescue", offerId: "not-a-uuid" })).toBeNull()
   })
 
   it("rejects malformed names, room codes, and movement", () => {

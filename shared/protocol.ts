@@ -1,7 +1,7 @@
 import { z } from "zod"
 import type { SheriffRotation } from "./sheriff-rotation"
 
-export const PROTOCOL_VERSION = 5 as const
+export const PROTOCOL_VERSION = 6 as const
 export const MAX_ROOM_PLAYERS = 4
 export const RECONNECT_GRACE_MS = 30_000
 
@@ -34,6 +34,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("select_rotation"), rotationId: z.string().regex(/^sheriff-[a-z0-9-]{8,80}$/) }),
   z.object({ type: z.literal("select_loadout"), loadoutId: LoadoutIdSchema }),
   z.object({ type: z.literal("return_to_hub") }),
+  z.object({ type: z.literal("accept_rescue"), offerId: z.string().uuid() }),
+  z.object({ type: z.literal("abandon_rescue"), offerId: z.string().uuid() }),
   z.object({
     type: z.literal("input"),
     sequence: z.number().int().nonnegative(),
@@ -184,6 +186,8 @@ export interface MissionSnapshot {
   rotationId: string | null
   rotationModifierIds: string[]
   rotationObjectiveIds: string[]
+  rescueOfferId: string | null
+  rescueSourceMissionId: string | null
 }
 
 export type VoteChoice = "granary" | "infirmary" | "watchtower"
@@ -225,9 +229,26 @@ export interface LastMissionResult extends Pick<MissionResult, "score" | "grade"
   totalCaptives: number
 }
 
+export interface RescueOffer {
+  id: string
+  sourceMissionId: string
+  sourceMissionSlug: string
+  rescueMissionSlug: "prison-wagon"
+  context: "captured-outlaws" | "lost-captives" | "lost-supplies"
+  targetCount: number
+  status: "active" | "accepted" | "completed" | "expired" | "abandoned" | "failed"
+  createdAt: number
+  expiresAt: number
+  acceptedAt: number | null
+  resolvedAt: number | null
+  attempts: number
+  rewardSettled: boolean
+  recoveredValue: number
+}
+
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
-  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
+  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; rescueOffer: RescueOffer | null; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
   | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string }

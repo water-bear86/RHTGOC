@@ -20,7 +20,7 @@ import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type L
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
-import type { LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionSnapshot, MissionTrap, PingKind, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import {
@@ -119,6 +119,10 @@ const hubRoomCode = document.querySelector<HTMLElement>("#hub-room-code")!
 const hubRecent = document.querySelector<HTMLElement>("#hub-recent")!
 const hubRotations = document.querySelector<HTMLDivElement>("#hub-rotations")!
 const hubRotationState = document.querySelector<HTMLElement>("#hub-rotation-state")!
+const hubRescue = document.querySelector<HTMLElement>("#hub-rescue")!
+const hubRescueCopy = document.querySelector<HTMLElement>("#hub-rescue-copy")!
+const hubAcceptRescue = document.querySelector<HTMLButtonElement>("#hub-accept-rescue")!
+const hubAbandonRescue = document.querySelector<HTMLButtonElement>("#hub-abandon-rescue")!
 const hubMissions = document.querySelector<HTMLDivElement>("#hub-missions")!
 const hubRoles = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-character]")]
 const hubLoadout = document.querySelector<HTMLSelectElement>("#hub-loadout")!
@@ -190,6 +194,7 @@ let currentRotations: SheriffRotation[] = []
 let upcomingRotations: SheriffRotation[] = []
 let rotationsPaused = false
 let selectedRotationId: string | null = null
+let currentRescueOffer: RescueOffer | null = null
 let signalSabotaged = false
 let latestMissionSnapshot: MissionSnapshot | null = null
 let missionPackageStatus = "client package valid"
@@ -707,7 +712,7 @@ const multiplayer = new MultiplayerClient({
     lobbyStatus.textContent = "Share this code, then ready up together."
     enterHub(true)
   },
-  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations) => {
+  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer) => {
     currentRoomPlayers = players
     currentMissionSlug = missionSlug
     currentVillage = { ...village }
@@ -716,6 +721,7 @@ const multiplayer = new MultiplayerClient({
     rotationsPaused = nextRotationsPaused
     currentRotations = nextRotations
     upcomingRotations = nextUpcomingRotations
+    currentRescueOffer = rescueOffer
     renderParty(players)
     renderSafetyPanel(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
@@ -824,6 +830,7 @@ function renderHub(): void {
     hubRotations.append(empty)
   }
   renderRotationCountdown()
+  renderRescueOffer()
   hubMissions.replaceChildren()
   for (const mission of MISSION_CATALOG.values()) {
     const button = document.createElement("button")
@@ -872,14 +879,43 @@ function renderRotationCountdown(): void {
   hubRotationState.textContent = `Expires in ${hours}h ${minutes}m UTC · next: ${nextMissions}. Rewards and modifiers are verified by the room server.`
 }
 
+function renderRescueOffer(): void {
+  const offer = currentRescueOffer
+  hubRescue.classList.toggle("hidden", !offer)
+  if (!offer) return
+  const remaining = Math.max(0, offer.expiresAt - Date.now())
+  const minutes = Math.ceil(remaining / 60_000)
+  const contexts: Record<RescueOffer["context"], string> = {
+    "captured-outlaws": `${offer.targetCount} captured outlaw${offer.targetCount === 1 ? "" : "s"} may be moved along the Iron Road.`,
+    "lost-captives": `${offer.targetCount} captive${offer.targetCount === 1 ? "" : "s"} from the last rescue remain on the Iron Road.`,
+    "lost-supplies": `The Sheriff recovered ${offer.targetCount} cache${offer.targetCount === 1 ? "" : "s"} from the failed run.`,
+  }
+  const outcomes: Partial<Record<RescueOffer["status"], string>> = {
+    accepted: "The fresh rescue mission is selected. Helpers may join this private band before readiness.",
+    completed: `Rescue completed · ${offer.recoveredValue} value recovered exactly once.`,
+    expired: "The bounded rescue window expired. Ordinary play was never restricted.",
+    abandoned: "The band declined this rescue. No penalty applies.",
+    failed: "The rescue attempt failed and will not create an unbounded chain.",
+  }
+  hubRescueCopy.textContent = `${contexts[offer.context]} ${outcomes[offer.status] ?? `Offer expires in ${minutes}m. No names or mission history are shared outside this band.`}`
+  const isLeader = currentRoomPlayers[0]?.id === multiplayer.playerId
+  hubAcceptRescue.disabled = !isLeader || offer.status !== "active" || remaining <= 0
+  hubAcceptRescue.textContent = offer.status === "accepted" ? "RESCUE SELECTED" : offer.status === "completed" ? "RESCUE COMPLETE" : "ACCEPT RESCUE"
+  hubAbandonRescue.disabled = !isLeader || (offer.status !== "active" && offer.status !== "accepted")
+}
+
 function enterHub(online: boolean): void {
   inHub = true
   multiplayerActive = false
   roomConnected = online
   running = true
   ended = false
+  state.won = false
+  state.lost = false
   intro.scrollTop = 0
   intro.classList.add("closed")
+  resultsPanel.classList.add("hidden")
+  resultsPanel.setAttribute("aria-hidden", "true")
   hubPanel.classList.remove("hidden")
   partyHud.classList.toggle("hidden", !online)
   setMissionWorldVisible(false)
@@ -1139,6 +1175,7 @@ function updateMissionDebug(): void {
     `RESCUE   ${mission?.captives.filter((captive) => captive.rewarded).length ?? 0}/${mission?.captives.length ?? 0} · LOCK ${mission?.lockProgress ?? 0}/${mission?.lockTarget ?? 0}`,
     `INFILTRATION alarms=${mission?.alarmLevel ?? 0} waves=${mission?.reinforcementWave ?? 0} intel=${mission?.intelFound ? "yes" : "no"} ledger=${mission?.ledgerStolen ? "yes" : "no"}`,
     `ROTATION ${mission?.rotationId ?? "standard"} · modifiers=${mission?.rotationModifierIds.join(",") || "seeded"}`,
+    `RESCUE CHAIN ${mission?.rescueOfferId ?? "none"} · source=${mission?.rescueSourceMissionId ?? "none"}`,
   ].join("\n")
 }
 
@@ -1565,6 +1602,13 @@ function renderMissionResolution(mission: MissionSnapshot): void {
     detail.textContent = `${mission.rotationId} · ${mission.rotationModifierIds.join(" + ")} · server verified`
     resultBreakdown.append(term, detail)
   }
+  if (mission.rescueOfferId) {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = "Rescue chain"
+    detail.textContent = `${mission.rescueOfferId} · rescuer credit and recovered value settle on the room server`
+    resultBreakdown.append(term, detail)
+  }
   const voteChoices = resultsPanel.querySelector<HTMLElement>(".vote-choices")!
   const voteEyebrow = voteChoices.previousElementSibling as HTMLElement
   if (!mission.vote) {
@@ -1919,6 +1963,7 @@ function updateUI(): void {
   progressElement.style.width = `${Math.min(100, (state.delivered / missionTarget) * 100)}%`
   if (inHub) {
     renderRotationCountdown()
+    renderRescueOffer()
     objectiveElement.textContent = "Prepare at the campfire mission board"
     progressElement.style.width = "0%"
     promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} opens the board · move with your mapped controls`
@@ -2206,6 +2251,12 @@ hubCopyCode.addEventListener("click", () => {
   void navigator.clipboard.writeText(invite).then(() => showToast("INVITE LINK COPIED")).catch(() => showToast(`ROOM CODE ${code}`))
 })
 returnHubButton.addEventListener("click", () => multiplayer.returnToHub())
+hubAcceptRescue.addEventListener("click", () => {
+  if (currentRescueOffer) multiplayer.acceptRescue(currentRescueOffer.id)
+})
+hubAbandonRescue.addEventListener("click", () => {
+  if (currentRescueOffer) multiplayer.abandonRescue(currentRescueOffer.id)
+})
 
 characterButtons.forEach((button) => {
   button.addEventListener("click", () => {

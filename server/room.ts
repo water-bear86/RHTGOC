@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
-import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type CharacterId, type LastMissionResult, type LoadoutId, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
+import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type CharacterId, type LastMissionResult, type LoadoutId, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
 import { Mission } from "./mission"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import { isRotationActive, rotationWindowAt, type SheriffRotationWindow } from "../shared/sheriff-rotation"
@@ -37,6 +37,20 @@ function maxArrows(characterId: CharacterId): number {
 
 const spawnPoints = getMissionDefinition().spawns.players
 
+function rescueOfferId(sourceMissionId: string): string {
+  const bytes = createHash("sha256").update(`sherwood-rescue:${sourceMissionId}`).digest().subarray(0, 16)
+  bytes[6] = (bytes[6] & 0x0f) | 0x50
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = bytes.toString("hex")
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+export interface RescueOfferTransition {
+  sequence: number
+  at: number
+  offer: RescueOffer
+}
+
 export class Room {
   readonly code: string
   readonly players = new Map<string, ConnectedPlayer>()
@@ -45,6 +59,9 @@ export class Room {
   mission: Mission | null = null
   missionSlug = "peoples-purse"
   selectedRotationId: string | null = null
+  selectedRescueOfferId: string | null = null
+  rescueOffer: RescueOffer | null = null
+  readonly rescueOfferEvents: RescueOfferTransition[] = []
   rotationAttemptCount = 0
   village: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
   lastResult: LastMissionResult | null = null
@@ -52,6 +69,8 @@ export class Room {
   private readonly bannedReconnectTokens = new Set<string>()
   private missionId = randomUUID()
   private leaderboardPersistence: "idle" | "pending" | "done" = "idle"
+  private lastRescueOfferSourceMissionId: string | null = null
+  private rescueEventSequence = 0
 
   constructor(code: string, private readonly getRotationWindow: (now: number) => SheriffRotationWindow = rotationWindowAt) {
     this.code = code
@@ -144,12 +163,26 @@ export class Room {
         this.broadcastRoomState(now)
         return false
       }
+      const rescueOffer = this.selectedRescueOfferId && this.rescueOffer?.id === this.selectedRescueOfferId ? this.rescueOffer : null
+      if (this.selectedRescueOfferId && (!rescueOffer || rescueOffer.status !== "accepted" || now >= rescueOffer.expiresAt)) {
+        for (const candidate of connected) candidate.ready = false
+        this.selectedRescueOfferId = null
+        this.broadcastRoomState(now)
+        return false
+      }
       this.phase = "mission"
       const definition = getMissionDefinition(this.missionSlug)
       for (const player of this.players.values()) player.position = { ...definition.spawns.players[player.spawnIndex] }
-      this.mission ??= new Mission(this.code, this.players, definition, { rotation })
+      this.mission ??= new Mission(this.code, this.players, definition, {
+        rotation,
+        rescueOffer: rescueOffer ? { id: rescueOffer.id, sourceMissionId: rescueOffer.sourceMissionId } : null,
+      })
       this.mission.village = { ...this.village }
       if (rotation) this.rotationAttemptCount += 1
+      if (rescueOffer) {
+        rescueOffer.attempts += 1
+        this.recordRescueTransition(now)
+      }
     }
     this.broadcastRoomState(now)
     return true
@@ -171,6 +204,7 @@ export class Room {
     try { getMissionDefinition(missionSlug) } catch { return false }
     this.missionSlug = missionSlug
     this.selectedRotationId = null
+    this.releaseAcceptedRescue(Date.now())
     for (const player of this.players.values()) player.ready = false
     this.broadcastRoomState()
     return true
@@ -182,8 +216,38 @@ export class Room {
     const rotation = window.current.find((candidate) => candidate.id === rotationId)
     if (window.paused || !rotation || !isRotationActive(rotation, now)) return false
     this.selectedRotationId = rotation.id
+    this.releaseAcceptedRescue(now)
     this.missionSlug = rotation.missionSlug
     for (const player of this.players.values()) player.ready = false
+    this.broadcastRoomState(now)
+    return true
+  }
+
+  acceptRescue(playerId: string, offerId: string, now = Date.now()): boolean {
+    if (this.phase !== "lobby" || this.moderatorId() !== playerId || !this.rescueOffer || this.rescueOffer.id !== offerId) return false
+    if (now >= this.rescueOffer.expiresAt) {
+      this.expireRescueOffer(now)
+      return false
+    }
+    if (this.rescueOffer.status !== "active") return false
+    this.rescueOffer.status = "accepted"
+    this.rescueOffer.acceptedAt = now
+    this.selectedRescueOfferId = offerId
+    this.selectedRotationId = null
+    this.missionSlug = this.rescueOffer.rescueMissionSlug
+    for (const player of this.players.values()) player.ready = false
+    this.recordRescueTransition(now)
+    this.broadcastRoomState(now)
+    return true
+  }
+
+  abandonRescue(playerId: string, offerId: string, now = Date.now()): boolean {
+    if (this.phase !== "lobby" || this.moderatorId() !== playerId || !this.rescueOffer || this.rescueOffer.id !== offerId) return false
+    if (this.rescueOffer.status !== "active" && this.rescueOffer.status !== "accepted") return false
+    this.rescueOffer.status = "abandoned"
+    this.rescueOffer.resolvedAt = now
+    this.selectedRescueOfferId = null
+    this.recordRescueTransition(now)
     this.broadcastRoomState(now)
     return true
   }
@@ -210,6 +274,7 @@ export class Room {
     this.phase = "lobby"
     this.mission = null
     this.selectedRotationId = null
+    this.selectedRescueOfferId = null
     this.missionId = randomUUID()
     this.leaderboardPersistence = "idle"
     for (const player of this.players.values()) this.resetPlayerForHub(player)
@@ -269,6 +334,7 @@ export class Room {
     missionSlug: string
     rotationId: string | null
     rotationModifierIds: string[]
+    rescueOfferId: string | null
     result: NonNullable<Mission["result"]>
   }> | null {
     if (!this.mission?.result || this.mission.status !== "succeeded" || this.leaderboardPersistence !== "idle") return null
@@ -288,6 +354,7 @@ export class Room {
       missionSlug: this.mission!.definition.slug,
       rotationId: this.mission!.rotationId,
       rotationModifierIds: [...this.mission!.rotationModifierIds],
+      rescueOfferId: this.mission!.rescueOfferId,
       result: this.mission!.result!,
     }))
   }
@@ -296,11 +363,18 @@ export class Room {
     this.leaderboardPersistence = success ? "done" : "idle"
   }
 
-  update(dt: number): void {
-    this.pruneDisconnected(Date.now())
+  update(dt: number, now = Date.now()): void {
+    this.pruneDisconnected(now)
+    this.expireRescueOffer(now)
     if (!this.mission) return
     this.mission.update(dt)
     this.tick = this.mission.tick
+    if (this.mission.status === "failed" && !this.mission.rescueOfferId) this.ensureRescueOffer(now)
+    if (this.mission.status !== "active" && this.mission.rescueOfferId) this.resolveRescueOffer(now)
+  }
+
+  drainRescueOfferEvents(): RescueOfferTransition[] {
+    return this.rescueOfferEvents.splice(0, this.rescueOfferEvents.length)
   }
 
   publicPlayer(player: ConnectedPlayer): RoomPlayer {
@@ -331,6 +405,73 @@ export class Room {
     return selected.length < 2
   }
 
+  private ensureRescueOffer(now: number): void {
+    if (!this.mission || this.lastRescueOfferSourceMissionId === this.missionId) return
+    if (this.rescueOffer && (this.rescueOffer.status === "active" || this.rescueOffer.status === "accepted")) return
+    const capturedOutlaws = [...this.players.values()].filter((player) => player.captured).length
+    const missingCaptives = this.mission.captives.filter((captive) => !captive.rewarded).length
+    const context: RescueOffer["context"] = capturedOutlaws > 0
+      ? "captured-outlaws"
+      : this.mission.missionKind === "prison-wagon" && missingCaptives > 0
+        ? "lost-captives"
+        : "lost-supplies"
+    const targetCount = Math.max(1, context === "captured-outlaws" ? capturedOutlaws : context === "lost-captives" ? missingCaptives : Math.ceil(this.mission.deliveryTarget / Math.max(1, this.mission.definition.rewards.baseCartValue)))
+    this.rescueOffer = {
+      id: rescueOfferId(this.missionId),
+      sourceMissionId: this.missionId,
+      sourceMissionSlug: this.mission.definition.slug,
+      rescueMissionSlug: "prison-wagon",
+      context,
+      targetCount,
+      status: "active",
+      createdAt: now,
+      expiresAt: now + 30 * 60_000,
+      acceptedAt: null,
+      resolvedAt: null,
+      attempts: 0,
+      rewardSettled: false,
+      recoveredValue: 0,
+    }
+    this.lastRescueOfferSourceMissionId = this.missionId
+    this.recordRescueTransition(now)
+    this.broadcastRoomState(now)
+  }
+
+  private resolveRescueOffer(now: number): void {
+    if (!this.mission?.rescueOfferId || !this.rescueOffer || this.rescueOffer.id !== this.mission.rescueOfferId || this.rescueOffer.status !== "accepted") return
+    this.rescueOffer.status = this.mission.status === "succeeded" ? "completed" : "failed"
+    this.rescueOffer.resolvedAt = now
+    if (this.mission.status === "succeeded" && !this.rescueOffer.rewardSettled) {
+      this.rescueOffer.rewardSettled = true
+      this.rescueOffer.recoveredValue = this.mission.delivered
+    }
+    this.recordRescueTransition(now)
+    this.broadcastRoomState(now)
+  }
+
+  private expireRescueOffer(now: number): void {
+    if (!this.rescueOffer || (this.rescueOffer.status !== "active" && this.rescueOffer.status !== "accepted") || now < this.rescueOffer.expiresAt) return
+    if (this.phase === "mission" && this.mission?.rescueOfferId === this.rescueOffer.id) return
+    this.rescueOffer.status = "expired"
+    this.rescueOffer.resolvedAt = now
+    this.selectedRescueOfferId = null
+    this.recordRescueTransition(now)
+    this.broadcastRoomState(now)
+  }
+
+  private releaseAcceptedRescue(now: number): void {
+    if (!this.rescueOffer || this.rescueOffer.status !== "accepted" || this.selectedRescueOfferId !== this.rescueOffer.id) return
+    this.rescueOffer.status = "active"
+    this.rescueOffer.acceptedAt = null
+    this.selectedRescueOfferId = null
+    this.recordRescueTransition(now)
+  }
+
+  private recordRescueTransition(at: number): void {
+    if (!this.rescueOffer) return
+    this.rescueOfferEvents.push({ sequence: ++this.rescueEventSequence, at, offer: { ...this.rescueOffer } })
+  }
+
   private moderatorId(): string | null {
     return [...this.players.values()]
       .filter((player) => player.connected)
@@ -348,6 +489,7 @@ export class Room {
       rotationsPaused: rotationWindow.paused,
       rotations: rotationWindow.current,
       upcomingRotations: rotationWindow.upcoming,
+      rescueOffer: this.rescueOffer ? { ...this.rescueOffer } : null,
       players: [...this.players.values()].map((player) => this.publicPlayer(player)),
       village: { ...this.village },
       lastResult: this.lastResult ? { ...this.lastResult } : null,

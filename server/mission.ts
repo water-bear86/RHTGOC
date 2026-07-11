@@ -5,6 +5,7 @@ import type { SheriffRotation } from "../shared/sheriff-rotation"
 
 export interface MissionOptions {
   rotation?: SheriffRotation | null
+  rescueOffer?: { id: string; sourceMissionId: string } | null
 }
 
 export interface MissionPlayer {
@@ -84,6 +85,8 @@ export class Mission {
   readonly rotationId: string | null
   readonly rotationModifierIds: string[]
   readonly rotationObjectiveIds: string[]
+  readonly rescueOfferId: string | null
+  readonly rescueSourceMissionId: string | null
   status: "active" | "succeeded" | "failed" = "active"
   phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction" = "scout"
   entryRoute: "forest" | "river" | null = null
@@ -140,6 +143,9 @@ export class Mission {
     this.rotationId = rotation?.id ?? null
     this.rotationModifierIds = [...(rotation?.modifierIds ?? [])]
     this.rotationObjectiveIds = [...(rotation?.optionalObjectiveIds ?? [])]
+    this.rescueOfferId = options.rescueOffer?.id ?? null
+    this.rescueSourceMissionId = options.rescueOffer?.sourceMissionId ?? null
+    if (this.rescueOfferId && definition.slug !== "prison-wagon") throw new Error("INVALID_RESCUE_MISSION")
     this.missionKind = definition.scenario?.kind ?? "tax-cart"
     this.cartPosition = { ...definition.spawns.cart }
     if (definition.scenario?.kind === "prison-wagon") {
@@ -346,6 +352,8 @@ export class Mission {
       rotationId: this.rotationId,
       rotationModifierIds: [...this.rotationModifierIds],
       rotationObjectiveIds: [...this.rotationObjectiveIds],
+      rescueOfferId: this.rescueOfferId,
+      rescueSourceMissionId: this.rescueSourceMissionId,
     }
   }
 

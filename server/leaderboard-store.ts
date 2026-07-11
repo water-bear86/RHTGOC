@@ -21,6 +21,7 @@ export interface VerifiedRun {
   missionSlug: string
   rotationId?: string | null
   rotationModifierIds?: string[]
+  rescueOfferId?: string | null
   result: MissionResult
 }
 
@@ -59,6 +60,7 @@ export class SupabaseLeaderboardStore {
         missionContentHash: run.missionContentHash,
         rotationId: run.rotationId ?? null,
         rotationModifierIds: run.rotationModifierIds ?? [],
+        rescueOfferId: run.rescueOfferId ?? null,
       },
     })
     if (error) throw new Error(`VERIFIED_SCORE_FAILED: ${error.message}`)

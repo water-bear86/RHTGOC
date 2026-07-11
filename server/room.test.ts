@@ -257,4 +257,85 @@ describe("Merry Band room", () => {
     expect([...room.players.values()].every((player) => !player.ready)).toBe(true)
     expect(room.selectRotation(leader.id, target.id, target.endsAt)).toBe(false)
   })
+
+  it("creates one bounded rescue offer and settles recovery exactly once across reconnects", () => {
+    const now = Date.UTC(2026, 6, 10, 12)
+    const room = new Room("RESCUE")
+    const leader = room.addPlayer(fakeSocket(), "Robin", "robin")
+    const member = room.addPlayer(fakeSocket(), "Marian", "marian")
+    room.setReady(leader.id, true, now)
+    room.setReady(member.id, true, now)
+    const failed = room.mission!
+    failed.status = "failed"
+    failed.failureReason = "captured"
+    leader.captured = true
+    failed.result = {
+      score: 3200, grade: "C",
+      breakdown: { speed: 30, stealth: 40, precision: 60, survival: 20, rescues: 0, generosity: 0 },
+      thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
+      communityCoin: 0, personalRenown: 1600,
+    }
+    room.update(0.05, now + 1)
+    const offer = structuredClone(room.rescueOffer!)
+    expect(offer).toMatchObject({ context: "captured-outlaws", targetCount: 1, status: "active", attempts: 0, rewardSettled: false })
+    room.update(0.05, now + 2)
+    expect(room.rescueOffer?.id).toBe(offer.id)
+    expect(room.rescueOfferEvents.filter((event) => event.offer.status === "active")).toHaveLength(1)
+
+    expect(room.returnToHub(leader.id)).toBe(true)
+    expect(leader.captured).toBe(false)
+    room.disconnect(member.id, now + 3)
+    expect(room.reconnect(fakeSocket(), member.reconnectToken, now + 4)?.id).toBe(member.id)
+    expect(room.rescueOffer?.id).toBe(offer.id)
+    expect(room.acceptRescue(member.id, offer.id, now + 5)).toBe(false)
+    expect(room.acceptRescue(leader.id, offer.id, now + 5)).toBe(true)
+    expect(room.acceptRescue(leader.id, offer.id, now + 5)).toBe(false)
+    room.setReady(leader.id, true, now + 6)
+    room.setReady(member.id, true, now + 6)
+    expect(room.mission?.snapshot()).toMatchObject({ rescueOfferId: offer.id, rescueSourceMissionId: offer.sourceMissionId, missionKind: "prison-wagon" })
+    expect(room.rescueOffer?.attempts).toBe(1)
+
+    room.mission!.status = "succeeded"
+    room.mission!.delivered = 300
+    room.mission!.result = {
+      score: 8000, grade: "A",
+      breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 75, generosity: 0 },
+      thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
+      communityCoin: 300, personalRenown: 4000,
+    }
+    room.update(0.05, now + 7)
+    expect(room.rescueOffer).toMatchObject({ status: "completed", rewardSettled: true, recoveredValue: 300, attempts: 1 })
+    const completedEvents = room.rescueOfferEvents.filter((event) => event.offer.status === "completed").length
+    room.update(0.05, now + 8)
+    expect(room.rescueOfferEvents.filter((event) => event.offer.status === "completed")).toHaveLength(completedEvents)
+  })
+
+  it("expires or abandons offers deterministically and does not chain repeated rescue failure", () => {
+    const now = Date.UTC(2026, 6, 10, 12)
+    const room = new Room("EXPIRE")
+    const leader = room.addPlayer(fakeSocket(), "Robin", "robin")
+    const member = room.addPlayer(fakeSocket(), "Marian", "marian")
+    room.setReady(leader.id, true, now)
+    room.setReady(member.id, true, now)
+    room.mission!.status = "failed"
+    room.mission!.failureReason = "timeout"
+    room.update(0.05, now + 1)
+    const offer = room.rescueOffer!
+    expect(room.returnToHub(leader.id)).toBe(true)
+    room.update(0.05, offer.expiresAt)
+    expect(room.rescueOffer?.status).toBe("expired")
+
+    const later = offer.expiresAt + 100
+    room.setReady(leader.id, true, later)
+    room.setReady(member.id, true, later)
+    room.mission!.status = "failed"
+    room.mission!.failureReason = "captured"
+    room.update(0.05, later + 1)
+    const second = room.rescueOffer!
+    expect(second.id).not.toBe(offer.id)
+    expect(room.returnToHub(leader.id)).toBe(true)
+    expect(room.abandonRescue(leader.id, second.id, later + 2)).toBe(true)
+    expect(room.rescueOffer?.status).toBe("abandoned")
+    expect(room.acceptRescue(leader.id, second.id, later + 3)).toBe(false)
+  })
 })

@@ -175,6 +175,13 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .hub-rotations b { font: 700 10px Cinzel, serif; }
 .hub-rotations small { margin-top: 4px; color: inherit; font-size: 8px; }
 #hub-rotation-state { margin: 0 0 13px; }
+.hub-rescue { margin: 0 0 14px; padding: 11px; background: #71372942; border: 1px solid #d96a5266; }
+.hub-rescue.hidden { display: none; }
+.hub-rescue p { margin: 6px 0 9px; color: #f7f0d4c4; font-size: 9px; line-height: 1.45; }
+.hub-rescue div { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.hub-rescue button { padding: 8px; color: var(--cream); background: #294632; border: 1px solid #f7f0d42c; cursor: pointer; font-size: 8px; font-weight: 800; }
+.hub-rescue button:last-child { background: #5a2f29; }
+.hub-rescue button:disabled { opacity: .48; cursor: default; }
 .hub-missions { display: grid; gap: 7px; margin-bottom: 15px; }
 .hub-missions button { padding: 10px; color: #f7f0d4b5; text-align: left; background: #ffffff08; border: 1px solid #f7f0d427; cursor: pointer; }
 .hub-missions button.selected { color: var(--cream); border-color: var(--gold); background: #294632; }
