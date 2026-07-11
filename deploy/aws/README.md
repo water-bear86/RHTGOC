@@ -21,6 +21,13 @@ Required build arguments:
 
 Runtime port: `8080`. Health check: `/health`. WebSocket endpoint: `/rooms`.
 
+Runtime secrets are supplied only to the container deployment, never as Docker build arguments:
+
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
+
+Keep them in AWS Secrets Manager or the operator's encrypted password manager and inject them into the container environment. Rotate immediately after suspected disclosure. A deployment without these values remains playable but reports `bandPersistence: false` and `verifiedLeaderboardWrites: false` at `/health`.
+
 ## Deploy an update
 
 AWS Lightsail currently expects an AMD64 image. Build with the publishable Supabase values from `.env.local`, export the short-lived AWS browser-login credentials for `lightsailctl`, and push a labeled image:
@@ -63,3 +70,18 @@ aws lightsail get-container-services \
   --service-name sherwood-rebellion \
   --region ca-central-1
 ```
+
+Then run the health, reconnect, and bounded load checks against the new origin and inspect `/metrics` for persistence failures.
+
+## Rollback
+
+Keep the previous two immutable Lightsail image references. If the new deployment fails health checks, reconnect tests, asset loading, or persistence:
+
+1. Stop promotion and capture the deployment state plus `/health` and `/metrics` output.
+2. Create a new deployment using the last known-good image reference and the same runtime secret configuration.
+3. Wait until Lightsail reports the rollback deployment `ACTIVE` and the previous deployment is no longer receiving traffic.
+4. Verify `/health`, create/join/reconnect, and one mission snapshot from the public origin.
+5. If a migration is implicated, leave the database forward-compatible; restore from backup only after a temporary-project restore drill. Do not manually delete production rows.
+6. Open an incident issue with the failed image, known-good image, timestamps, trace IDs, and follow-up owner.
+
+Lightsail deployment history is not a substitute for recording exact image references in the GitHub release or milestone notes.

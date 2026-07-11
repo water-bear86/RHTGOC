@@ -30,4 +30,10 @@ describe("Merry Band protocol", () => {
     expect(parseClientMessage({ type: "moderation", action: "report", targetPlayerId: "f7870cde-771f-4d25-aa85-85c20c862a49", reason: "griefing" })).not.toBeNull()
     expect(parseClientMessage({ type: "moderation", action: "report", targetPlayerId: "f7870cde-771f-4d25-aa85-85c20c862a49", reason: "free-text" })).toBeNull()
   })
+
+  it("accepts privacy-safe desync telemetry only within bounded ranges", () => {
+    expect(parseClientMessage({ type: "client_metrics", inputBacklog: 4, snapshotGapMs: 102 })).not.toBeNull()
+    expect(parseClientMessage({ type: "client_metrics", inputBacklog: 99_999, snapshotGapMs: 102 })).toBeNull()
+    expect(parseClientMessage({ type: "client_metrics", inputBacklog: 4, snapshotGapMs: -1 })).toBeNull()
+  })
 })

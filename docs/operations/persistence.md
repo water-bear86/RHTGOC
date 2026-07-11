@@ -33,4 +33,13 @@ Supabase provides daily project backups. Before a destructive schema change or s
 5. Run a no-op duplicate grant against the restored database; it must return `false` and leave progression unchanged.
 6. Point a staging server at the restored project before any production cutover.
 
+Run the transactional recovery assertion against that temporary project:
+
+```bash
+psql -v restore_drill_user_id='<existing auth.users uuid>' \
+  -f tools/supabase-restore-drill.sql "$RESTORED_DATABASE_URL"
+```
+
+The drill creates a disposable band inside a transaction, applies one idempotent mission grant, proves a replay is rejected, checks audit continuity, and rolls everything back. Never run a restore drill against the live project. Record the backup timestamp, restored project reference, row counts, assertion output, operator, and deletion time in the release log.
+
 Enable Point-in-Time Recovery before the public alpha if the recovery-point objective must be shorter than the daily backup interval.

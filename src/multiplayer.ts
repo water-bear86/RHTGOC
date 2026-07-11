@@ -20,6 +20,8 @@ export class MultiplayerClient {
   private heartbeatTimer: number | null = null
   private intentionallyClosed = false
   private connectionId = 0
+  private lastSnapshotAt = 0
+  private lastMetricsAt = 0
   private pendingIdentity: { displayName: string; characterId: CharacterId } | null = null
   playerId: string | null = null
   roomCode: string | null = null
@@ -134,7 +136,18 @@ export class MultiplayerClient {
       this.events.onWelcome?.(message.playerId, message.roomCode)
     }
     if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players)
-    if (message.type === "snapshot") this.events.onSnapshot?.(message.tick, message.players, message.mission)
+    if (message.type === "snapshot") {
+      const now = performance.now()
+      if (this.playerId && now - this.lastMetricsAt >= 10_000) {
+        const localPlayer = message.players.find((player) => player.id === this.playerId)
+        const snapshotGapMs = this.lastSnapshotAt === 0 ? 0 : Math.min(60_000, Math.round(now - this.lastSnapshotAt))
+        const inputBacklog = Math.min(2_000, Math.max(0, this.sequence - (localPlayer?.lastInputSequence ?? this.sequence)))
+        this.send({ type: "client_metrics", inputBacklog, snapshotGapMs })
+        this.lastMetricsAt = now
+      }
+      this.lastSnapshotAt = now
+      this.events.onSnapshot?.(message.tick, message.players, message.mission)
+    }
     if (message.type === "error") this.events.onError?.(message.message)
   }
 

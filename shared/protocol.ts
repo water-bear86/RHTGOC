@@ -46,6 +46,11 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     reason: z.enum(["harassment", "griefing", "unsafe-name", "cheating"]).optional(),
   }),
   z.object({ type: z.literal("ping"), clientTime: z.number().finite() }),
+  z.object({
+    type: z.literal("client_metrics"),
+    inputBacklog: z.number().int().min(0).max(2_000),
+    snapshotGapMs: z.number().int().min(0).max(60_000),
+  }),
 ])
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>
