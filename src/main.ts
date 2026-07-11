@@ -1,5 +1,6 @@
 import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
+import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js"
 import "./style.css"
 import {
   activateSignature,
@@ -17,6 +18,7 @@ import {
 } from "./simulation"
 import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard } from "./leaderboard"
 import { MultiplayerClient } from "./multiplayer"
+import { SnapshotBuffer } from "./snapshot-buffer"
 import type { RoomPlayer } from "../shared/protocol"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
@@ -50,6 +52,9 @@ const lobbyCode = document.querySelector<HTMLElement>("#lobby-code")!
 const lobbyStatus = document.querySelector<HTMLElement>("#lobby-status")!
 const partyList = document.querySelector<HTMLUListElement>("#party-list")!
 const readyButton = document.querySelector<HTMLButtonElement>("#ready-button")!
+const partyHud = document.querySelector<HTMLElement>("#party-hud")!
+const missionPartyList = document.querySelector<HTMLUListElement>("#mission-party-list")!
+const missionRoomCode = document.querySelector<HTMLElement>("#mission-room-code")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
 
 const scene = new THREE.Scene()
@@ -89,8 +94,19 @@ let localReady = false
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
-const remoteViews = new Map<string, { view: THREE.Group; target: THREE.Vector3 }>()
+interface RemoteView {
+  view: THREE.Group
+  snapshots: SnapshotBuffer
+  mixer: THREE.AnimationMixer | null
+  actions: Map<string, THREE.AnimationAction>
+  motion: string
+  lastPosition: THREE.Vector3
+  characterId: CharacterId
+}
+
+const remoteViews = new Map<string, RemoteView>()
 const gltfLoader = new GLTFLoader()
+let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
 let robinRangerMixer: THREE.AnimationMixer | null = null
 let robinRangerActions = new Map<string, THREE.AnimationAction>()
 let robinRangerMotion = ""
@@ -291,29 +307,35 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
   return character
 }
 
+function loadRobinRanger(): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
+  rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb")
+    .then((asset) => ({ scene: asset.scene, animations: asset.animations }))
+  return rangerAssetPromise
+}
+
+function prepareRangerInstance(source: THREE.Group): THREE.Group {
+  const ranger = cloneSkeleton(source) as THREE.Group
+  ranger.scale.setScalar(2.15)
+  ranger.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return
+    child.castShadow = true
+    child.receiveShadow = true
+    child.frustumCulled = true
+  })
+  return ranger
+}
+
 function attachRobinRanger(view: THREE.Group): void {
-  gltfLoader.load(
-    "/assets/characters/robin-ranger-rigged.glb",
-    (asset) => {
-      if (playerView !== view || selectedCharacter !== "robin") return
-      view.clear()
-      const ranger = asset.scene
-      ranger.scale.setScalar(2.15)
-      ranger.traverse((child) => {
-        if (!(child instanceof THREE.Mesh)) return
-        child.castShadow = true
-        child.receiveShadow = true
-        child.frustumCulled = true
-      })
-      view.add(ranger)
-      robinRangerMixer = new THREE.AnimationMixer(ranger)
-      robinRangerActions = new Map(asset.animations.map((clip) => [clip.name, robinRangerMixer!.clipAction(clip)]))
-      robinRangerMotion = ""
-      setRobinRangerMotion("Robin_Idle")
-    },
-    undefined,
-    () => showToast("Robin's ranger model could not be loaded"),
-  )
+  void loadRobinRanger().then((asset) => {
+    if (playerView !== view || selectedCharacter !== "robin") return
+    view.clear()
+    const ranger = prepareRangerInstance(asset.scene)
+    view.add(ranger)
+    robinRangerMixer = new THREE.AnimationMixer(ranger)
+    robinRangerActions = new Map(asset.animations.map((clip) => [clip.name, robinRangerMixer!.clipAction(clip)]))
+    robinRangerMotion = ""
+    setRobinRangerMotion("Robin_Idle")
+  }).catch(() => showToast("Robin's ranger model could not be loaded"))
 }
 
 function setRobinRangerMotion(name: string): void {
@@ -377,6 +399,7 @@ scene.add(destinationMarker)
 const multiplayer = new MultiplayerClient({
   onWelcome: (_playerId, roomCode) => {
     lobbyCode.textContent = roomCode
+    missionRoomCode.textContent = roomCode
     roomCodeInput.value = roomCode
     roomLobby.classList.remove("hidden")
     lobbyStatus.textContent = "Share this code, then ready up together."
@@ -385,6 +408,10 @@ const multiplayer = new MultiplayerClient({
     renderParty(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
     localReady = localPlayer?.ready ?? false
+    if (localPlayer) {
+      state.player.health = localPlayer.health
+      if (localPlayer.characterId !== selectedCharacter) selectLocalCharacter(localPlayer.characterId, false)
+    }
     readyButton.textContent = localReady ? "NOT READY" : "READY UP"
     if (phase === "mission") {
       multiplayerActive = true
@@ -392,17 +419,19 @@ const multiplayer = new MultiplayerClient({
       intro.classList.add("closed")
       lobbyStatus.textContent = "Mission started"
       ensureRemotePlayers(players)
+      partyHud.classList.remove("hidden")
       clock.getDelta()
     }
   },
   onSnapshot: (_tick, players) => {
+    const receivedAt = performance.now()
     for (const player of players) {
       if (player.id === multiplayer.playerId) {
-        state.player.position.x = player.position.x
-        state.player.position.z = player.position.z
+        state.player.position.x += (player.position.x - state.player.position.x) * 0.35
+        state.player.position.z += (player.position.z - state.player.position.z) * 0.35
       } else {
         const remote = remoteViews.get(player.id)
-        remote?.target.set(player.position.x, 0, player.position.z)
+        remote?.snapshots.push(player.position, receivedAt)
       }
     }
   },
@@ -417,11 +446,26 @@ const multiplayer = new MultiplayerClient({
 
 function renderParty(players: RoomPlayer[]): void {
   partyList.replaceChildren()
+  missionPartyList.replaceChildren()
   for (const player of players) {
     const item = document.createElement("li")
     item.classList.toggle("ready", player.ready)
     item.textContent = `${player.ready ? "✓" : "○"} ${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}${player.connected ? "" : " · reconnecting"}`
     partyList.append(item)
+
+    const compact = document.createElement("li")
+    compact.classList.toggle("local", player.id === multiplayer.playerId)
+    compact.classList.toggle("disconnected", !player.connected)
+    const presence = document.createElement("i")
+    presence.className = "presence"
+    const identity = document.createElement("span")
+    identity.className = "identity"
+    identity.textContent = `${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}`
+    const vitality = document.createElement("b")
+    vitality.className = "vitality"
+    vitality.textContent = "♥".repeat(Math.max(0, player.health))
+    compact.append(presence, identity, vitality)
+    missionPartyList.append(compact)
   }
   lobbyStatus.textContent = players.length < 2 ? "Waiting for another outlaw…" : "Ready together to begin."
 }
@@ -433,7 +477,29 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
     const view = createCharacter(player.characterId)
     view.position.set(player.position.x, 0, player.position.z)
     scene.add(view)
-    remoteViews.set(player.id, { view, target: new THREE.Vector3(player.position.x, 0, player.position.z) })
+    const remote: RemoteView = {
+      view,
+      snapshots: new SnapshotBuffer(),
+      mixer: null,
+      actions: new Map(),
+      motion: "",
+      lastPosition: view.position.clone(),
+      characterId: player.characterId,
+    }
+    remote.snapshots.push(player.position, performance.now())
+    remoteViews.set(player.id, remote)
+    if (player.characterId === "robin") {
+      void loadRobinRanger().then((asset) => {
+        if (remoteViews.get(player.id) !== remote) return
+        view.clear()
+        const ranger = prepareRangerInstance(asset.scene)
+        view.add(ranger)
+        remote.mixer = new THREE.AnimationMixer(ranger)
+        remote.actions = new Map(asset.animations.map((clip) => [clip.name, remote.mixer!.clipAction(clip)]))
+        remote.motion = "Robin_Idle"
+        remote.actions.get("Robin_Idle")?.play()
+      }).catch(() => undefined)
+    }
   }
   for (const [id, remote] of remoteViews) {
     if (activeIds.has(id)) continue
@@ -618,12 +684,24 @@ function syncViews(elapsed: number, dt: number): void {
     view.rotation.z = guard.stunnedFor > 0 ? Math.sin(elapsed * 14) * 0.1 : 0
   })
 
+  const snapshotNow = performance.now()
   for (const remote of remoteViews.values()) {
-    const previous = remote.view.position.clone()
-    remote.view.position.lerp(remote.target, 1 - Math.pow(0.0005, dt))
-    const remoteDx = remote.view.position.x - previous.x
-    const remoteDz = remote.view.position.z - previous.z
-    if (Math.hypot(remoteDx, remoteDz) > 0.0001) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
+    const sampled = remote.snapshots.sample(snapshotNow)
+    if (sampled) remote.view.position.set(sampled.x, 0, sampled.z)
+    const remoteDx = remote.view.position.x - remote.lastPosition.x
+    const remoteDz = remote.view.position.z - remote.lastPosition.z
+    const moving = Math.hypot(remoteDx, remoteDz) > 0.0001
+    if (moving) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
+    remote.lastPosition.copy(remote.view.position)
+    if (remote.mixer) {
+      const motion = moving ? "Robin_Walk" : "Robin_Idle"
+      if (motion !== remote.motion) {
+        remote.actions.get(remote.motion)?.fadeOut(0.12)
+        remote.actions.get(motion)?.reset().fadeIn(0.12).play()
+        remote.motion = motion
+      }
+      remote.mixer.update(dt)
+    }
   }
 
   cartView.children.forEach((child) => {
@@ -706,25 +784,30 @@ readyButton.addEventListener("click", () => multiplayer.setReady(!localReady))
 characterButtons.forEach((button) => {
   button.addEventListener("click", () => {
     if (running) return
-    selectedCharacter = button.dataset.character === "marian" ? "marian" : "robin"
-    characterButtons.forEach((option) => {
-      const selected = option === button
-      option.classList.toggle("selected", selected)
-      option.setAttribute("aria-pressed", String(selected))
-    })
-    state = createInitialState(selectedCharacter)
-    lastPlayerPosition = { ...state.player.position }
-    scene.remove(playerView)
-    robinRangerMixer = null
-    robinRangerActions = new Map()
-    robinRangerMotion = ""
-    playerView = createCharacter(selectedCharacter)
-    scene.add(playerView)
-    if (selectedCharacter === "robin") attachRobinRanger(playerView)
-    if (multiplayer.playerId) multiplayer.selectCharacter(selectedCharacter)
-    updateUI()
+    selectLocalCharacter(button.dataset.character === "marian" ? "marian" : "robin", true)
   })
 })
+
+function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): void {
+  if (selectedCharacter === characterId) return
+  selectedCharacter = characterId
+  characterButtons.forEach((option) => {
+    const selected = option.dataset.character === characterId
+    option.classList.toggle("selected", selected)
+    option.setAttribute("aria-pressed", String(selected))
+  })
+  state = createInitialState(selectedCharacter)
+  lastPlayerPosition = { ...state.player.position }
+  scene.remove(playerView)
+  robinRangerMixer = null
+  robinRangerActions = new Map()
+  robinRangerMotion = ""
+  playerView = createCharacter(selectedCharacter)
+  scene.add(playerView)
+  if (selectedCharacter === "robin") attachRobinRanger(playerView)
+  if (notifyServer && multiplayer.playerId) multiplayer.selectCharacter(selectedCharacter)
+  updateUI()
+}
 
 helpButton.addEventListener("click", () => helpPanel.classList.remove("hidden"))
 closeHelp.addEventListener("click", () => helpPanel.classList.add("hidden"))

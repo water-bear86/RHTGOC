@@ -101,8 +101,14 @@ sockets.on("connection", (socket) => {
         send(socket, { type: "welcome", version: PROTOCOL_VERSION, playerId: player.id, reconnectToken: player.reconnectToken, roomCode: room.code })
         room.broadcastRoomState()
       } catch (error) {
-        const code = error instanceof Error && error.message === "ROOM_FULL" ? "ROOM_FULL" : "MISSION_STARTED"
-        send(socket, { type: "error", code, message: code === "ROOM_FULL" ? "This Merry Band is full" : "This mission has already begun" })
+        const reason = error instanceof Error ? error.message : "MISSION_STARTED"
+        const code = reason === "ROOM_FULL" ? "ROOM_FULL" : reason === "ROLE_FULL" ? "ROLE_FULL" : "MISSION_STARTED"
+        const message = code === "ROOM_FULL"
+          ? "This Merry Band is full"
+          : code === "ROLE_FULL"
+            ? "That role is full — choose the other outlaw"
+            : "This mission has already begun"
+        send(socket, { type: "error", code, message })
       }
       return
     }
@@ -112,7 +118,10 @@ sockets.on("connection", (socket) => {
       return
     }
     if (message.type === "set_ready") joinedRoom.setReady(playerId, message.ready)
-    if (message.type === "select_character") joinedRoom.selectCharacter(playerId, message.characterId)
+    if (message.type === "select_character" && !joinedRoom.selectCharacter(playerId, message.characterId)) {
+      send(socket, { type: "error", code: "ROLE_FULL", message: "That role is full — choose the other outlaw" })
+      joinedRoom.broadcastRoomState()
+    }
     if (message.type === "input") joinedRoom.setInput(playerId, message.sequence, message.move)
     if (message.type === "ping") send(socket, { type: "pong", clientTime: message.clientTime, serverTime: Date.now() })
   })

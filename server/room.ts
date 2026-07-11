@@ -7,6 +7,7 @@ interface ConnectedPlayer extends RoomPlayer {
   socket: WebSocket | null
   disconnectedAt: number | null
   input: { x: number; z: number }
+  spawnIndex: number
 }
 
 const spawnPoints = [
@@ -30,7 +31,10 @@ export class Room {
     this.pruneDisconnected(Date.now())
     if (this.phase !== "lobby") throw new Error("MISSION_STARTED")
     if (this.players.size >= MAX_ROOM_PLAYERS) throw new Error("ROOM_FULL")
-    const position = spawnPoints[this.players.size]
+    if (!this.characterAvailable(characterId)) throw new Error("ROLE_FULL")
+    const occupiedSpawns = new Set([...this.players.values()].map((player) => player.spawnIndex))
+    const spawnIndex = spawnPoints.findIndex((_, index) => !occupiedSpawns.has(index))
+    const position = spawnPoints[spawnIndex]
     const player: ConnectedPlayer = {
       id: randomUUID(),
       reconnectToken: randomUUID(),
@@ -38,11 +42,13 @@ export class Room {
       characterId,
       ready: false,
       connected: true,
+      health: 3,
       position: { ...position },
       lastInputSequence: 0,
       socket,
       disconnectedAt: null,
       input: { x: 0, z: 0 },
+      spawnIndex,
     }
     this.players.set(player.id, player)
     return player
@@ -82,12 +88,14 @@ export class Room {
     this.broadcastRoomState()
   }
 
-  selectCharacter(playerId: string, characterId: CharacterId): void {
+  selectCharacter(playerId: string, characterId: CharacterId): boolean {
     const player = this.players.get(playerId)
-    if (!player || this.phase !== "lobby") return
+    if (!player || this.phase !== "lobby") return false
+    if (!this.characterAvailable(characterId, playerId)) return false
     player.characterId = characterId
     player.ready = false
     this.broadcastRoomState()
+    return true
   }
 
   setInput(playerId: string, sequence: number, move: { x: number; z: number }): void {
@@ -117,9 +125,15 @@ export class Room {
       characterId: player.characterId,
       ready: player.ready,
       connected: player.connected,
+      health: player.health,
       position: player.position,
       lastInputSequence: player.lastInputSequence,
     }
+  }
+
+  private characterAvailable(characterId: CharacterId, excludingPlayerId?: string): boolean {
+    const selected = [...this.players.values()].filter((player) => player.id !== excludingPlayerId && player.characterId === characterId)
+    return selected.length < 2
   }
 
   broadcastRoomState(): void {

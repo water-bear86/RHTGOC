@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-export const PROTOCOL_VERSION = 1 as const
+export const PROTOCOL_VERSION = 2 as const
 export const MAX_ROOM_PLAYERS = 4
 export const RECONNECT_GRACE_MS = 30_000
 
@@ -43,6 +43,7 @@ export interface RoomPlayer {
   characterId: CharacterId
   ready: boolean
   connected: boolean
+  health: number
   position: { x: number; z: number }
   lastInputSequence: number
 }
@@ -52,7 +53,7 @@ export type ServerMessage =
   | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; players: RoomPlayer[] }
   | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence">> }
   | { type: "pong"; clientTime: number; serverTime: number }
-  | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "MISSION_STARTED" | "NOT_JOINED"; message: string }
+  | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED"; message: string }
 
 export function parseClientMessage(value: unknown): ClientMessage | null {
   const result = ClientMessageSchema.safeParse(value)

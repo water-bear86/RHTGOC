@@ -49,13 +49,25 @@ button { font: inherit; }
 .heat div { height: 4px; margin-top: 5px; background: #321511aa; }
 .heat i { display: block; width: 0; height: 100%; background: #c9513f; transition: width .15s linear; }
 
+.party-hud { position: absolute; top: 82px; left: 28px; width: min(228px, 30vw); padding: 10px 12px; background: #10251dcc; border: 1px solid #f7f0d426; border-radius: 3px; box-shadow: 0 8px 24px #0004; backdrop-filter: blur(8px); }
+.party-hud.hidden { display: none; }
+.party-hud > span { display: flex; justify-content: space-between; color: var(--gold); font-size: 8px; font-weight: 700; letter-spacing: .17em; }
+.party-hud ul { display: grid; gap: 5px; margin: 8px 0 0; padding: 0; list-style: none; }
+.party-hud li { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: 7px; min-width: 0; color: #f7f0d4b8; font-size: 9px; }
+.party-hud li.local { color: var(--cream); }
+.party-hud li.disconnected { opacity: .55; }
+.party-hud .presence { width: 6px; height: 6px; border-radius: 50%; background: var(--moss); box-shadow: 0 0 7px #749b4d; }
+.party-hud li.disconnected .presence { background: #9b574d; box-shadow: none; }
+.party-hud .identity { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.party-hud .vitality { color: #d98572; letter-spacing: .08em; }
+
 .prompt { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 10px 16px; color: #eee6c9; background: #10251ddd; border: 1px solid #f7f0d43b; border-radius: 2px; font-size: 12px; letter-spacing: .04em; box-shadow: 0 8px 30px #0006; transition: opacity .2s; }
 .toast { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -10px); color: var(--cream); font: 700 18px Cinzel, serif; text-shadow: 0 3px 15px #000; opacity: 0; transition: .25s; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .help-button { pointer-events: auto; position: absolute; right: 28px; bottom: 28px; width: 38px; height: 38px; color: var(--cream); background: #10251dc7; border: 1px solid #f7f0d452; border-radius: 50%; cursor: pointer; }
 .leaderboard-button { pointer-events: auto; position: absolute; right: 76px; bottom: 28px; width: 38px; height: 38px; color: var(--gold); background: #10251dc7; border: 1px solid #e4b65369; border-radius: 50%; cursor: pointer; }
 
-.intro { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; background: radial-gradient(circle at 58% 40%, transparent 0 18%, #07120bc4 70%), linear-gradient(90deg, #07120bee, #07120b33); transition: opacity .8s ease, visibility .8s; }
+.intro { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; overflow-y: auto; background: radial-gradient(circle at 58% 40%, transparent 0 18%, #07120bc4 70%), linear-gradient(90deg, #07120bee, #07120b33); transition: opacity .8s ease, visibility .8s; }
 .intro.closed { opacity: 0; visibility: hidden; pointer-events: none; }
 .intro-card { width: min(760px, calc(100vw - 48px)); padding: 42px 52px; border-left: 1px solid #e4b6538a; }
 .eyebrow { color: var(--gold); font-size: 10px; font-weight: 700; letter-spacing: .24em; }
@@ -103,6 +115,18 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .leaderboard-list strong { color: var(--gold); font: 700 14px Cinzel, serif; }
 .board-note { display: block; margin-top: 18px; color: #f7f0d45c; font-size: 9px; line-height: 1.5; letter-spacing: .04em; }
 
+@media (max-height: 850px) {
+  .intro { place-items: start center; }
+  .intro-card { padding-top: 24px; padding-bottom: 28px; }
+  h1 { margin: 10px 0 14px; font-size: clamp(32px, 7vh, 54px); }
+  .intro p { margin-bottom: 18px; font-size: 14px; line-height: 1.45; }
+  .character-select { margin-top: -4px; margin-bottom: 12px; }
+  .character-select .character-option { padding: 10px 13px; }
+  .character-option small { margin-top: 5px; }
+  .room-lobby { padding: 12px; }
+  .intro small { margin-top: 12px; }
+}
+
 @media (max-width: 720px) {
   .brand { top: 14px; left: 14px; }
   .brand > span:last-child { display: none; }
@@ -112,6 +136,7 @@ h1 em { color: #b7cd8b; font-style: normal; }
   .status span { min-width: 48px; height: 36px; }
   .status .signature-status { min-width: 72px; }
   .heat { top: 76px; right: 14px; width: 150px; }
+  .party-hud { top: 64px; left: 14px; width: min(190px, 48vw); }
   .intro-card { padding: 28px 24px; }
   .character-select { grid-template-columns: 1fr; }
   .band-setup { grid-template-columns: 1fr 1fr; }
