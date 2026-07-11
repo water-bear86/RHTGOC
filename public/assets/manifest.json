@@ -1,20 +1,76 @@
 {
-  "version": 1,
+  "version": 2,
   "units": "meters",
   "forwardAxis": "+Z",
   "upAxis": "+Y",
   "assets": [
     {
       "id": "character.robin.ranger",
-      "uri": "/assets/characters/robin-ranger-rigged.glb",
+      "category": "hero",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-11",
+        "rationale": "Grounded skinned hero with six measured draw calls, consolidated quiver geometry, browser-safe texture, validated animation, and explicit collision and LOD policy."
+      },
+      "provenance": {
+        "sourceAsset": "fantasy+ranger+3d+model (1).glb",
+        "sourceSha256": "e96d56bc77fbca142d7a3b6e700a90463a7e62f1bdf6ee4864ddb16b038c90f8",
+        "sourceBytes": 4402020,
+        "sourceGenerator": "Tripo",
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/rig_robin_ranger.py",
+        "conversionDoc": "docs/operations/3d-assets.md",
+        "optimizer": "tools/optimize-robin-ranger.sh"
+      },
+      "license": {
+        "status": "project-authorized",
+        "identifier": "LicenseRef-Project-Owner-Authorized",
+        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts"
+      },
+      "uri": "assets/characters/robin-ranger-rigged.glb",
       "format": "glTF 2.0 GLB",
-      "bytesMax": 1600000,
-      "renderVertices": 181647,
-      "uploadVertices": 35158,
-      "drawCalls": 7,
-      "texture": { "format": "webp", "width": 1024, "height": 1024, "gpuBytesApprox": 5590000 },
+      "sha256": "2226ac568499ac922bfda426d181adcb4d4553e600cb2544320549932ea27b75",
+      "bytesMax": 2500000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 181647,
+        "uploadVertices": 35374,
+        "triangles": 60549,
+        "uniquePrimitives": 6,
+        "sceneDrawCalls": 6
+      },
+      "materials": {
+        "count": 5,
+        "names": [
+          "RobinYewWood",
+          "RobinBowString",
+          "RobinLeather",
+          "RobinArrowheads",
+          "tripo_mat_adf5a68b-2459-4568-a847-7a4d4c5a355d"
+        ]
+      },
+      "texture": {
+        "count": 1,
+        "format": "webp",
+        "width": 1024,
+        "height": 1024,
+        "encodedBytes": 61696,
+        "gpuBytesApprox": 5592404
+      },
       "clips": ["Robin_Idle", "Robin_Walk", "Robin_Shoot"],
-      "pivot": "feet at origin",
+      "pivot": {
+        "policy": "feet at origin",
+        "passes": true,
+        "evidence": "Validated scene bounds have minY=0"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-0.4906920790672302, 0, -0.23249934533385103],
+        "boundsMax": [0.6233227836316664, 1.0623315410637322, 0.1229633092880249],
+        "runtimeMultiplier": 2.15
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
       "collision": { "type": "capsule", "radius": 0.55, "height": 2.1, "centerY": 1.05 },
       "lod": [
         { "level": 0, "maxDistance": 24, "asset": "self" },
@@ -24,15 +80,57 @@
     },
     {
       "id": "environment.sherwood.tree-grove",
-      "uri": "/assets/environment/sherwood-tree-grove.glb",
+      "category": "decorative-environment",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-11",
+        "rationale": "Ground removed, transforms and pivot normalized, meshes consolidated, resources embedded, and decorative collision plus LOD fallbacks defined."
+      },
+      "provenance": {
+        "sourceAsset": "Tree Assets (1).glb",
+        "sourceSha256": "88f82eeeb0f1f3d929df456459b16a2853fc7ba38260a871bee8e154ad15bfdf",
+        "sourceBytes": 410864,
+        "sourceGenerator": "obj2gltf",
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/normalize-tree-grove.py",
+        "conversionDoc": "docs/assets/authored-tree-grove.md",
+        "optimizer": "Blender glTF 2.0 exporter"
+      },
+      "license": {
+        "status": "project-authorized",
+        "identifier": "LicenseRef-Project-Owner-Authorized",
+        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts"
+      },
+      "uri": "assets/environment/sherwood-tree-grove.glb",
       "format": "glTF 2.0 GLB",
+      "sha256": "b7dda3ea846d5dc3b51e98df4cbeaac7522abe5c415d8f414231e8202fdf4bc8",
       "bytesMax": 450000,
-      "renderVertices": 15264,
-      "uploadVertices": 11107,
-      "drawCalls": 8,
-      "texture": { "format": "none", "width": 0, "height": 0, "gpuBytesApprox": 0 },
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 15264,
+        "uploadVertices": 11107,
+        "triangles": 5088,
+        "uniquePrimitives": 8,
+        "sceneDrawCalls": 8
+      },
+      "materials": {
+        "count": 8,
+        "names": ["mat16", "mat17", "mat19", "mat9", "mat10", "mat20", "mat11", "mat21"]
+      },
+      "texture": { "count": 0, "format": "none", "width": 0, "height": 0, "encodedBytes": 0, "gpuBytesApprox": 0 },
       "clips": [],
-      "pivot": "grove center at origin, lowest root at Y=0, normalized height 1m",
+      "pivot": {
+        "policy": "bottom center at origin",
+        "passes": true,
+        "evidence": "Validated bounds are centered on X/Z with minY=0"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-0.4817104191, 0, -0.4750157073],
+        "boundsMax": [0.4817103893, 1.0000000149, 0.4750157222]
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
       "collision": { "type": "none", "reason": "decorative perimeter grove; gameplay bounds remain authoritative" },
       "lod": [
         { "level": 0, "maxDistance": 38, "asset": "self" },
@@ -42,16 +140,86 @@
     }
   ],
   "catalog": {
-    "characters": ["character.robin.ranger", "character.marian.scout", "character.little-john.vanguard", "character.much.saboteur", "character.sheriff.guard", "character.villager.captive"],
-    "environments": ["environment.sherwood.common", "environment.sherwood.tree-grove"],
-    "props": ["prop.tax-cart", "prop.prison-wagon", "prop.wagon-lock", "prop.extraction-beacon", "prop.royal-storehouse", "prop.alarm-bell", "prop.secured-cache", "prop.disguise-rack", "prop.ledger", "prop.reinforcement-signal", "prop.road-snare", "prop.village-fire"],
-    "audio": ["audio.mission.forest-bed", "audio.fx.bow", "audio.fx.impact", "audio.fx.wagon", "audio.fx.lock-break", "audio.fx.alarm-bell", "audio.fx.cache-open"],
-    "effects": ["fx.ping.symbols", "fx.vanguard.oak-sweep", "fx.saboteur.road-snare", "fx.alarm.pulse"]
+    "shipped": ["character.robin.ranger", "environment.sherwood.tree-grove"],
+    "procedural": [
+      "character.marian.scout",
+      "character.little-john.vanguard",
+      "character.much.saboteur",
+      "character.sheriff.guard",
+      "character.villager.captive",
+      "environment.sherwood.common",
+      "prop.tax-cart",
+      "prop.prison-wagon",
+      "prop.wagon-lock",
+      "prop.extraction-beacon",
+      "prop.royal-storehouse",
+      "prop.alarm-bell",
+      "prop.secured-cache",
+      "prop.disguise-rack",
+      "prop.ledger",
+      "prop.reinforcement-signal",
+      "prop.road-snare",
+      "prop.village-fire",
+      "audio.mission.forest-bed",
+      "audio.fx.bow",
+      "audio.fx.impact",
+      "audio.fx.wagon",
+      "audio.fx.lock-break",
+      "audio.fx.alarm-bell",
+      "audio.fx.cache-open",
+      "fx.ping.symbols",
+      "fx.vanguard.oak-sweep",
+      "fx.saboteur.road-snare",
+      "fx.alarm.pulse"
+    ]
   },
   "budgets": {
-    "heroGlbBytes": 1600000,
-    "heroDrawCalls": 8,
-    "heroTextureEdge": 1024,
+    "assetCategories": {
+      "hero": {
+        "bytesMax": 2500000,
+        "renderVerticesMax": 200000,
+        "uploadVerticesMax": 50000,
+        "trianglesMax": 100000,
+        "uniquePrimitivesMax": 8,
+        "sceneDrawCallsMax": 8,
+        "materialsMax": 8,
+        "textureEdgeMax": 1024,
+        "textureGpuBytesMax": 6000000
+      },
+      "modular-environment": {
+        "bytesMax": 3000000,
+        "renderVerticesMax": 100000,
+        "uploadVerticesMax": 75000,
+        "trianglesMax": 60000,
+        "uniquePrimitivesMax": 24,
+        "sceneDrawCallsMax": 24,
+        "materialsMax": 8,
+        "textureEdgeMax": 1024,
+        "textureGpuBytesMax": 32000000
+      },
+      "repeated-prop": {
+        "bytesMax": 500000,
+        "renderVerticesMax": 30000,
+        "uploadVerticesMax": 20000,
+        "trianglesMax": 20000,
+        "uniquePrimitivesMax": 4,
+        "sceneDrawCallsMax": 4,
+        "materialsMax": 3,
+        "textureEdgeMax": 512,
+        "textureGpuBytesMax": 1500000
+      },
+      "decorative-environment": {
+        "bytesMax": 500000,
+        "renderVerticesMax": 30000,
+        "uploadVerticesMax": 20000,
+        "trianglesMax": 20000,
+        "uniquePrimitivesMax": 8,
+        "sceneDrawCallsMax": 8,
+        "materialsMax": 8,
+        "textureEdgeMax": 512,
+        "textureGpuBytesMax": 1500000
+      }
+    },
     "sceneDrawCallsDesktop": 220,
     "sceneDrawCallsDegraded": 130
   }

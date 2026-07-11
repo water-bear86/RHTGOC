@@ -66,6 +66,18 @@ def add_cone(name, location, radius_1, radius_2, depth, material, vertices=10):
     return obj
 
 
+def join_meshes(objects, name):
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in objects:
+        obj.select_set(True)
+    joined = objects[0]
+    bpy.context.view_layer.objects.active = joined
+    bpy.ops.object.join()
+    joined.name = name
+    joined.data.name = f"{name}Mesh"
+    return joined
+
+
 def parent_to_bone(obj, armature, bone_name):
     world_matrix = obj.matrix_world.copy()
     obj.parent = armature
@@ -106,18 +118,22 @@ def create_bow(material_wood, material_string):
 
 
 def create_quiver(material_leather, material_wood, material_metal):
-    parts = []
     quiver = add_cone("RobinQuiver", (0.0, 0.0, 0.0), 0.075, 0.09, 0.34, material_leather, vertices=12)
-    parts.append(quiver)
     rim = add_cylinder("RobinQuiverRim", (0.0, 0.0, 0.17), 0.095, 0.025, material_metal, vertices=12)
-    parts.append(rim)
+    arrows = []
+    arrowheads = [rim]
     for index, x_offset in enumerate((-0.045, -0.015, 0.015, 0.045)):
         arrow = add_cylinder(f"RobinQuiverArrow{index}", (x_offset, 0.0, 0.26), 0.008, 0.40, material_wood, vertices=8)
         arrow.rotation_euler = (0.10 * index, 0.0, 0.04 * index)
         tip = add_cone(f"RobinQuiverArrowTip{index}", (x_offset, 0.0, 0.47), 0.022, 0.0, 0.06, material_metal, vertices=6)
         tip.rotation_euler = arrow.rotation_euler
-        parts.extend((arrow, tip))
-    return parts
+        arrows.append(arrow)
+        arrowheads.append(tip)
+    return [
+        quiver,
+        join_meshes(arrows, "RobinQuiverArrows"),
+        join_meshes(arrowheads, "RobinQuiverArrowheads"),
+    ]
 
 
 def create_armature():
@@ -276,6 +292,9 @@ def main():
 
     armature = create_armature()
     auto_weight(body, armature)
+    # Keep the skinned mesh and armature as sibling scene roots. The modifier
+    # retains the skin binding, while a parent transform on a skinned node is
+    # ignored by glTF runtimes and fails validation.
     body.parent = None
 
     bow, bow_string = create_bow(wood, string)
