@@ -85,6 +85,30 @@
       <button id="close-leaderboard" aria-label="Close leaderboard">×</button>
       <span class="eyebrow">SEASON ZERO</span>
       <h2>Master Outlaws</h2>
+      <div class="board-filters">
+        <select id="board-kind" aria-label="Leaderboard category">
+          <option value="master-outlaws">Master Outlaws</option>
+          <option value="peoples-champions">People's Champions</option>
+          <option value="clean-escapes">Clean Escapes</option>
+          <option value="rescuers">Rescuers</option>
+          <option value="swift-arrows">Swift Arrows</option>
+        </select>
+        <select id="board-character" aria-label="Leaderboard character">
+          <option value="">All heroes</option><option value="robin">Robin</option><option value="marian">Marian</option>
+        </select>
+        <select id="board-party" aria-label="Leaderboard party size">
+          <option value="">Any party</option><option value="1">Solo</option><option value="2">2 players</option><option value="3">3 players</option><option value="4">4 players</option>
+        </select>
+        <select id="board-scope" aria-label="Leaderboard scope">
+          <option value="global">Global</option><option value="friends">Friends</option><option value="band">Merry Band</option>
+        </select>
+        <select id="board-mission" aria-label="Leaderboard mission">
+          <option value="peoples-purse">People's Purse</option>
+        </select>
+        <select id="board-season" aria-label="Leaderboard season">
+          <option value="season-zero">Season Zero</option>
+        </select>
+      </div>
       <p class="board-state" id="leaderboard-state">Loading the global board…</p>
       <ol class="leaderboard-list" id="leaderboard-list"></ol>
       <small class="board-note">Only server-validated missions will receive a verified mark. Prototype runs remain unverified.</small>

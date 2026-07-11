@@ -16,7 +16,7 @@ import {
   type CharacterId,
   type Vec2,
 } from "./simulation"
-import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard } from "./leaderboard"
+import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type LeaderboardKind } from "./leaderboard"
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import type { MissionEvent, MissionSnapshot, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
@@ -42,6 +42,12 @@ const leaderboardPanel = document.querySelector<HTMLDivElement>("#leaderboard-pa
 const closeLeaderboard = document.querySelector<HTMLButtonElement>("#close-leaderboard")!
 const leaderboardList = document.querySelector<HTMLOListElement>("#leaderboard-list")!
 const leaderboardState = document.querySelector<HTMLElement>("#leaderboard-state")!
+const boardKind = document.querySelector<HTMLSelectElement>("#board-kind")!
+const boardCharacter = document.querySelector<HTMLSelectElement>("#board-character")!
+const boardParty = document.querySelector<HTMLSelectElement>("#board-party")!
+const boardScope = document.querySelector<HTMLSelectElement>("#board-scope")!
+const boardMission = document.querySelector<HTMLSelectElement>("#board-mission")!
+const boardSeason = document.querySelector<HTMLSelectElement>("#board-season")!
 const characterButtons = [...document.querySelectorAll<HTMLButtonElement>(".character-option")]
 const playerNameInput = document.querySelector<HTMLInputElement>("#player-name")!
 const roomCodeInput = document.querySelector<HTMLInputElement>("#room-code")!
@@ -869,7 +875,35 @@ async function openLeaderboard(): Promise<void> {
   leaderboardPanel.classList.remove("hidden")
   leaderboardState.textContent = "Loading the global board…"
   leaderboardList.replaceChildren()
-  const board = await loadLeaderboard()
+  const kind = boardKind.value as LeaderboardKind
+  const scope = boardScope.value
+  const bandId = scope === "band" ? localStorage.getItem("sherwood:band-id") ?? undefined : undefined
+  if (scope === "band" && !bandId) {
+    leaderboardState.textContent = "Join or create a persistent Merry Band to use this filter"
+    return
+  }
+  let friendIds: string[] | undefined
+  if (scope === "friends") {
+    try { friendIds = JSON.parse(localStorage.getItem("sherwood:friend-ids") ?? "[]") as string[] }
+    catch { friendIds = [] }
+  }
+  const board = await loadLeaderboard({
+    kind,
+    seasonSlug: boardSeason.value,
+    characterId: boardCharacter.value ? boardCharacter.value as CharacterId : undefined,
+    partySize: boardParty.value ? Number(boardParty.value) : undefined,
+    missionSlug: boardMission.value,
+    bandId,
+    playerIds: friendIds,
+  })
+  const titles: Record<LeaderboardKind, string> = {
+    "master-outlaws": "Master Outlaws",
+    "peoples-champions": "People's Champions",
+    "clean-escapes": "Clean Escapes",
+    rescuers: "Rescuers",
+    "swift-arrows": "Swift Arrows",
+  }
+  leaderboardPanel.querySelector("h2")!.textContent = titles[kind]
   leaderboardState.textContent = board.global
     ? "Global alpha board · verified results rank first"
     : "Offline preview · connect the leaderboard database for global results"
@@ -881,7 +915,15 @@ async function openLeaderboard(): Promise<void> {
     const score = document.createElement("strong")
     name.textContent = `${entry.verified ? "◆ " : ""}${entry.playerName}`
     detail.textContent = `${entry.characterId === "marian" ? "Maid Marian" : "Robin Hood"} · ${entry.grade} · ${entry.missionSeconds}s`
-    score.textContent = entry.score.toLocaleString()
+    score.textContent = kind === "peoples-champions"
+      ? `${entry.generosity ?? 0}%`
+      : kind === "clean-escapes"
+        ? `${entry.missionSeconds}s`
+        : kind === "rescuers"
+          ? `${entry.rescues ?? 0} R`
+          : kind === "swift-arrows"
+            ? `${entry.precision ?? 0}%`
+            : entry.score.toLocaleString()
     identity.append(name, detail)
     item.append(identity, score)
     leaderboardList.append(item)
@@ -1148,6 +1190,7 @@ helpButton.addEventListener("click", () => helpPanel.classList.remove("hidden"))
 closeHelp.addEventListener("click", () => helpPanel.classList.add("hidden"))
 leaderboardButton.addEventListener("click", () => void openLeaderboard())
 closeLeaderboard.addEventListener("click", () => leaderboardPanel.classList.add("hidden"))
+for (const filter of [boardKind, boardCharacter, boardParty, boardScope, boardMission, boardSeason]) filter.addEventListener("change", () => void openLeaderboard())
 closeResults.addEventListener("click", () => resultsPanel.classList.add("hidden"))
 voteButtons.forEach((button) => button.addEventListener("click", () => multiplayer.vote(button.dataset.vote as VoteChoice)))
 safetyButton.addEventListener("click", () => safetyPanel.classList.remove("hidden"))

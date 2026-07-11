@@ -66,6 +66,31 @@ describe("Merry Band room", () => {
     expect(room.reconnect(fakeSocket(), member.reconnectToken, 2_001)).toBeNull()
   })
 
+  it("claims authoritative leaderboard runs once and retries only after failure", () => {
+    const room = new Room("ABC234")
+    const robin = room.addPlayer(fakeSocket(), "Robin", "robin")
+    const marian = room.addPlayer(fakeSocket(), "Marian", "marian")
+    room.setReady(robin.id, true)
+    room.setReady(marian.id, true)
+    room.mission!.status = "succeeded"
+    room.mission!.elapsedSeconds = 900
+    room.mission!.delivered = 660
+    room.mission!.result = {
+      score: 8000,
+      grade: "A",
+      breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 80, generosity: 80 },
+      thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
+      communityCoin: 660,
+      personalRenown: 4000,
+    }
+    expect(room.claimVerifiedRuns()).toHaveLength(2)
+    expect(room.claimVerifiedRuns()).toBeNull()
+    room.finishLeaderboardPersistence(false)
+    expect(room.claimVerifiedRuns()).toHaveLength(2)
+    room.finishLeaderboardPersistence(true)
+    expect(room.claimVerifiedRuns()).toBeNull()
+  })
+
   it("starts only when at least two connected players are ready", () => {
     const room = new Room("ABC234")
     const first = room.addPlayer(fakeSocket(), "Robin", "robin")

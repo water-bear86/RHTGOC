@@ -24,14 +24,18 @@ export type Database = {
       leaderboard_entries: {
         Row: {
           character_id: string
+          band_id: string | null
+          clean_escape: boolean
           created_at: string
           damage_taken: number
           delivered: number
+          generosity: number
           grade: string
           id: string
           mission_seconds: number
           mission_slug: string
           party_size: number
+          precision: number
           player_id: string | null
           player_name: string
           rescues: number
@@ -40,6 +44,7 @@ export type Database = {
           season_id: string
           verification_id: string | null
           verified: boolean
+          suspicious: boolean
         }
         Insert: Database["public"]["Tables"]["leaderboard_entries"]["Row"]
         Update: Partial<Database["public"]["Tables"]["leaderboard_entries"]["Row"]>

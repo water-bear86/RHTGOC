@@ -108,6 +108,8 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .panel dd { margin: 4px 0 0; color: #f7f0d4b0; font-size: 13px; line-height: 1.45; }
 .leaderboard-panel { width: min(460px, calc(100vw - 56px)); }
 .board-state { margin: -12px 0 18px; color: #f7f0d485; font-size: 11px; }
+.board-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: -12px 0 18px; }
+.board-filters select { min-width: 0; padding: 8px; color: var(--cream); background: #0c1d16; border: 1px solid #f7f0d42b; font-size: 9px; }
 .leaderboard-list { margin: 0; padding: 0; list-style: none; counter-reset: board; }
 .leaderboard-list li { counter-increment: board; display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid #f7f0d417; }
 .leaderboard-list li::before { content: counter(board, decimal-leading-zero); color: #e4b6538f; font: 700 10px Cinzel, serif; }

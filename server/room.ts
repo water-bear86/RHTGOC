@@ -39,6 +39,8 @@ export class Room {
   mission: Mission | null = null
   readonly moderationEvents: Array<{ at: number; actorId: string; targetId: string; action: "report" | "remove" | "block"; reason?: string }> = []
   private readonly bannedReconnectTokens = new Set<string>()
+  private readonly missionId = randomUUID()
+  private leaderboardPersistence: "idle" | "pending" | "done" = "idle"
 
   constructor(code: string) {
     this.code = code
@@ -168,6 +170,38 @@ export class Room {
     this.players.delete(targetId)
     this.broadcastRoomState()
     return true
+  }
+
+  claimVerifiedRuns(): Array<{
+    missionId: string
+    playerId: string
+    playerName: string
+    characterId: CharacterId
+    partySize: number
+    missionSeconds: number
+    delivered: number
+    rescues: number
+    damageTaken: number
+    result: NonNullable<Mission["result"]>
+  }> | null {
+    if (!this.mission?.result || this.mission.status !== "succeeded" || this.leaderboardPersistence !== "idle") return null
+    this.leaderboardPersistence = "pending"
+    return [...this.players.values()].map((player) => ({
+      missionId: this.missionId,
+      playerId: player.id,
+      playerName: player.displayName,
+      characterId: player.characterId,
+      partySize: this.players.size,
+      missionSeconds: this.mission!.elapsedSeconds,
+      delivered: this.mission!.delivered,
+      rescues: player.rescueCount,
+      damageTaken: this.mission!.damageTaken,
+      result: this.mission!.result!,
+    }))
+  }
+
+  finishLeaderboardPersistence(success: boolean): void {
+    this.leaderboardPersistence = success ? "done" : "idle"
   }
 
   update(dt: number): void {

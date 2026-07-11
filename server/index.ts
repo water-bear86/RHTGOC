@@ -6,10 +6,12 @@ import { WebSocket, WebSocketServer } from "ws"
 import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "../shared/protocol"
 import { Room } from "./room"
 import { createBandStoreFromEnv } from "./band-store"
+import { createLeaderboardStoreFromEnv } from "./leaderboard-store"
 
 const port = Number(process.env.PORT ?? 8787)
 const rooms = new Map<string, Room>()
 const bandStore = createBandStoreFromEnv()
+const leaderboardStore = createLeaderboardStoreFromEnv()
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 function roomCode(): string {
@@ -36,7 +38,13 @@ const contentTypes: Record<string, string> = {
 const httpServer = createServer(async (request, response) => {
   if (request.url === "/health") {
     response.writeHead(200, { "Content-Type": "application/json" })
-    response.end(JSON.stringify({ ok: true, rooms: rooms.size, protocolVersion: PROTOCOL_VERSION, bandPersistence: bandStore !== null }))
+    response.end(JSON.stringify({
+      ok: true,
+      rooms: rooms.size,
+      protocolVersion: PROTOCOL_VERSION,
+      bandPersistence: bandStore !== null,
+      verifiedLeaderboardWrites: leaderboardStore !== null,
+    }))
     return
   }
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -142,6 +150,15 @@ sockets.on("connection", (socket) => {
 setInterval(() => {
   for (const [code, room] of rooms) {
     room.update(1 / 20)
+    const verifiedRuns = leaderboardStore?.recordVerifiedRun ? room.claimVerifiedRuns() : null
+    if (verifiedRuns) {
+      void Promise.all(verifiedRuns.map((run) => leaderboardStore!.recordVerifiedRun(run)))
+        .then(() => room.finishLeaderboardPersistence(true))
+        .catch((error) => {
+          room.finishLeaderboardPersistence(false)
+          console.error("Verified leaderboard persistence failed", error instanceof Error ? error.message : error)
+        })
+    }
     if (room.players.size === 0) rooms.delete(code)
   }
 }, 50)
