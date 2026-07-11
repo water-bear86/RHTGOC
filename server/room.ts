@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
-import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type CharacterId, type LoadoutId, type MissionResult, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
+import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type CharacterId, type LastMissionResult, type LoadoutId, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
 import { Mission } from "./mission"
 import { getMissionDefinition } from "../shared/mission-catalog"
 
@@ -44,7 +44,7 @@ export class Room {
   mission: Mission | null = null
   missionSlug = "peoples-purse"
   village: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
-  lastResult: Pick<MissionResult, "score" | "grade"> | null = null
+  lastResult: LastMissionResult | null = null
   readonly moderationEvents: Array<{ at: number; actorId: string; targetId: string; action: "report" | "remove" | "block"; reason?: string }> = []
   private readonly bannedReconnectTokens = new Set<string>()
   private missionId = randomUUID()
@@ -133,7 +133,9 @@ export class Room {
     const connected = [...this.players.values()].filter((candidate) => candidate.connected)
     if (connected.length >= 2 && connected.every((candidate) => candidate.ready)) {
       this.phase = "mission"
-      this.mission ??= new Mission(this.code, this.players, getMissionDefinition(this.missionSlug))
+      const definition = getMissionDefinition(this.missionSlug)
+      for (const player of this.players.values()) player.position = { ...definition.spawns.players[player.spawnIndex] }
+      this.mission ??= new Mission(this.code, this.players, definition)
       this.mission.village = { ...this.village }
     }
     this.broadcastRoomState()
@@ -169,9 +171,15 @@ export class Room {
   }
 
   returnToHub(playerId: string): boolean {
-    if (!this.mission || this.moderatorId() !== playerId || this.mission.status !== "succeeded" || !this.mission.vote?.resolved) return false
-    this.village = { ...this.mission.village }
-    this.lastResult = this.mission.result ? { score: this.mission.result.score, grade: this.mission.result.grade } : null
+    if (!this.mission || this.moderatorId() !== playerId || this.mission.status === "active" || (this.mission.status === "succeeded" && !this.mission.vote?.resolved)) return false
+    if (this.mission.status === "succeeded") this.village = { ...this.mission.village }
+    this.lastResult = this.mission.result ? {
+      score: this.mission.result.score,
+      grade: this.mission.result.grade,
+      status: this.mission.status,
+      rescuedCaptives: this.mission.captives.filter((captive) => captive.rewarded).length,
+      totalCaptives: this.mission.captives.length,
+    } : null
     this.phase = "lobby"
     this.mission = null
     this.missionId = randomUUID()

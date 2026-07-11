@@ -74,8 +74,32 @@ describe("Merry Band room", () => {
     expect(room.phase).toBe("lobby")
     expect(room.mission).toBeNull()
     expect(room.village).toEqual({ granary: 1, infirmary: 0, watchtower: 0 })
-    expect(room.lastResult).toEqual({ score: 8000, grade: "A" })
+    expect(room.lastResult).toEqual({ score: 8000, grade: "A", status: "succeeded", rescuedCaptives: 0, totalCaptives: 0 })
     expect([...room.players.values()].every((player) => !player.ready && player.health === 3 && player.loot === 0)).toBe(true)
+  })
+
+  it("launches the selected prison package and preserves a partial rescue on return", () => {
+    const room = new Room("IRON25")
+    const leader = room.addPlayer(fakeSocket(), "Leader", "little-john")
+    const member = room.addPlayer(fakeSocket(), "Member", "much")
+    expect(room.selectMission(leader.id, "prison-wagon")).toBe(true)
+    room.setReady(leader.id, true)
+    room.setReady(member.id, true)
+    expect(room.mission?.snapshot()).toMatchObject({ missionId: "prison-wagon@1.0.0", missionKind: "prison-wagon" })
+    room.mission!.status = "failed"
+    room.mission!.failureReason = "timeout"
+    room.mission!.captives[0].rewarded = true
+    room.mission!.captives[0].status = "extracted"
+    room.mission!.result = {
+      score: 4200,
+      grade: "C",
+      breakdown: { speed: 40, stealth: 50, precision: 70, survival: 60, rescues: 25, generosity: 0 },
+      thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
+      communityCoin: 100,
+      personalRenown: 2100,
+    }
+    expect(room.returnToHub(leader.id)).toBe(true)
+    expect(room.lastResult).toEqual({ score: 4200, grade: "C", status: "failed", rescuedCaptives: 1, totalCaptives: 3 })
   })
 
   it("keeps deterministic, collision-free spawns when a slot is pruned", () => {

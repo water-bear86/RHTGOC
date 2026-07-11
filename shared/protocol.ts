@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-export const PROTOCOL_VERSION = 4 as const
+export const PROTOCOL_VERSION = 5 as const
 export const MAX_ROOM_PLAYERS = 4
 export const RECONNECT_GRACE_MS = 30_000
 
@@ -90,7 +90,7 @@ export interface MissionGuard {
 export interface MissionEvent {
   sequence: number
   tick: number
-  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "trap_placed" | "trap_triggered" | "reinforcement_sabotaged" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
+  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "wagon_intercepted" | "lock_breached" | "captives_freed" | "captive_extracted" | "reinforcement_arrived" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "trap_placed" | "trap_triggered" | "reinforcement_sabotaged" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
   playerId?: string
   value?: number
   detail?: string
@@ -113,10 +113,20 @@ export interface MissionTrap {
   expiresAtTick: number
 }
 
+export type MissionKind = "tax-cart" | "prison-wagon" | "storehouse"
+
+export interface MissionCaptive {
+  id: number
+  status: "locked" | "following" | "extracted"
+  position: { x: number; z: number }
+  rewarded: boolean
+}
+
 export interface MissionSnapshot {
   missionId: string
   missionVersion: string
   contentHash: string
+  missionKind: MissionKind
   seed: number
   status: "active" | "succeeded" | "failed"
   phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction"
@@ -138,10 +148,16 @@ export interface MissionSnapshot {
   village: VillageState
   modifiers: Array<{ id: "armored-escort" | "scarce-quivers" | "double-tithe" | "watchful-sheriff"; label: string; effect: string }>
   sheriffPlan: "patrol" | "pursuit" | "reinforcement"
-  optionalObjectives: Array<{ id: "no-captures" | "share-the-wealth" | "two-roads"; label: string; completed: boolean; failed: boolean }>
+  optionalObjectives: Array<{ id: string; label: string; completed: boolean; failed: boolean }>
   traps: MissionTrap[]
   reinforcementDelaySeconds: number
   signalSabotaged: boolean
+  cartPosition: { x: number; z: number }
+  wagonMoving: boolean
+  captives: MissionCaptive[]
+  lockProgress: number
+  lockTarget: number
+  failureReason: "captured" | "timeout" | "wagon-escaped" | null
 }
 
 export type VoteChoice = "granary" | "infirmary" | "watchtower"
@@ -177,9 +193,15 @@ export interface VillageState {
   watchtower: number
 }
 
+export interface LastMissionResult extends Pick<MissionResult, "score" | "grade"> {
+  status: "succeeded" | "failed"
+  rescuedCaptives: number
+  totalCaptives: number
+}
+
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
-  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; players: RoomPlayer[]; village: VillageState; lastResult: Pick<MissionResult, "score" | "grade"> | null }
+  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
   | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string }

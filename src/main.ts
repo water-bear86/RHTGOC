@@ -20,8 +20,8 @@ import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type L
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
-import type { LoadoutId, MissionEvent, MissionResult, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
-import { MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
+import type { LastMissionResult, LoadoutId, MissionCaptive, MissionEvent, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import {
   ACTION_LABELS,
   DEFAULT_INPUT_SETTINGS,
@@ -40,6 +40,7 @@ const startButton = document.querySelector<HTMLButtonElement>("#start-button")!
 const promptElement = document.querySelector<HTMLDivElement>("#prompt")!
 const toastElement = document.querySelector<HTMLDivElement>("#toast")!
 const objectiveElement = document.querySelector<HTMLElement>("#objective-text")!
+const missionTitle = document.querySelector<HTMLElement>("#mission-title")!
 const progressElement = document.querySelector<HTMLElement>("#progress-fill")!
 const missionModifiers = document.querySelector<HTMLElement>("#mission-modifiers")!
 const healthElement = document.querySelector<HTMLElement>("#health")!
@@ -181,7 +182,7 @@ let missionPrompt = "Scout together and signal a route"
 let currentMissionPhase: MissionSnapshot["phase"] = "scout"
 let currentMissionSlug = PEOPLES_PURSE_MISSION.slug
 let currentVillage: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
-let currentLastResult: Pick<MissionResult, "score" | "grade"> | null = null
+let currentLastResult: LastMissionResult | null = null
 let signalSabotaged = false
 let latestMissionSnapshot: MissionSnapshot | null = null
 let missionPackageStatus = "client package valid"
@@ -208,6 +209,7 @@ interface RemoteView {
 const remoteViews = new Map<string, RemoteView>()
 const pingViews = new Map<number, THREE.Group>()
 const trapViews = new Map<number, THREE.Group>()
+const captiveViews = new Map<number, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
@@ -509,6 +511,27 @@ function createCart(): THREE.Group {
     coin.userData.coin = true
     cart.add(coin)
   }
+  const cage = new THREE.Group()
+  cage.userData.prison = true
+  const cageRoof = mesh(new THREE.BoxGeometry(2.25, 0.12, 1.45), 0x3f3428)
+  cageRoof.position.y = 2.75
+  cage.add(cageRoof)
+  for (const x of [-0.95, -0.48, 0, 0.48, 0.95]) {
+    for (const z of [-0.66, 0.66]) {
+      const bar = mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.65, 6), 0x3f3428)
+      bar.position.set(x, 1.95, z)
+      cage.add(bar)
+    }
+  }
+  for (const x of [-1.08, 1.08]) {
+    for (const z of [-0.42, 0, 0.42]) {
+      const bar = mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.65, 6), 0x3f3428)
+      bar.position.set(x, 1.95, z)
+      cage.add(bar)
+    }
+  }
+  cage.visible = false
+  cart.add(cage)
   scene.add(cart)
   return cart
 }
@@ -661,11 +684,15 @@ function setMissionWorldVisible(visible: boolean): void {
   signalView.visible = visible
   for (const guard of guardViews) guard.visible = visible
   missionBoardView.visible = !visible
-  if (!visible) syncTrapViews([])
+  if (!visible) {
+    syncTrapViews([])
+    syncCaptiveViews([])
+  }
 }
 
 function renderHub(): void {
   const isLeader = !roomConnected || currentRoomPlayers[0]?.id === multiplayer.playerId
+  missionTitle.textContent = getMissionDefinition(currentMissionSlug).name.toUpperCase()
   hubMissions.replaceChildren()
   for (const mission of MISSION_CATALOG.values()) {
     const button = document.createElement("button")
@@ -688,7 +715,7 @@ function renderHub(): void {
   hubCopyCode.disabled = !roomConnected
   hubReady.textContent = roomConnected ? (localReady ? "NOT READY" : "READY UP") : "START MISSION"
   hubRecent.textContent = currentLastResult
-    ? `Last heist: ${currentLastResult.grade} · ${currentLastResult.score.toLocaleString()} renown. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
+    ? `Last heist: ${currentLastResult.status === "succeeded" ? currentLastResult.grade : "PARTIAL"} · ${currentLastResult.score.toLocaleString()} renown${currentLastResult.totalCaptives > 0 ? ` · ${currentLastResult.rescuedCaptives}/${currentLastResult.totalCaptives} rescued` : ""}. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
     : `Village works: granary ${currentVillage.granary}, infirmary ${currentVillage.infirmary}, watchtower ${currentVillage.watchtower}.`
   hubState.textContent = roomConnected
     ? `${isLeader ? "Band leader chooses the target." : "The band leader chooses the target."} Ready together when roles and kits are set.`
@@ -909,6 +936,17 @@ function pollControllerActions(): void {
 
 function missionPromptForPhase(phase: MissionSnapshot["phase"]): string {
   const key = inputSettings.keyboard
+  if (latestMissionSnapshot?.missionKind === "prison-wagon") {
+    const prompts: Record<MissionSnapshot["phase"], string> = {
+      scout: `Choose the fallen oak or ford intercept · ${keyLabel(key.pingRoute)} signals a route`,
+      ambush: `${keyLabel(key.fire)} or ${keyLabel(key.signature)} stops the escort`,
+      robbery: `Press ${keyLabel(key.interact)} beside the cage to work the lock`,
+      pursuit: `Lead the captives to either refuge · ${keyLabel(key.pingRegroup)} calls the band`,
+      escape: `Stay with the captives and press ${keyLabel(key.interact)} at extraction`,
+      extraction: "Every villager is accounted for · choose Sherwood's next work",
+    }
+    return prompts[phase]
+  }
   const prompts: Record<MissionSnapshot["phase"], string> = {
     scout: `Reach the forest edge or river crossing · ${keyLabel(key.pingRoute)} signals a route`,
     ambush: `${keyLabel(key.fire)} or ${keyLabel(key.signature)} stuns escorts · ${keyLabel(key.pingDanger)} warns the band`,
@@ -922,11 +960,13 @@ function missionPromptForPhase(phase: MissionSnapshot["phase"]): string {
 
 function updateMissionDebug(): void {
   const mission = latestMissionSnapshot
-  const objective = PEOPLES_PURSE_MISSION.objectives.find((candidate) => candidate.phase === (mission?.phase ?? currentMissionPhase))
+  const definition = getMissionDefinition(currentMissionSlug)
+  missionTitle.textContent = definition.name.toUpperCase()
+  const objective = definition.objectives.find((candidate) => candidate.phase === (mission?.phase ?? currentMissionPhase))
   missionDebug.textContent = [
-    `MISSION  ${PEOPLES_PURSE_MISSION.id}`,
-    `VERSION  ${PEOPLES_PURSE_MISSION.missionVersion}`,
-    `HASH     ${PEOPLES_PURSE_MISSION.contentHash}`,
+    `MISSION  ${definition.id}`,
+    `VERSION  ${definition.missionVersion}`,
+    `HASH     ${definition.contentHash}`,
     `STATUS   ${missionPackageStatus}`,
     `SERVER   ${mission ? `${mission.missionId} · ${mission.missionVersion} · ${mission.contentHash}` : "waiting for authoritative snapshot"}`,
     `PHASE    ${mission?.phase ?? "local preview"}`,
@@ -935,14 +975,16 @@ function updateMissionDebug(): void {
     `ROUTES   entry=${mission?.entryRoute ?? "unset"} escape=${mission?.escapeRoute ?? "unset"}`,
     `MODIFIERS ${(mission?.modifiers ?? []).map((modifier) => modifier.id).join(", ") || "pending"}`,
     `TRAPS    ${mission?.traps.length ?? 0} · SIGNAL ${mission?.signalSabotaged ? "cut" : "active"}`,
+    `RESCUE   ${mission?.captives.filter((captive) => captive.rewarded).length ?? 0}/${mission?.captives.length ?? 0} · LOCK ${mission?.lockProgress ?? 0}/${mission?.lockTarget ?? 0}`,
   ].join("\n")
 }
 
 function applyMissionSnapshot(mission: MissionSnapshot): void {
   latestMissionSnapshot = mission
-  const packageMatches = mission.missionId === PEOPLES_PURSE_MISSION.id
-    && mission.missionVersion === PEOPLES_PURSE_MISSION.missionVersion
-    && mission.contentHash === PEOPLES_PURSE_MISSION.contentHash
+  const definition = getMissionDefinition(currentMissionSlug)
+  const packageMatches = mission.missionId === definition.id
+    && mission.missionVersion === definition.missionVersion
+    && mission.contentHash === definition.contentHash
   missionPackageStatus = packageMatches ? "client/server package match" : "ERROR: client/server package mismatch"
   if (!packageMatches) showToast("Mission package mismatch — reconnect after updating")
   state.heat = mission.heat
@@ -952,7 +994,14 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   state.lost = mission.status === "failed"
   signalSabotaged = mission.signalSabotaged
   missionTarget = mission.target
-  const objectives: Record<MissionSnapshot["phase"], string> = {
+  const objectives: Record<MissionSnapshot["phase"], string> = mission.missionKind === "prison-wagon" ? {
+    scout: "Choose the fallen oak or ford interception",
+    ambush: mission.wagonMoving ? "Stop the moving prison wagon" : "Scatter the escort guards",
+    robbery: `Break the cage lock · ${mission.lockProgress}/${mission.lockTarget}`,
+    pursuit: "Escort the freed captives toward either refuge",
+    escape: `Protect and extract every captive · ${mission.captives.filter((captive) => captive.rewarded).length}/${mission.captives.length}`,
+    extraction: "Every rescued villager is accounted for",
+  } : {
     scout: `Scout the forest or river approach · shipment ${mission.cycle}`,
     ambush: "Stun the escort guards",
     robbery: "Rob the Sheriff's tax cart",
@@ -992,6 +1041,12 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   }
   syncPingViews(mission.pings)
   syncTrapViews(mission.traps)
+  syncCaptiveViews(mission.captives)
+  cartView.position.set(mission.cartPosition.x, 0, mission.cartPosition.z)
+  signalView.position.set(definition.spawns.reinforcementSignal.x, 0, definition.spawns.reinforcementSignal.z)
+  cartView.children.forEach((child) => {
+    if (child.userData.prison) child.visible = mission.missionKind === "prison-wagon"
+  })
   signalView.rotation.z = mission.signalSabotaged ? Math.PI / 2.8 : 0
   signalView.traverse((child) => {
     if (child instanceof THREE.Mesh && child.userData.signalFlag) (child.material as THREE.MeshStandardMaterial).color.setHex(mission.signalSabotaged ? 0x5f5b45 : 0xa94132)
@@ -1005,6 +1060,11 @@ function showMissionEvent(event: MissionEvent): void {
   const messages: Partial<Record<MissionEvent["type"], string>> = {
     cart_robbed: "THE TAX CART IS OURS — RUN!",
     loot_delivered: "COIN RETURNED TO THE PEOPLE",
+    wagon_intercepted: "THE PRISON WAGON IS STOPPED",
+    lock_breached: "THE CAGE LOCK IS GIVING WAY",
+    captives_freed: "THE CAPTIVES ARE FREE — PROTECT THEM",
+    captive_extracted: "A VILLAGER REACHED SAFETY",
+    reinforcement_arrived: "SHERIFF'S RELIEF PATROL ARRIVED",
     guard_stunned: "Guard stunned",
     crowd_controlled: "OAK SWEEP — ESCORT SCATTERED",
     ally_protected: "VANGUARD PROTECTION",
@@ -1093,6 +1153,38 @@ function syncTrapViews(traps: MissionTrap[]): void {
   }
 }
 
+function createCaptiveView(captive: MissionCaptive): THREE.Group {
+  const group = new THREE.Group()
+  const body = mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.9, 7), captive.id % 2 === 0 ? 0x7f6846 : 0x6e7950)
+  body.position.y = 0.62
+  const head = mesh(new THREE.SphereGeometry(0.22, 8, 6), 0xd4aa78)
+  head.position.y = 1.25
+  const hood = mesh(new THREE.ConeGeometry(0.3, 0.42, 7), captive.id % 2 === 0 ? 0x75503a : 0x4e6140)
+  hood.position.y = 1.48
+  group.add(body, head, hood)
+  return group
+}
+
+function syncCaptiveViews(captives: MissionCaptive[]): void {
+  const activeIds = new Set(captives.filter((captive) => captive.status !== "extracted").map((captive) => captive.id))
+  for (const captive of captives) {
+    if (captive.status === "extracted") continue
+    let view = captiveViews.get(captive.id)
+    if (!view) {
+      view = createCaptiveView(captive)
+      captiveViews.set(captive.id, view)
+      scene.add(view)
+    }
+    view.position.set(captive.position.x, captive.status === "locked" ? 1.03 : 0, captive.position.z)
+    view.scale.setScalar(captive.status === "locked" ? 0.72 : 1)
+  }
+  for (const [id, view] of captiveViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(view)
+    captiveViews.delete(id)
+  }
+}
+
 function renderSafetyPanel(players: RoomPlayer[]): void {
   safetyPartyList.replaceChildren()
   for (const player of players) {
@@ -1167,7 +1259,7 @@ function createPingView(ping: WorldPing): THREE.Group {
 }
 
 function renderMissionResolution(mission: MissionSnapshot): void {
-  if (!mission.result || !mission.vote) return
+  if (!mission.result) return
   if (resultsPanel.classList.contains("hidden")) openPanel(resultsPanel)
   resultGrade.textContent = mission.result.grade
   resultScore.textContent = mission.result.score.toLocaleString()
@@ -1194,6 +1286,23 @@ function renderMissionResolution(mission: MissionSnapshot): void {
     detail.textContent = `${localPlayer.trapHits} traps triggered · ${localPlayer.sabotageCount} signals cut`
     resultBreakdown.append(term, detail)
   }
+  const voteChoices = resultsPanel.querySelector<HTMLElement>(".vote-choices")!
+  const voteEyebrow = voteChoices.previousElementSibling as HTMLElement
+  if (!mission.vote) {
+    voteChoices.style.display = "none"
+    voteEyebrow.style.display = "none"
+    const rescued = mission.captives.filter((captive) => captive.rewarded).length
+    communityAllocation.textContent = mission.missionKind === "prison-wagon"
+      ? `Partial rescue: ${rescued}/${mission.captives.length} villagers reached safety. No captive can be rewarded twice.`
+      : "The band was defeated before community rewards settled."
+    voteState.textContent = `MISSION FAILED · ${(mission.failureReason ?? "unknown").replaceAll("-", " ").toUpperCase()}`
+    const isLeader = currentRoomPlayers[0]?.id === multiplayer.playerId
+    returnHubButton.disabled = !isLeader
+    returnHubButton.textContent = isLeader ? "RETURN BAND TO CAMPFIRE" : "WAITING FOR BAND LEADER"
+    return
+  }
+  voteChoices.style.display = "grid"
+  voteEyebrow.style.display = ""
   communityAllocation.textContent = `${mission.result.communityCoin} crown coin is locked for the winning village project. Personal renown cannot reduce it.`
   for (const button of voteButtons) {
     const choice = button.dataset.vote as VoteChoice
@@ -1520,7 +1629,9 @@ async function openLeaderboard(): Promise<void> {
 function updateUI(): void {
   healthElement.textContent = String(state.player.health)
   arrowsElement.textContent = String(state.player.arrows)
-  lootElement.textContent = String(state.player.loot)
+  const rescueMission = latestMissionSnapshot?.missionKind === "prison-wagon"
+  lootElement.textContent = String(rescueMission ? latestMissionSnapshot!.captives.filter((captive) => captive.rewarded).length : state.player.loot)
+  lootElement.parentElement?.setAttribute("title", rescueMission ? "Captives extracted" : "Stolen coin")
   signatureElement.textContent = state.player.signatureCooldown > 0 ? `${Math.ceil(state.player.signatureCooldown)}s` : "READY"
   heatElement.style.width = `${state.heat}%`
   heatWrap.setAttribute("aria-valuenow", String(Math.max(0, Math.min(100, Math.round(state.heat)))))
@@ -1533,7 +1644,8 @@ function updateUI(): void {
     promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} opens the board · move with your mapped controls`
     return
   }
-  const atSignal = multiplayerActive && selectedCharacter === "much" && !signalSabotaged && Math.hypot(state.player.position.x - SIGNAL_POSITION.x, state.player.position.z - SIGNAL_POSITION.z) < 3.2
+  const signalPosition = getMissionDefinition(currentMissionSlug).spawns.reinforcementSignal
+  const atSignal = multiplayerActive && selectedCharacter === "much" && !signalSabotaged && Math.hypot(state.player.position.x - signalPosition.x, state.player.position.z - signalPosition.z) < 3.2
   promptElement.textContent = isMobileSpectator()
     ? "Spectating the Merry Band · disable spectator mode in accessibility settings to play"
     : atSignal

@@ -4,6 +4,7 @@ import { Mission, SIGNAL_POSITION, missionSeed } from "./mission"
 import type { CharacterId } from "../shared/protocol"
 import referencePackage from "../missions/peoples-purse.v1.json"
 import { missionContentHash, parseMissionDefinition } from "../shared/mission-definition"
+import { PRISON_WAGON_MISSION } from "../shared/mission-catalog"
 
 function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer {
   return {
@@ -329,5 +330,91 @@ describe("authoritative mission", () => {
     expect(mission.castVote(robin.id, "infirmary")).toBe(true)
     expect(mission.vote.resolved).toBe(true)
     expect(mission.vote.winner).toBe("infirmary")
+  })
+
+  it("owns the moving prison wagon, escort, cage, and captive identities on the server", () => {
+    const robin = player("robin", "robin")
+    const marian = player("marian", "marian")
+    const mission = new Mission("IRON22", new Map([[robin.id, robin], [marian.id, marian]]), PRISON_WAGON_MISSION)
+    const before = mission.snapshot()
+    mission.update(1)
+    const after = mission.snapshot()
+    expect(after).toMatchObject({ missionKind: "prison-wagon", wagonMoving: true, lockProgress: 0, lockTarget: 4 })
+    expect(after.cartPosition).not.toEqual(before.cartPosition)
+    expect(after.guards[0].position).not.toEqual(before.guards[0].position)
+    expect(after.captives).toHaveLength(3)
+    expect(after.captives.map((captive) => captive.id)).toEqual([0, 1, 2])
+    expect(after.captives.every((captive) => captive.status === "locked" && !captive.rewarded)).toBe(true)
+  })
+
+  it("completes a two-player prison rescue through lock, reconnect, alternate extraction, and idempotent rewards", () => {
+    const john = player("john", "little-john")
+    const much = player("much", "much")
+    const mission = new Mission("IRON23", new Map([[john.id, john], [much.id, much]]), PRISON_WAGON_MISSION)
+    mission.phase = "robbery"
+    mission.wagonMoving = false
+    john.position = { ...mission.cartPosition }
+    much.position = { ...mission.cartPosition }
+    expect(mission.action(john.id, "interact")).toBe(true)
+    expect(mission.action(john.id, "interact")).toBe(false)
+    expect(mission.action(much.id, "interact")).toBe(true)
+    expect(mission.phase).toBe("pursuit")
+    expect(mission.captives.every((captive) => captive.status === "following")).toBe(true)
+
+    much.connected = false
+    const identitiesBeforeReconnect = mission.snapshot().captives.map((captive) => captive.id)
+    mission.update(0.05)
+    much.connected = true
+    expect(mission.snapshot().captives.map((captive) => captive.id)).toEqual(identitiesBeforeReconnect)
+
+    const extraction = PRISON_WAGON_MISSION.routes.escape.find((route) => route.id === "river")!.position
+    john.position = { ...extraction }
+    for (const captive of mission.captives) captive.position = { ...extraction }
+    mission.update(0.05)
+    expect([mission.phase, mission.escapeRoute]).toEqual(["escape", "river"])
+    expect(mission.action(john.id, "interact")).toBe(true)
+    expect(mission.status).toBe("succeeded")
+    expect(mission.action(john.id, "interact")).toBe(false)
+    expect(mission.captives.every((captive) => captive.status === "extracted" && captive.rewarded)).toBe(true)
+    expect(mission.events.filter((event) => event.type === "captive_extracted")).toHaveLength(3)
+    expect(mission.result?.communityCoin).toBe(mission.delivered)
+  })
+
+  it("records explicit partial rescue failure without duplicating captive rewards", () => {
+    const marian = player("marian", "marian")
+    const much = player("much", "much")
+    const mission = new Mission("IRON24", new Map([[marian.id, marian], [much.id, much]]), PRISON_WAGON_MISSION)
+    mission.wagonMoving = false
+    mission.captives[0].status = "extracted"
+    mission.captives[0].rewarded = true
+    mission.delivered = PRISON_WAGON_MISSION.rewards.baseCartValue
+    mission.elapsedSeconds = PRISON_WAGON_MISSION.scenario!.failureSeconds - 0.1
+    mission.update(0.2)
+    const snapshot = mission.snapshot()
+    expect(snapshot).toMatchObject({ status: "failed", failureReason: "timeout", delivered: 100 })
+    expect(snapshot.captives.filter((captive) => captive.rewarded)).toHaveLength(1)
+    expect(snapshot.optionalObjectives.find((objective) => objective.id === "all-captives")).toMatchObject({ completed: false, failed: true })
+    expect(mission.events.filter((event) => event.type === "mission_failed")).toHaveLength(1)
+    mission.update(1)
+    expect(mission.events.filter((event) => event.type === "mission_failed")).toHaveLength(1)
+  })
+
+  it("supports a clean ranged-and-scout release through the forest refuge", () => {
+    const robin = player("robin", "robin")
+    const marian = player("marian", "marian")
+    const mission = new Mission("IRON26", new Map([[robin.id, robin], [marian.id, marian]]), PRISON_WAGON_MISSION)
+    mission.phase = "robbery"
+    mission.wagonMoving = false
+    robin.position = { ...mission.cartPosition }
+    marian.position = { ...mission.cartPosition }
+    expect(mission.action(robin.id, "interact")).toBe(true)
+    expect(mission.action(marian.id, "interact")).toBe(true)
+    const refuge = PRISON_WAGON_MISSION.routes.escape.find((route) => route.id === "forest")!.position
+    marian.position = { ...refuge }
+    for (const captive of mission.captives) captive.position = { ...refuge }
+    mission.update(0.05)
+    expect([mission.phase, mission.escapeRoute]).toEqual(["escape", "forest"])
+    expect(mission.action(marian.id, "interact")).toBe(true)
+    expect(mission.snapshot().optionalObjectives.find((objective) => objective.id === "clean-release")).toMatchObject({ completed: true, failed: false })
   })
 })

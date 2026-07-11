@@ -3,6 +3,16 @@ import { z } from "zod"
 const StableId = z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, "must be a stable lowercase dotted or dashed ID")
 const Vec2 = z.object({ x: z.number().min(-100).max(100), z: z.number().min(-100).max(100) })
 const Route = z.object({ id: z.enum(["forest", "river"]), label: z.string().min(1).max(40), position: Vec2 })
+const PrisonWagonScenario = z.object({
+  kind: z.literal("prison-wagon"),
+  wagonPath: z.array(Vec2).min(3),
+  captiveCount: z.number().int().min(2).max(6),
+  lockStrength: z.number().int().min(2).max(12),
+  wagonSpeed: z.number().positive().max(6),
+  extractionRadius: z.number().positive().max(10),
+  reinforcementSeconds: z.number().positive().max(300),
+  failureSeconds: z.number().positive().max(3_600),
+})
 
 export const MissionDefinitionSchema = z.object({
   schemaVersion: z.literal(1),
@@ -54,6 +64,7 @@ export const MissionDefinitionSchema = z.object({
     armoredAmbushStuns: z.number().int().positive(),
     trapLifetimeTicks: z.number().int().positive(),
   }),
+  scenario: PrisonWagonScenario.optional(),
 }).superRefine((mission, context) => {
   const objectiveIds = mission.objectives.map((objective) => objective.id)
   if (new Set(objectiveIds).size !== objectiveIds.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ["objectives"], message: "objective IDs must be unique" })

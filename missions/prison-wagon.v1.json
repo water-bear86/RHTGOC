@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "prison-wagon@1.0.0",
+  "slug": "prison-wagon",
+  "missionVersion": "1.0.0",
+  "contentHash": "fnv1a32:815d23bc",
+  "name": "Break the Iron Road",
+  "environment": {
+    "scene": "environment.sherwood.common",
+    "characters": ["character.robin.ranger", "character.marian.scout", "character.little-john.vanguard", "character.much.saboteur", "character.sheriff.guard", "character.villager.captive"],
+    "props": ["prop.prison-wagon", "prop.wagon-lock", "prop.extraction-beacon", "prop.reinforcement-signal"],
+    "audio": ["audio.mission.forest-bed", "audio.fx.wagon", "audio.fx.lock-break"],
+    "effects": ["fx.ping.symbols", "fx.vanguard.oak-sweep", "fx.saboteur.road-snare"]
+  },
+  "spawns": {
+    "players": [{"x":-10,"z":7},{"x":-11.5,"z":7},{"x":-10,"z":8.5},{"x":-11.5,"z":8.5}],
+    "cart": {"x":16,"z":-13},
+    "village": {"x":-17,"z":14},
+    "reinforcementSignal": {"x":6,"z":-14},
+    "guards": [
+      {"id":0,"position":{"x":14,"z":-11}}, {"id":1,"position":{"x":18,"z":-11}},
+      {"id":2,"position":{"x":14,"z":-15}}, {"id":3,"position":{"x":18,"z":-15}},
+      {"id":4,"position":{"x":7,"z":-7}}, {"id":5,"position":{"x":1,"z":-2}}
+    ]
+  },
+  "routes": {
+    "entry": [{"id":"forest","label":"Fallen oak blockade","position":{"x":-12,"z":-3}}, {"id":"river","label":"Ford rope ambush","position":{"x":12,"z":-4}}],
+    "escape": [{"id":"forest","label":"Outlaw refuge","position":{"x":-17,"z":14}}, {"id":"river","label":"Ferryman's crossing","position":{"x":18,"z":10}}]
+  },
+  "objectives": [
+    {"id":"objective.choose-intercept","phase":"scout","label":"Choose the oak or ford interception","trigger":"player enters an interception route"},
+    {"id":"objective.stop-wagon","phase":"ambush","label":"Stop the wagon and scatter its escort","trigger":"escort stun target reached"},
+    {"id":"objective.break-lock","phase":"robbery","label":"Break or sabotage the prison lock","trigger":"band contributes enough lock progress"},
+    {"id":"objective.choose-refuge","phase":"pursuit","label":"Lead the captives toward a safe refuge","trigger":"escort enters an extraction route"},
+    {"id":"objective.protect-captives","phase":"escape","label":"Protect every captive to extraction","trigger":"captive reaches selected refuge"},
+    {"id":"objective-account-rescue","phase":"extraction","label":"Account for every rescued villager","trigger":"all captive rewards settle once"}
+  ],
+  "modifiers": [
+    {"id":"armored-escort","label":"Ironbound Escort","effect":"Stop three guards before reaching the lock"},
+    {"id":"scarce-quivers","label":"Scarce Quivers","effect":"Each outlaw starts with one fewer arrow"},
+    {"id":"double-tithe","label":"High-Value Prisoners","effect":"Each rescued captive grants more village support"},
+    {"id":"watchful-sheriff","label":"Relief Patrol","effect":"One extra guard joins the escort"}
+  ],
+  "mastery": {
+    "parSeconds": 720,
+    "thresholds": {"S":9000,"A":7500,"B":6000,"C":0},
+    "weights": {"speed":0.15,"stealth":0.15,"precision":0.15,"survival":0.2,"rescues":0.3,"generosity":0.05}
+  },
+  "rewards": {"deliveryTarget":300,"doubleTitheTarget":450,"baseCartValue":100,"doubleTitheCartValue":150},
+  "rules": {"worldBounds":22,"baseAmbushStuns":2,"armoredAmbushStuns":3,"trapLifetimeTicks":600},
+  "scenario": {
+    "kind":"prison-wagon",
+    "wagonPath":[{"x":16,"z":-13},{"x":10,"z":-8},{"x":4,"z":-4},{"x":-3,"z":0},{"x":-10,"z":-3},{"x":-18,"z":-8}],
+    "captiveCount":3,
+    "lockStrength":4,
+    "wagonSpeed":1.35,
+    "extractionRadius":4.5,
+    "reinforcementSeconds":45,
+    "failureSeconds":900
+  }
+}
