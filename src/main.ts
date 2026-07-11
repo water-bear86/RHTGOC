@@ -19,7 +19,7 @@ import {
 import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard } from "./leaderboard"
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
-import type { RoomPlayer } from "../shared/protocol"
+import type { MissionEvent, MissionSnapshot, RoomPlayer } from "../shared/protocol"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -91,6 +91,8 @@ let resultSubmitted = false
 let unsubscribeLeaderboard: (() => void) | null = null
 let multiplayerActive = false
 let localReady = false
+let currentRoomPlayers: RoomPlayer[] = []
+let lastMissionEventSequence = 0
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
@@ -405,6 +407,7 @@ const multiplayer = new MultiplayerClient({
     lobbyStatus.textContent = "Share this code, then ready up together."
   },
   onRoomState: (_roomCode, phase, players) => {
+    currentRoomPlayers = players
     renderParty(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
     localReady = localPlayer?.ready ?? false
@@ -416,6 +419,7 @@ const multiplayer = new MultiplayerClient({
     if (phase === "mission") {
       multiplayerActive = true
       running = true
+      intro.scrollTop = 0
       intro.classList.add("closed")
       lobbyStatus.textContent = "Mission started"
       ensureRemotePlayers(players)
@@ -423,17 +427,26 @@ const multiplayer = new MultiplayerClient({
       clock.getDelta()
     }
   },
-  onSnapshot: (_tick, players) => {
+  onSnapshot: (_tick, players, mission) => {
     const receivedAt = performance.now()
     for (const player of players) {
       if (player.id === multiplayer.playerId) {
         state.player.position.x += (player.position.x - state.player.position.x) * 0.35
         state.player.position.z += (player.position.z - state.player.position.z) * 0.35
+        state.player.health = player.health
+        state.player.arrows = player.arrows
+        state.player.loot = player.loot
       } else {
         const remote = remoteViews.get(player.id)
         remote?.snapshots.push(player.position, receivedAt)
       }
     }
+    currentRoomPlayers = currentRoomPlayers.map((roomPlayer) => {
+      const snapshotPlayer = players.find((player) => player.id === roomPlayer.id)
+      return snapshotPlayer ? { ...roomPlayer, ...snapshotPlayer } : roomPlayer
+    })
+    renderParty(currentRoomPlayers)
+    applyMissionSnapshot(mission)
   },
   onError: (message) => {
     lobbyStatus.textContent = message
@@ -443,6 +456,38 @@ const multiplayer = new MultiplayerClient({
     lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
   },
 })
+
+function applyMissionSnapshot(mission: MissionSnapshot): void {
+  state.heat = mission.heat
+  state.cartCoin = mission.cartCoin
+  state.delivered = mission.delivered
+  state.won = mission.status === "succeeded"
+  state.lost = mission.status === "failed"
+  for (const guard of mission.guards) {
+    const local = state.guards[guard.id]
+    if (!local) continue
+    local.position = { ...guard.position }
+    local.stunnedFor = guard.stunnedFor
+  }
+  if (mission.latestEvent && mission.latestEvent.sequence > lastMissionEventSequence) {
+    lastMissionEventSequence = mission.latestEvent.sequence
+    showMissionEvent(mission.latestEvent)
+  }
+}
+
+function showMissionEvent(event: MissionEvent): void {
+  const messages: Partial<Record<MissionEvent["type"], string>> = {
+    cart_robbed: "THE TAX CART IS OURS — RUN!",
+    loot_delivered: "COIN RETURNED TO THE PEOPLE",
+    guard_stunned: "Guard stunned",
+    player_hit: "The Sheriff strikes!",
+    signature_used: "SIGNATURE UNLEASHED",
+    mission_succeeded: "SHERWOOD RISES",
+    mission_failed: "THE BAND HAS FALLEN",
+  }
+  const message = messages[event.type]
+  if (message) showToast(message)
+}
 
 function renderParty(players: RoomPlayer[]): void {
   partyList.replaceChildren()
@@ -540,6 +585,10 @@ function showToast(message: string): void {
 }
 
 function handleInteraction(): void {
+  if (multiplayerActive) {
+    multiplayer.sendAction("interact")
+    return
+  }
   const result = interact(state)
   const messages: Record<string, string> = {
     "robbed-cart": "120 CROWN COIN TAKEN — RUN!",
@@ -553,6 +602,16 @@ function handleInteraction(): void {
 }
 
 function fireArrow(): void {
+  if (multiplayerActive) {
+    if (state.player.arrows <= 0) {
+      showToast("Your quiver is empty")
+      return
+    }
+    multiplayer.sendAction("shoot")
+    robinShotUntil = clock.elapsedTime + 0.8
+    setRobinRangerMotion("Robin_Shoot")
+    return
+  }
   const guardId = shoot(state)
   if (guardId === null) {
     showToast(state.player.arrows === 0 ? "Your quiver is empty" : "No guard in range")
@@ -570,6 +629,10 @@ function fireArrow(): void {
 }
 
 function useSignature(): void {
+  if (multiplayerActive) {
+    multiplayer.sendAction("signature")
+    return
+  }
   const result = activateSignature(state)
   const messages: Record<string, string> = {
     "marian-veil": "MARIAN'S VEIL — PURSUIT BROKEN",
@@ -734,8 +797,14 @@ function animate(): void {
   }
   if (running) {
     const move = getMoveInput()
-    if (multiplayerActive) multiplayer.sendInput(move)
-    const events = updateSimulation(state, { move }, dt)
+    let events: string[] = []
+    if (multiplayerActive) {
+      multiplayer.sendInput(move)
+      predictMultiplayerMovement(move, dt)
+      state.stats.elapsedSeconds += dt
+    } else {
+      events = updateSimulation(state, { move }, dt)
+    }
     for (const event of events) {
       if (event === "player-hit") showToast("The Sheriff strikes!")
       if (event === "cart-ready") showToast("A new tax cart has entered Sherwood")
@@ -751,8 +820,18 @@ function animate(): void {
   renderer.render(scene, camera)
 }
 
+function predictMultiplayerMovement(move: Vec2, dt: number): void {
+  const length = Math.hypot(move.x, move.z)
+  if (length <= 0.001 || state.player.health <= 0) return
+  const speed = state.player.characterId === "marian" ? 6.75 : 6.2
+  const lootPenalty = Math.max(0.68, 1 - state.player.loot / 600)
+  state.player.position.x = Math.max(-22, Math.min(22, state.player.position.x + (move.x / length) * speed * lootPenalty * dt))
+  state.player.position.z = Math.max(-22, Math.min(22, state.player.position.z + (move.z / length) * speed * lootPenalty * dt))
+}
+
 startButton.addEventListener("click", () => {
   running = true
+  intro.scrollTop = 0
   intro.classList.add("closed")
   clock.getDelta()
 })

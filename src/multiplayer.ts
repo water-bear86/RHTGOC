@@ -1,10 +1,10 @@
-import { PROTOCOL_VERSION, type CharacterId, type RoomPlayer, type ServerMessage } from "../shared/protocol"
+import { PROTOCOL_VERSION, type CharacterId, type MissionSnapshot, type RoomPlayer, type ServerMessage } from "../shared/protocol"
 import type { Vec2 } from "./simulation"
 
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
   onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[]) => void
-  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence">>) => void
+  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot">>, mission: MissionSnapshot) => void
   onError?: (message: string) => void
   onConnection?: (connected: boolean) => void
 }
@@ -55,6 +55,10 @@ export class MultiplayerClient {
     this.lastInputAt = now
     this.sequence += 1
     this.send({ type: "input", sequence: this.sequence, move })
+  }
+
+  sendAction(action: "interact" | "shoot" | "signature"): void {
+    this.send({ type: "action", action })
   }
 
   close(): void {
@@ -116,7 +120,7 @@ export class MultiplayerClient {
       this.events.onWelcome?.(message.playerId, message.roomCode)
     }
     if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players)
-    if (message.type === "snapshot") this.events.onSnapshot?.(message.tick, message.players)
+    if (message.type === "snapshot") this.events.onSnapshot?.(message.tick, message.players, message.mission)
     if (message.type === "error") this.events.onError?.(message.message)
   }
 

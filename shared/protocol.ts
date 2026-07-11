@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-export const PROTOCOL_VERSION = 2 as const
+export const PROTOCOL_VERSION = 3 as const
 export const MAX_ROOM_PLAYERS = 4
 export const RECONNECT_GRACE_MS = 30_000
 
@@ -32,6 +32,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     sequence: z.number().int().nonnegative(),
     move: z.object({ x: z.number().min(-1).max(1), z: z.number().min(-1).max(1) }),
   }),
+  z.object({ type: z.literal("action"), action: z.enum(["interact", "shoot", "signature"]) }),
   z.object({ type: z.literal("ping"), clientTime: z.number().finite() }),
 ])
 
@@ -44,14 +45,41 @@ export interface RoomPlayer {
   ready: boolean
   connected: boolean
   health: number
+  arrows: number
+  loot: number
   position: { x: number; z: number }
   lastInputSequence: number
+}
+
+export interface MissionGuard {
+  id: number
+  position: { x: number; z: number }
+  stunnedFor: number
+}
+
+export interface MissionEvent {
+  sequence: number
+  tick: number
+  type: "mission_started" | "cart_robbed" | "loot_delivered" | "guard_stunned" | "player_hit" | "signature_used" | "mission_succeeded" | "mission_failed"
+  playerId?: string
+  value?: number
+}
+
+export interface MissionSnapshot {
+  seed: number
+  status: "active" | "succeeded" | "failed"
+  heat: number
+  cartCoin: number
+  delivered: number
+  target: number
+  guards: MissionGuard[]
+  latestEvent: MissionEvent | null
 }
 
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
   | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; players: RoomPlayer[] }
-  | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence">> }
+  | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED"; message: string }
 

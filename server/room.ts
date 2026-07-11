@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
 import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type CharacterId, type RoomPlayer, type ServerMessage } from "../shared/protocol"
+import { Mission } from "./mission"
 
 interface ConnectedPlayer extends RoomPlayer {
   reconnectToken: string
@@ -8,6 +9,13 @@ interface ConnectedPlayer extends RoomPlayer {
   disconnectedAt: number | null
   input: { x: number; z: number }
   spawnIndex: number
+  arrows: number
+  loot: number
+  lastInputAt: number
+  bowCooldown: number
+  signatureCooldown: number
+  invulnerableFor: number
+  veilFor: number
 }
 
 const spawnPoints = [
@@ -22,6 +30,7 @@ export class Room {
   readonly players = new Map<string, ConnectedPlayer>()
   phase: "lobby" | "mission" = "lobby"
   tick = 0
+  mission: Mission | null = null
 
   constructor(code: string) {
     this.code = code
@@ -43,12 +52,19 @@ export class Room {
       ready: false,
       connected: true,
       health: 3,
+      arrows: characterId === "robin" ? 6 : 4,
+      loot: 0,
       position: { ...position },
       lastInputSequence: 0,
       socket,
       disconnectedAt: null,
       input: { x: 0, z: 0 },
       spawnIndex,
+      lastInputAt: 0,
+      bowCooldown: 0,
+      signatureCooldown: 0,
+      invulnerableFor: 0,
+      veilFor: 0,
     }
     this.players.set(player.id, player)
     return player
@@ -84,7 +100,10 @@ export class Room {
     if (!player || this.phase !== "lobby") return
     player.ready = ready
     const connected = [...this.players.values()].filter((candidate) => candidate.connected)
-    if (connected.length >= 2 && connected.every((candidate) => candidate.ready)) this.phase = "mission"
+    if (connected.length >= 2 && connected.every((candidate) => candidate.ready)) {
+      this.phase = "mission"
+      this.mission ??= new Mission(this.code, this.players)
+    }
     this.broadcastRoomState()
   }
 
@@ -93,29 +112,25 @@ export class Room {
     if (!player || this.phase !== "lobby") return false
     if (!this.characterAvailable(characterId, playerId)) return false
     player.characterId = characterId
+    player.arrows = characterId === "robin" ? 6 : 4
     player.ready = false
     this.broadcastRoomState()
     return true
   }
 
   setInput(playerId: string, sequence: number, move: { x: number; z: number }): void {
-    const player = this.players.get(playerId)
-    if (!player || this.phase !== "mission" || sequence <= player.lastInputSequence) return
-    const length = Math.hypot(move.x, move.z)
-    player.input = length > 1 ? { x: move.x / length, z: move.z / length } : move
-    player.lastInputSequence = sequence
+    this.mission?.setInput(playerId, sequence, move)
+  }
+
+  action(playerId: string, action: "interact" | "shoot" | "signature"): void {
+    this.mission?.action(playerId, action)
   }
 
   update(dt: number): void {
     this.pruneDisconnected(Date.now())
-    if (this.phase !== "mission") return
-    this.tick += 1
-    for (const player of this.players.values()) {
-      if (!player.connected) continue
-      const speed = player.characterId === "marian" ? 6.75 : 6.2
-      player.position.x = Math.max(-22, Math.min(22, player.position.x + player.input.x * speed * dt))
-      player.position.z = Math.max(-22, Math.min(22, player.position.z + player.input.z * speed * dt))
-    }
+    if (!this.mission) return
+    this.mission.update(dt)
+    this.tick = this.mission.tick
   }
 
   publicPlayer(player: ConnectedPlayer): RoomPlayer {
@@ -126,6 +141,8 @@ export class Room {
       ready: player.ready,
       connected: player.connected,
       health: player.health,
+      arrows: player.arrows,
+      loot: player.loot,
       position: player.position,
       lastInputSequence: player.lastInputSequence,
     }
@@ -141,11 +158,12 @@ export class Room {
   }
 
   broadcastSnapshot(): void {
-    if (this.phase !== "mission") return
+    if (!this.mission) return
     this.broadcast({
       type: "snapshot",
       tick: this.tick,
-      players: [...this.players.values()].map(({ id, position, lastInputSequence }) => ({ id, position, lastInputSequence })),
+      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot }) => ({ id, position, lastInputSequence, health, arrows, loot })),
+      mission: this.mission.snapshot(),
     })
   }
 
