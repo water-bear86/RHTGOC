@@ -35,6 +35,7 @@
       </aside>
       <button class="help-button" id="help-button" aria-label="Open controls">?</button>
       <button class="leaderboard-button" id="leaderboard-button" aria-label="Open leaderboard">♜</button>
+      <button class="social-button" id="social-button" aria-label="Open friends and invitations">♥</button>
       <button class="safety-button" id="safety-button" aria-label="Open band safety">♢</button>
       <button class="settings-button" id="settings-button" aria-label="Open accessibility and controls">⚙</button>
       <div class="spectator-banner hidden" id="spectator-banner">MOBILE SPECTATOR · VIEW ONLY</div>
@@ -147,6 +148,25 @@
       <p class="board-state">Mute is local. Reports use fixed reasons. The room leader can remove or block a player from the current room.</p>
       <ul id="safety-party-list"></ul>
       <small class="board-note">No public chat, voice, trading, or user-generated content is enabled.</small>
+    </div>
+    <div class="panel social-panel hidden" id="social-panel" role="dialog" aria-modal="true" aria-labelledby="social-title" tabindex="-1">
+      <button id="close-social" aria-label="Close friends and invitations">×</button>
+      <span class="eyebrow">TRUSTED OUTLAWS</span>
+      <h2 id="social-title">Friends & invitations</h2>
+      <section id="social-signed-out">
+        <p class="board-state">Sign in by private email link to keep friends across devices. Your email is never shown to players.</p>
+        <div class="social-auth"><input id="social-email" type="email" autocomplete="email" placeholder="you@example.com" aria-label="Email for magic sign-in link" /><button id="social-sign-in">SEND SIGN-IN LINK</button></div>
+      </section>
+      <section class="hidden" id="social-signed-in">
+        <div class="social-identity"><span>YOUR FRIEND CODE</span><b id="social-friend-code">--------</b><button id="social-sign-out">SIGN OUT</button></div>
+        <label class="social-presence"><input type="checkbox" id="social-presence" /> Let accepted friends see when I am available or in a band</label>
+        <div class="social-add"><input id="social-friend-input" maxlength="8" placeholder="FRIEND CODE" aria-label="Friend code" /><button id="social-add-friend">SEND REQUEST</button></div>
+        <span class="hub-label">REQUESTS</span><ul class="social-list" id="social-request-list"></ul>
+        <span class="hub-label">DIRECT INVITATIONS</span><ul class="social-list" id="social-invite-list"></ul>
+        <span class="hub-label">FRIENDS</span><ul class="social-list" id="social-friend-list"></ul>
+        <span class="hub-label">RECENT OUTLAWS</span><ul class="social-list" id="social-recent-list"></ul>
+      </section>
+      <p class="settings-note" id="social-status" role="status" aria-live="polite">Presence is off by default. Blocking removes the relationship and pending invitations.</p>
     </div>
     <div class="panel settings-panel hidden" id="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1">
       <button id="close-settings" aria-label="Close accessibility and controls">×</button>

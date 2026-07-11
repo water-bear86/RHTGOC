@@ -35,6 +35,7 @@ import {
   type InputSettings,
   type PointerAction,
 } from "./input-settings"
+import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, sendMagicLink, signOutSocial, updateSocialPresence, type SocialState } from "./social"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -91,6 +92,23 @@ const safetyButton = document.querySelector<HTMLButtonElement>("#safety-button")
 const safetyPanel = document.querySelector<HTMLDivElement>("#safety-panel")!
 const closeSafety = document.querySelector<HTMLButtonElement>("#close-safety")!
 const safetyPartyList = document.querySelector<HTMLUListElement>("#safety-party-list")!
+const socialButton = document.querySelector<HTMLButtonElement>("#social-button")!
+const socialPanel = document.querySelector<HTMLElement>("#social-panel")!
+const closeSocial = document.querySelector<HTMLButtonElement>("#close-social")!
+const socialSignedOut = document.querySelector<HTMLElement>("#social-signed-out")!
+const socialSignedIn = document.querySelector<HTMLElement>("#social-signed-in")!
+const socialEmail = document.querySelector<HTMLInputElement>("#social-email")!
+const socialSignIn = document.querySelector<HTMLButtonElement>("#social-sign-in")!
+const socialSignOut = document.querySelector<HTMLButtonElement>("#social-sign-out")!
+const socialFriendCode = document.querySelector<HTMLElement>("#social-friend-code")!
+const socialPresence = document.querySelector<HTMLInputElement>("#social-presence")!
+const socialFriendInput = document.querySelector<HTMLInputElement>("#social-friend-input")!
+const socialAddFriend = document.querySelector<HTMLButtonElement>("#social-add-friend")!
+const socialRequestList = document.querySelector<HTMLUListElement>("#social-request-list")!
+const socialInviteList = document.querySelector<HTMLUListElement>("#social-invite-list")!
+const socialFriendList = document.querySelector<HTMLUListElement>("#social-friend-list")!
+const socialRecentList = document.querySelector<HTMLUListElement>("#social-recent-list")!
+const socialStatus = document.querySelector<HTMLElement>("#social-status")!
 const settingsButton = document.querySelector<HTMLButtonElement>("#settings-button")!
 const settingsPanel = document.querySelector<HTMLDivElement>("#settings-panel")!
 const closeSettings = document.querySelector<HTMLButtonElement>("#close-settings")!
@@ -216,6 +234,8 @@ let missionPackageStatus = "client package valid"
 let capturingAction: GameAction | null = null
 let previousGamepadButtons: boolean[] = []
 let lastPanelTrigger: HTMLElement | null = null
+let currentSocial: SocialState | null = null
+let lastPresenceSignature = ""
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
@@ -727,6 +747,7 @@ const multiplayer = new MultiplayerClient({
     roomLobby.classList.remove("hidden")
     lobbyStatus.textContent = "Share this code, then ready up together."
     enterHub(true)
+    void syncPresence("in-band", roomCode)
   },
   onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer, contributions, nextSelectedContributionIds, season) => {
     currentRoomPlayers = players
@@ -808,6 +829,7 @@ const multiplayer = new MultiplayerClient({
     roomConnected = connected
     lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
     if (inHub) hubState.textContent = connected ? "Connected · choose a target and ready together." : "Connection lost · attempting to return to this camp."
+    if (!connected) void syncPresence("available", null)
   },
 })
 
@@ -1071,7 +1093,7 @@ function startSoloMission(): void {
 }
 
 const controllerActions = GAME_ACTIONS.filter((action) => !action.startsWith("move")) as Array<keyof InputSettings["controller"]>
-const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel]
+const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel, socialPanel]
 const controllerButtonLabels = ["A / Cross", "B / Circle", "X / Square", "Y / Triangle", "LB / L1", "RB / R1", "LT / L2", "RT / R2", "View / Share", "Menu / Options", "Left stick", "Right stick", "D-pad up", "D-pad down", "D-pad left", "D-pad right"]
 const pointerActionLabels: Record<PointerAction, string> = {
   move: "Move to ground",
@@ -1707,6 +1729,123 @@ function renderSafetyPanel(players: RoomPlayer[]): void {
     item.append(identity, actions)
     safetyPartyList.append(item)
   }
+}
+
+async function refreshSocialPanel(): Promise<void> {
+  try {
+    let state = await loadSocialState()
+    if (state.session && !state.profile) {
+      await registerSocialProfile(playerNameInput.value.trim().slice(0, 20) || "Greenhood")
+      state = await loadSocialState()
+    }
+    currentSocial = state
+    socialSignedOut.classList.toggle("hidden", Boolean(state.session))
+    socialSignedIn.classList.toggle("hidden", !state.session)
+    if (!state.session || !state.profile) return
+    socialFriendCode.textContent = state.profile.friend_code
+    socialPresence.checked = state.profile.presence_enabled
+    renderSocialList(socialRequestList, state.incomingRequests, (friend, actions) => {
+      addSocialAction(actions, "ACCEPT", async () => { await respondFriendRequest(friend.profile.user_id, true); await refreshSocialPanel() })
+      addSocialAction(actions, "DECLINE", async () => { await respondFriendRequest(friend.profile.user_id, false); await refreshSocialPanel() })
+    })
+    renderSocialList(socialFriendList, state.friends, (friend, actions) => {
+      if (roomConnected && multiplayer.roomCode) addSocialAction(actions, "INVITE", async () => {
+        await sendDirectInvite(friend.profile.user_id, multiplayer.roomCode!, selectedCharacter)
+        socialStatus.textContent = `Invite sent to ${friend.profile.display_name}. It expires in 15 minutes.`
+      })
+      addSocialAction(actions, "REMOVE", async () => { await removeFriend(friend.profile.user_id); await refreshSocialPanel() })
+      addSocialAction(actions, "BLOCK", async () => { await blockSocialPlayer(friend.profile.user_id); await refreshSocialPanel() })
+    })
+    socialRecentList.replaceChildren()
+    const friendIds = new Set(state.friends.map((friend) => friend.profile.user_id))
+    for (const profile of state.recentPlayers.filter((candidate) => !friendIds.has(candidate.user_id))) {
+      const item = document.createElement("li")
+      const name = document.createElement("span")
+      name.textContent = profile.display_name
+      const actions = document.createElement("div")
+      addSocialAction(actions, "ADD", async () => { await sendFriendRequest(profile.friend_code); await refreshSocialPanel() })
+      addSocialAction(actions, "BLOCK", async () => { await blockSocialPlayer(profile.user_id); await refreshSocialPanel() })
+      item.append(name, actions)
+      socialRecentList.append(item)
+    }
+    socialInviteList.replaceChildren()
+    for (const invite of state.invites) {
+      const sender = state.friends.find((friend) => friend.profile.user_id === invite.sender_id)?.profile
+      const item = document.createElement("li")
+      const copy = document.createElement("div")
+      const name = document.createElement("span")
+      const detail = document.createElement("small")
+      name.textContent = sender?.display_name ?? "Trusted outlaw"
+      detail.textContent = `Band ${invite.room_code} · ${invite.character_hint ? characterName(invite.character_hint) : "choose any hero"} · expires ${new Date(invite.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+      copy.append(name, detail)
+      const actions = document.createElement("div")
+      addSocialAction(actions, "USE INVITE", async () => {
+        const code = await respondDirectInvite(invite.id, true)
+        if (!code) throw new Error("That invitation expired")
+        multiplayer.close()
+        roomConnected = false
+        multiplayerActive = false
+        running = false
+        hubPanel.classList.add("hidden")
+        roomCodeInput.value = code
+        if (invite.character_hint) selectLocalCharacter(invite.character_hint, false)
+        intro.classList.remove("closed")
+        closePanel(socialPanel)
+        showToast("INVITE READY · CHOOSE YOUR HERO AND JOIN")
+      })
+      addSocialAction(actions, "DECLINE", async () => { await respondDirectInvite(invite.id, false); await refreshSocialPanel() })
+      item.append(copy, actions)
+      socialInviteList.append(item)
+    }
+    appendSocialEmpty(socialRequestList, "No pending friend requests.")
+    appendSocialEmpty(socialInviteList, "No active direct invitations.")
+    appendSocialEmpty(socialFriendList, "Add a trusted outlaw with their private friend code.")
+    appendSocialEmpty(socialRecentList, "Completed authenticated missions will list recent bandmates here.")
+    socialStatus.textContent = state.profile.presence_enabled
+      ? "Presence is shared only with accepted, unblocked friends."
+      : "Presence is off by default. Friends cannot see room availability."
+  } catch (error) {
+    socialStatus.textContent = error instanceof Error ? error.message : "Unable to load friends"
+  }
+}
+
+function renderSocialList(list: HTMLUListElement, friends: SocialState["friends"], addActions: (friend: SocialState["friends"][number], actions: HTMLDivElement) => void): void {
+  list.replaceChildren()
+  for (const friend of friends) {
+    const item = document.createElement("li")
+    const copy = document.createElement("div")
+    const name = document.createElement("span")
+    const detail = document.createElement("small")
+    name.textContent = friend.profile.display_name
+    detail.textContent = friend.profile.presence_enabled ? `${friend.profile.presence_status.replace("-", " ")}${friend.profile.active_room_code ? " · band available" : ""}` : "presence private"
+    copy.append(name, detail)
+    const actions = document.createElement("div")
+    addActions(friend, actions)
+    item.append(copy, actions)
+    list.append(item)
+  }
+}
+
+function addSocialAction(actions: HTMLDivElement, label: string, action: () => Promise<void>): void {
+  const button = document.createElement("button")
+  button.textContent = label
+  button.addEventListener("click", () => void action().catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Social action failed" }))
+  actions.append(button)
+}
+
+function appendSocialEmpty(list: HTMLUListElement, label: string): void {
+  if (list.children.length > 0) return
+  const item = document.createElement("li")
+  item.textContent = label
+  list.append(item)
+}
+
+async function syncPresence(status: "offline" | "available" | "in-band", roomCode: string | null): Promise<void> {
+  if (!currentSocial?.profile?.presence_enabled) return
+  const signature = `${status}:${roomCode ?? ""}`
+  if (signature === lastPresenceSignature) return
+  lastPresenceSignature = signature
+  try { await updateSocialPresence(true, status, roomCode) } catch { lastPresenceSignature = "" }
 }
 
 function createPingView(ping: WorldPing): THREE.Group {
@@ -2525,6 +2664,29 @@ closeResults.addEventListener("click", () => closePanel(resultsPanel))
 voteButtons.forEach((button) => button.addEventListener("click", () => multiplayer.vote(button.dataset.vote as VoteChoice)))
 safetyButton.addEventListener("click", () => openPanel(safetyPanel, safetyButton))
 closeSafety.addEventListener("click", () => closePanel(safetyPanel))
+socialButton.addEventListener("click", () => {
+  openPanel(socialPanel, socialButton)
+  void refreshSocialPanel()
+})
+closeSocial.addEventListener("click", () => closePanel(socialPanel))
+socialSignIn.addEventListener("click", () => void (async () => {
+  const email = socialEmail.value.trim()
+  if (!email) return
+  try {
+    await sendMagicLink(email)
+    socialStatus.textContent = "Sign-in link sent. Return here after opening it; your email stays private."
+  } catch (error) { socialStatus.textContent = error instanceof Error ? error.message : "Unable to send sign-in link" }
+})())
+socialSignOut.addEventListener("click", () => void signOutSocial().then(() => { currentSocial = null; return refreshSocialPanel() }).catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to sign out" }))
+socialAddFriend.addEventListener("click", () => void sendFriendRequest(socialFriendInput.value).then(async () => {
+  socialFriendInput.value = ""
+  socialStatus.textContent = "Friend request sent. Duplicate requests are suppressed."
+  await refreshSocialPanel()
+}).catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to send request" }))
+socialPresence.addEventListener("change", () => void updateSocialPresence(socialPresence.checked, roomConnected ? "in-band" : "available", roomConnected ? multiplayer.roomCode : null).then(async () => {
+  lastPresenceSignature = ""
+  await refreshSocialPanel()
+}).catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to update presence" }))
 settingsButton.addEventListener("click", () => {
   renderBindingControls()
   openPanel(settingsPanel, settingsButton)

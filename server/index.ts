@@ -16,6 +16,7 @@ import { createContributionStoreFromEnv } from "./contribution-store"
 import { SherwoodSeasonService, type SeasonTransition } from "./season-service"
 import { campaignRotationWindow } from "../shared/sherwood-season"
 import { createSeasonStoreFromEnv } from "./season-store"
+import { createSocialStoreFromEnv } from "./social-store"
 
 const port = Number(process.env.PORT ?? 8787)
 const rooms = new Map<string, Room>()
@@ -24,11 +25,14 @@ const leaderboardStore = createLeaderboardStoreFromEnv()
 const rescueOfferStore = createRescueOfferStoreFromEnv()
 const contributionStore = createContributionStoreFromEnv()
 const seasonStore = createSeasonStoreFromEnv()
+const socialStore = createSocialStoreFromEnv()
 let seasonReady = seasonStore === null
 const telemetry = new Telemetry()
 const rotationService = new SheriffRotationService()
 const seasonService = new SherwoodSeasonService()
 const opsAdminSecret = process.env.OPS_ADMIN_SECRET
+const supabaseUrl = process.env.SUPABASE_URL
+const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY
 const defaultMission = getMissionDefinition()
 const observedRoomPhases = new Map<string, string>()
 const observedMissionStatus = new Map<string, string>()
@@ -41,6 +45,8 @@ const pendingContributionTransitions = new Map<string, { transition: Contributio
 let contributionPersistenceFlushing = false
 const pendingSeasonTransitions = new Map<string, { transition: SeasonTransition; attempts: number; nextAttemptAt: number }>()
 let seasonPersistenceFlushing = false
+const pendingRecentPlayers = new Map<string, { userIds: string[]; attempts: number; nextAttemptAt: number }>()
+let recentPlayersFlushing = false
 
 function roomCode(): string {
   let code = ""
@@ -82,6 +88,21 @@ async function readJsonBody(request: import("node:http").IncomingMessage): Promi
 
 function operatorAuthorized(request: import("node:http").IncomingMessage): boolean {
   return Boolean(opsAdminSecret && request.headers.authorization === `Bearer ${opsAdminSecret}`)
+}
+
+async function verifySupabaseUser(accessToken: string | undefined): Promise<string | null> {
+  if (!accessToken || !supabaseUrl || !supabasePublishableKey) return null
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: supabasePublishableKey, Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(5_000),
+    })
+    if (!response.ok) return null
+    const value = await response.json() as { id?: unknown }
+    return typeof value.id === "string" && value.id.match(/^[0-9a-f-]{36}$/) ? value.id : null
+  } catch {
+    return null
+  }
 }
 
 function enqueueRescueTransition(transition: RescueOfferTransition): void {
@@ -183,6 +204,29 @@ async function flushSeasonTransitions(now = Date.now()): Promise<void> {
   }
 }
 
+async function flushRecentPlayers(now = Date.now()): Promise<void> {
+  if (!socialStore || recentPlayersFlushing) return
+  recentPlayersFlushing = true
+  try {
+    for (const [missionId, pending] of pendingRecentPlayers) {
+      if (pending.nextAttemptAt > now) continue
+      try {
+        await socialStore.recordRecentPlayers(missionId, pending.userIds)
+        pendingRecentPlayers.delete(missionId)
+        telemetry.increment("recent_players_persistence_success_total")
+      } catch (error) {
+        pending.attempts += 1
+        pending.nextAttemptAt = now + Math.min(60_000, 1_000 * 2 ** Math.min(6, pending.attempts))
+        telemetry.increment("recent_players_persistence_retry_total")
+        structuredLog("recent_players_persistence_retry", { missionId, attempts: pending.attempts, reason: error instanceof Error ? error.message : "unknown" }, "error")
+      }
+    }
+  } finally {
+    recentPlayersFlushing = false
+    telemetry.gauge("recent_players_persistence_queue", pendingRecentPlayers.size)
+  }
+}
+
 const httpServer = createServer(async (request, response) => {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname
   if (pathname === "/rotations" && request.method === "GET") {
@@ -279,6 +323,7 @@ const httpServer = createServer(async (request, response) => {
       rescueOfferPersistence: rescueOfferStore !== null,
       contributionPersistence: contributionStore !== null,
       seasonPersistence: seasonStore !== null,
+      socialPersistence: socialStore !== null,
       missionId: defaultMission.id,
       missionVersion: defaultMission.missionVersion,
       missionContentHash: defaultMission.contentHash,
@@ -323,7 +368,7 @@ sockets.on("connection", (socket) => {
   let playerId: string | null = null
   let lastClientMetricsAt = 0
 
-  socket.on("message", (raw) => {
+  socket.on("message", async (raw) => {
     let value: unknown
     try {
       value = JSON.parse(raw.toString())
@@ -341,6 +386,11 @@ sockets.on("connection", (socket) => {
 
     if (message.type === "create_room" || message.type === "join_room") {
       try {
+        const authUserId = await verifySupabaseUser(message.accessToken)
+        if (message.accessToken && supabaseUrl && supabasePublishableKey && !authUserId) {
+          send(socket, { type: "error", code: "FORBIDDEN", message: "Your Sherwood sign-in expired. Sign in again or continue as a guest." })
+          return
+        }
         const room = message.type === "create_room"
           ? new Room(
             roomCode(),
@@ -355,9 +405,9 @@ sockets.on("connection", (socket) => {
         if (message.type === "create_room") rooms.set(room.code, room)
         if (message.type === "join_room" && message.reconnectToken) telemetry.increment("reconnect_attempts_total")
         const reconnected = message.type === "join_room" && message.reconnectToken
-          ? room.reconnect(socket, message.reconnectToken)
+          ? room.reconnect(socket, message.reconnectToken, Date.now(), authUserId)
           : null
-        const player = reconnected ?? room.addPlayer(socket, message.displayName, message.characterId)
+        const player = reconnected ?? room.addPlayer(socket, message.displayName, message.characterId, authUserId)
         telemetry.increment(reconnected ? "reconnect_success_total" : message.type === "create_room" ? "rooms_created_total" : "room_joins_total")
         if (message.type === "create_room") {
           const traceId = randomUUID()
@@ -491,7 +541,14 @@ setInterval(() => {
       })
     }
     const seasonOutcome = room.claimSeasonOutcome()
-    if (seasonOutcome) seasonChanged = seasonService.recordMission(seasonOutcome) || seasonChanged
+    if (seasonOutcome) {
+      seasonChanged = seasonService.recordMission(seasonOutcome) || seasonChanged
+      const authenticatedUserIds = room.authenticatedUserIds()
+      if (socialStore && authenticatedUserIds.length >= 2) {
+        pendingRecentPlayers.set(seasonOutcome.eventId, { userIds: authenticatedUserIds, attempts: 0, nextAttemptAt: Date.now() })
+        telemetry.gauge("recent_players_persistence_queue", pendingRecentPlayers.size)
+      }
+    }
     const verifiedRuns = leaderboardStore?.recordVerifiedRun ? room.claimVerifiedRuns() : null
     if (verifiedRuns) {
       void Promise.all(verifiedRuns.map((run) => leaderboardStore!.recordVerifiedRun(run)))
@@ -557,6 +614,7 @@ setInterval(() => {
 setInterval(() => void flushRescueTransitions(), 1_000)
 setInterval(() => void flushContributionTransitions(), 1_000)
 setInterval(() => void flushSeasonTransitions(), 1_000)
+setInterval(() => void flushRecentPlayers(), 1_000)
 
 setInterval(() => {
   for (const room of rooms.values()) room.broadcastSnapshot()
@@ -580,6 +638,7 @@ async function startServer(): Promise<void> {
       rescueOfferPersistence: rescueOfferStore !== null,
       contributionPersistence: contributionStore !== null,
       seasonPersistence: seasonStore !== null,
+      socialPersistence: socialStore !== null,
       seasonSlug: seasonService.snapshot().slug,
       seasonPhase: seasonService.snapshot().phase,
       missionId: defaultMission.id,

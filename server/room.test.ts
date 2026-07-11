@@ -308,6 +308,16 @@ describe("Merry Band room", () => {
     expect(room.reconnect(fakeSocket(), player.reconnectToken, 2_000 + RECONNECT_GRACE_MS + 1)).toBeNull()
   })
 
+  it("preserves verified identity across reconnect and rejects a token bound to another user", () => {
+    const room = new Room("AUTH24")
+    const userId = "66778899-aabb-4cdd-8eef-001122334455"
+    const player = room.addPlayer(fakeSocket(), "Oakheart", "robin", userId)
+    room.disconnect(player.id, 1_000)
+    expect(room.reconnect(fakeSocket(), player.reconnectToken, 1_001, "778899aa-bbcc-4dee-8ff0-112233445566")).toBeNull()
+    expect(room.reconnect(fakeSocket(), player.reconnectToken, 1_002, userId)?.id).toBe(player.id)
+    expect(room.authenticatedUserIds()).toEqual([userId])
+  })
+
   it("normalizes input and advances authoritative movement", () => {
     const room = new Room("ABC234")
     const first = room.addPlayer(fakeSocket(), "Robin", "robin")

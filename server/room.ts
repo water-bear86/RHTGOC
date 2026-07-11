@@ -7,6 +7,7 @@ import { isRotationActive, rotationWindowAt, type SheriffRotationWindow } from "
 import type { SeasonalMissionOutcome, SherwoodSeasonSnapshot } from "../shared/sherwood-season"
 
 interface ConnectedPlayer extends RoomPlayer {
+  authUserId: string | null
   reconnectToken: string
   socket: WebSocket | null
   disconnectedAt: number | null
@@ -93,7 +94,7 @@ export class Room {
     this.code = code
   }
 
-  addPlayer(socket: WebSocket, displayName: string, characterId: CharacterId): ConnectedPlayer {
+  addPlayer(socket: WebSocket, displayName: string, characterId: CharacterId, authUserId: string | null = null): ConnectedPlayer {
     this.pruneDisconnected(Date.now())
     if (this.phase !== "lobby") throw new Error("MISSION_STARTED")
     if (this.players.size >= MAX_ROOM_PLAYERS) throw new Error("ROOM_FULL")
@@ -103,6 +104,7 @@ export class Room {
     const position = spawnPoints[spawnIndex]
     const player: ConnectedPlayer = {
       id: randomUUID(),
+      authUserId,
       reconnectToken: randomUUID(),
       displayName,
       characterId,
@@ -139,10 +141,10 @@ export class Room {
     return player
   }
 
-  reconnect(socket: WebSocket, token: string, now = Date.now()): ConnectedPlayer | null {
+  reconnect(socket: WebSocket, token: string, now = Date.now(), authUserId: string | null = null): ConnectedPlayer | null {
     if (this.bannedReconnectTokens.has(token)) return null
     const player = [...this.players.values()].find((candidate) => candidate.reconnectToken === token)
-    if (!player || player.disconnectedAt === null || now - player.disconnectedAt > RECONNECT_GRACE_MS) return null
+    if (!player || player.disconnectedAt === null || now - player.disconnectedAt > RECONNECT_GRACE_MS || (player.authUserId && player.authUserId !== authUserId)) return null
     player.socket = socket
     player.connected = true
     player.disconnectedAt = null
@@ -454,6 +456,10 @@ export class Room {
 
   finishLeaderboardPersistence(success: boolean): void {
     this.leaderboardPersistence = success ? "done" : "idle"
+  }
+
+  authenticatedUserIds(): string[] {
+    return [...new Set([...this.players.values()].map((player) => player.authUserId).filter((id): id is string => id !== null))]
   }
 
   claimSeasonOutcome(now = Date.now()): SeasonalMissionOutcome | null {

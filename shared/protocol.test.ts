@@ -11,6 +11,11 @@ describe("Merry Band protocol", () => {
     })
   })
 
+  it("accepts bounded Supabase access tokens without trusting user ids from clients", () => {
+    expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "Oakheart", characterId: "marian", accessToken: "header.payload.signature.long-enough" })).not.toBeNull()
+    expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "Oakheart", characterId: "marian", accessToken: "short" })).toBeNull()
+  })
+
   it("accepts the four authored outlaw roles", () => {
     for (const characterId of ["robin", "marian", "little-john", "much"]) {
       expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "Oakheart", characterId })).not.toBeNull()

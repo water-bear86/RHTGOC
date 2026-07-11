@@ -2,6 +2,7 @@ import { PROTOCOL_VERSION, type BandContribution, type CharacterId, type Contrib
 import type { Vec2 } from "./simulation"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import type { SherwoodSeasonSnapshot } from "../shared/sherwood-season"
+import { getSupabase } from "./supabase"
 
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
@@ -33,7 +34,7 @@ export class MultiplayerClient {
   createRoom(displayName: string, characterId: CharacterId): void {
     this.reconnectSession = null
     this.pendingIdentity = { displayName, characterId }
-    this.connect(() => this.send({ type: "create_room", version: PROTOCOL_VERSION, displayName, characterId }))
+    void this.getAccessToken().then((accessToken) => this.connect(() => this.send({ type: "create_room", version: PROTOCOL_VERSION, displayName, characterId, accessToken })))
   }
 
   joinRoom(roomCode: string, displayName: string, characterId: CharacterId): void {
@@ -41,7 +42,7 @@ export class MultiplayerClient {
     this.reconnectSession = { roomCode: normalizedCode, displayName, characterId }
     this.pendingIdentity = { displayName, characterId }
     const reconnectToken = localStorage.getItem(`sherwood:reconnect:${normalizedCode}`) ?? undefined
-    this.connect(() => this.send({ type: "join_room", version: PROTOCOL_VERSION, roomCode: normalizedCode, displayName, characterId, reconnectToken }))
+    void this.getAccessToken().then((accessToken) => this.connect(() => this.send({ type: "join_room", version: PROTOCOL_VERSION, roomCode: normalizedCode, displayName, characterId, reconnectToken, accessToken })))
   }
 
   setReady(ready: boolean): void {
@@ -202,14 +203,22 @@ export class MultiplayerClient {
       const session = this.reconnectSession
       if (!session) return
       const reconnectToken = localStorage.getItem(`sherwood:reconnect:${session.roomCode}`) ?? undefined
-      this.connect(() => this.send({
-        type: "join_room",
-        version: PROTOCOL_VERSION,
-        roomCode: session.roomCode,
-        displayName: session.displayName,
-        characterId: session.characterId,
-        reconnectToken,
-      }))
+      void this.getAccessToken().then((accessToken) => this.connect(() => this.send({
+          type: "join_room",
+          version: PROTOCOL_VERSION,
+          roomCode: session.roomCode,
+          displayName: session.displayName,
+          characterId: session.characterId,
+          reconnectToken,
+          accessToken,
+        })))
     }, delay)
+  }
+
+  private async getAccessToken(): Promise<string | undefined> {
+    const supabase = getSupabase()
+    if (!supabase) return undefined
+    const { data } = await supabase.auth.getSession()
+    return data.session?.access_token
   }
 }

@@ -23,6 +23,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     version: z.literal(PROTOCOL_VERSION),
     displayName: DisplayNameSchema,
     characterId: CharacterIdSchema,
+    accessToken: z.string().min(20).max(4_096).optional(),
   }),
   z.object({
     type: z.literal("join_room"),
@@ -31,6 +32,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     displayName: DisplayNameSchema,
     characterId: CharacterIdSchema,
     reconnectToken: z.string().uuid().optional(),
+    accessToken: z.string().min(20).max(4_096).optional(),
   }),
   z.object({ type: z.literal("set_ready"), ready: z.boolean() }),
   z.object({ type: z.literal("select_character"), characterId: CharacterIdSchema }),

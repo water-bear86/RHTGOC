@@ -195,6 +195,8 @@ Competition should emphasize clean escapes, rescues, generosity, tactical execut
 
 The first seasonal campaign must be an event-sourced, server-authoritative shared world layer. Verified redistribution and consumed band preparations advance three-tier village projects; mission outcomes adjust bounded Sheriff pressure and validated daily-target modifiers. Completing the project set unlocks a finite participation-based finale. Success, failure, rollback, and archival must preserve permanent identity, safety, band membership, cosmetics, entitlements, past recognition, and the immutable campaign audit trail.
 
+Persistent friendship must use authenticated, non-enumerable private friend codes. Presence is opt-in and visible only to accepted, unblocked friends. Direct invitations expire, deduplicate, obey server-observable rate limits, and lead back through ordinary hero selection and authoritative room admission. Blocking removes relationships, revokes invitations, and suppresses recent-player surfaces; room codes remain available to guests.
+
 ## 10. Progression and economy
 
 Progression should operate across three connected tracks:

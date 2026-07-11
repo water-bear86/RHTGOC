@@ -70,6 +70,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .leaderboard-button { pointer-events: auto; position: absolute; right: 76px; bottom: 28px; width: 38px; height: 38px; color: var(--gold); background: #10251dc7; border: 1px solid #e4b65369; border-radius: 50%; cursor: pointer; }
 .safety-button { pointer-events: auto; position: absolute; right: 124px; bottom: 28px; width: 38px; height: 38px; color: #b7cd8b; background: #10251dc7; border: 1px solid #b7cd8b69; border-radius: 50%; cursor: pointer; }
 .settings-button { pointer-events: auto; position: absolute; right: 172px; bottom: 28px; width: 38px; height: 38px; color: var(--cream); background: #10251dc7; border: 1px solid #f7f0d452; border-radius: 50%; cursor: pointer; }
+.social-button { pointer-events: auto; position: absolute; right: 220px; bottom: 28px; width: 38px; height: 38px; color: #e49a83; background: #10251dc7; border: 1px solid #e49a8369; border-radius: 50%; cursor: pointer; }
 .spectator-banner { position: absolute; left: 14px; bottom: 18px; padding: 8px 10px; color: #101712; background: #f3d887; border: 2px solid #101712; font-size: 9px; font-weight: 800; letter-spacing: .12em; }
 .spectator-banner.hidden { display: none; }
 
@@ -144,6 +145,22 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .safety-panel ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .safety-panel li { padding: 9px; background: #ffffff08; }
 .safety-panel li > span { display: block; margin-bottom: 7px; font-size: 11px; }
+.social-panel { width: min(480px, calc(100vw - 56px)); max-height: calc(100vh - 40px); overflow-y: auto; }
+.social-panel section.hidden { display: none; }
+.social-auth, .social-add { display: grid; grid-template-columns: 1fr auto; gap: 7px; margin: 10px 0 16px; }
+.social-panel input { min-width: 0; padding: 9px; color: var(--cream); background: #ffffff0b; border: 1px solid #f7f0d43d; }
+.social-panel section button, .social-list button { padding: 8px; color: var(--cream); background: #294632; border: 1px solid #f7f0d42b; cursor: pointer; font-size: 8px; font-weight: 800; }
+.social-identity { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; align-items: center; margin-bottom: 12px; }
+.social-identity span { color: var(--gold); font-size: 8px; font-weight: 800; letter-spacing: .12em; }
+.social-identity b { grid-row: 2; font: 700 18px Cinzel, serif; letter-spacing: .16em; }
+.social-identity button { grid-column: 2; grid-row: 1 / 3; }
+.social-presence { display: flex; gap: 8px; align-items: flex-start; color: #f7f0d4b8; font-size: 10px; line-height: 1.4; }
+.social-list { display: grid; gap: 6px; margin: 7px 0 14px; padding: 0; list-style: none; }
+.social-list li { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; align-items: center; padding: 8px; background: #ffffff08; }
+.social-list li span, .social-list li small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-list li span { font-size: 10px; }
+.social-list li small { margin-top: 3px; color: #f7f0d478; font-size: 8px; }
+.social-list li div:last-child { display: flex; gap: 4px; }
 .safety-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .safety-actions button { position: static; padding: 6px 8px; color: var(--cream); background: #294632; border: 1px solid #f7f0d42b; font-size: 8px; cursor: pointer; }
 .settings-panel { width: min(520px, calc(100vw - 56px)); max-height: calc(100vh - 40px); overflow-y: auto; }
@@ -265,6 +282,7 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
   .leaderboard-button { right: 60px; bottom: 18px; }
   .safety-button { right: 106px; bottom: 18px; }
   .settings-button { right: 152px; bottom: 18px; }
+  .social-button { right: 198px; bottom: 18px; }
   .settings-panel { top: 12px; right: 12px; width: calc(100vw - 24px); max-height: calc(100vh - 24px); transform: none; padding: 24px; }
   .settings-panel.hidden { transform: translateY(12px); }
   .settings-panel fieldset { grid-template-columns: 1fr; }

@@ -16,6 +16,7 @@ Key counters:
 - `protocol_invalid_json_total`, `protocol_invalid_message_total`
 - `client_metrics_reports_total`, `input_backlog_<bucket>_total`, `snapshot_gap_<bucket>_total`
 - `season_<mission|contribution|operator>_events_total`, `season_pressure`, `season_persistence_queue`, `season_persistence_<success|retry>_total`
+- `recent_players_persistence_queue`, `recent_players_persistence_<success|retry>_total`; Supabase `social_rate_events` is the source for friend-request and direct-invite abuse review.
 
 Key gauges: `active_connections`, `active_rooms`, and `active_players`.
 
