@@ -19,6 +19,7 @@ import {
 import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type LeaderboardKind } from "./leaderboard"
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
+import { chooseRenderProfile } from "./render-profile"
 import type { MissionEvent, MissionSnapshot, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
@@ -84,9 +85,15 @@ const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerH
 camera.position.set(6, 14, 20)
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" })
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75))
+const renderProfile = chooseRenderProfile({
+  maxTextureSize: renderer.capabilities.maxTextureSize,
+  maxTextures: renderer.capabilities.maxTextures,
+  devicePixelRatio: window.devicePixelRatio,
+  reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+})
+renderer.setPixelRatio(renderProfile.pixelRatio)
 renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.shadowMap.enabled = true
+renderer.shadowMap.enabled = renderProfile.shadows
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.outputColorSpace = THREE.SRGBColorSpace
 renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -121,6 +128,8 @@ const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
 interface RemoteView {
   view: THREE.Group
+  fallback: THREE.Group
+  authored: THREE.Group | null
   snapshots: SnapshotBuffer
   mixer: THREE.AnimationMixer | null
   actions: Map<string, THREE.AnimationAction>
@@ -746,11 +755,15 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
   const activeIds = new Set(players.filter((player) => player.id !== multiplayer.playerId).map((player) => player.id))
   for (const player of players) {
     if (player.id === multiplayer.playerId || remoteViews.has(player.id)) continue
-    const view = createCharacter(player.characterId)
+    const view = new THREE.Group()
+    const fallback = createCharacter(player.characterId)
+    view.add(fallback)
     view.position.set(player.position.x, 0, player.position.z)
     scene.add(view)
     const remote: RemoteView = {
       view,
+      fallback,
+      authored: null,
       snapshots: new SnapshotBuffer(),
       mixer: null,
       actions: new Map(),
@@ -764,9 +777,10 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
     if (player.characterId === "robin") {
       void loadRobinRanger().then((asset) => {
         if (remoteViews.get(player.id) !== remote) return
-        view.clear()
         const ranger = prepareRangerInstance(asset.scene)
         view.add(ranger)
+        remote.authored = ranger
+        remote.fallback.visible = false
         remote.mixer = new THREE.AnimationMixer(ranger)
         remote.actions = new Map(asset.animations.map((clip) => [clip.name, remote.mixer!.clipAction(clip)]))
         remote.motion = "Robin_Idle"
@@ -994,7 +1008,7 @@ function showEnding(won: boolean): void {
 
 function syncViews(elapsed: number, dt: number): void {
   const player = state.player.position
-  playerView.position.set(player.x, Math.sin(elapsed * 9) * 0.035, player.z)
+  playerView.position.set(player.x, Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale, player.z)
   playerView.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.material.transparent = state.player.veilFor > 0
@@ -1014,7 +1028,7 @@ function syncViews(elapsed: number, dt: number): void {
 
   state.guards.forEach((guard, index) => {
     const view = guardViews[index]
-    view.position.set(guard.position.x, guard.stunnedFor > 0 ? 0.05 : Math.sin(elapsed * 7 + index) * 0.025, guard.position.z)
+    view.position.set(guard.position.x, guard.stunnedFor > 0 ? 0.05 : Math.sin(elapsed * 7 + index) * 0.025 * renderProfile.motionScale, guard.position.z)
     if (state.heat > 8) view.rotation.y = Math.atan2(player.x - guard.position.x, player.z - guard.position.z)
     view.rotation.z = guard.stunnedFor > 0 ? Math.sin(elapsed * 14) * 0.1 : 0
   })
@@ -1026,6 +1040,13 @@ function syncViews(elapsed: number, dt: number): void {
     const remoteDx = remote.view.position.x - remote.lastPosition.x
     const remoteDz = remote.view.position.z - remote.lastPosition.z
     const moving = Math.hypot(remoteDx, remoteDz) > 0.0001
+    const cameraDistance = camera.position.distanceTo(remote.view.position)
+    if (remote.authored) {
+      remote.authored.visible = cameraDistance <= 24
+      remote.fallback.visible = cameraDistance > 24 && cameraDistance <= 48
+    } else {
+      remote.fallback.visible = cameraDistance <= 48
+    }
     if (moving) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
     remote.view.rotation.z = remote.downedFor > 0 ? Math.PI / 2.7 : 0
     remote.lastPosition.copy(remote.view.position)
@@ -1042,10 +1063,10 @@ function syncViews(elapsed: number, dt: number): void {
 
   for (const view of pingViews.values()) {
     const age = elapsed - Number(view.userData.createdAt ?? elapsed)
-    const pulse = 1 + Math.sin(age * 6) * 0.08
+    const pulse = 1 + Math.sin(age * 6) * 0.08 * renderProfile.motionScale
     view.scale.setScalar(pulse)
     const sprite = view.children[1]
-    if (sprite) sprite.position.y = 1.55 + Math.sin(age * 4) * 0.12
+    if (sprite) sprite.position.y = 1.55 + Math.sin(age * 4) * 0.12 * renderProfile.motionScale
   }
 
   cartView.children.forEach((child) => {
@@ -1246,7 +1267,7 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75))
+  renderer.setPixelRatio(renderProfile.pixelRatio)
 })
 
 window.addEventListener("blur", () => keys.clear())

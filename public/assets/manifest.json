@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "units": "meters",
+  "forwardAxis": "+Z",
+  "upAxis": "+Y",
+  "assets": [
+    {
+      "id": "character.robin.ranger",
+      "uri": "/assets/characters/robin-ranger-rigged.glb",
+      "format": "glTF 2.0 GLB",
+      "bytesMax": 1600000,
+      "renderVertices": 181647,
+      "uploadVertices": 35158,
+      "drawCalls": 7,
+      "texture": { "format": "webp", "width": 1024, "height": 1024, "gpuBytesApprox": 5590000 },
+      "clips": ["Robin_Idle", "Robin_Walk", "Robin_Shoot"],
+      "pivot": "feet at origin",
+      "collision": { "type": "capsule", "radius": 0.55, "height": 2.1, "centerY": 1.05 },
+      "lod": [
+        { "level": 0, "maxDistance": 24, "asset": "self" },
+        { "level": 1, "maxDistance": 48, "asset": "procedural hero silhouette" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+      ]
+    }
+  ],
+  "budgets": {
+    "heroGlbBytes": 1600000,
+    "heroDrawCalls": 8,
+    "heroTextureEdge": 1024,
+    "sceneDrawCallsDesktop": 220,
+    "sceneDrawCallsDegraded": 130
+  }
+}
