@@ -83,12 +83,12 @@ unset DEPLOY_SPEC SUPABASE_SECRET_KEY OPS_ADMIN_SECRET
 Confirm `RUNNING` and `ACTIVE` before announcing the release. The status query must select only non-secret deployment fields; never dump the complete service object or `currentDeployment.containers.environment` into a terminal transcript:
 
 ```bash
-aws lightsail get-container-services \
-  --service-name sherwood-rebellion \
-  --region ca-central-1 \
-  --query 'containerServices[0].{serviceState:state,currentDeployment:{version:currentDeployment.version,state:currentDeployment.state,createdAt:currentDeployment.createdAt,image:currentDeployment.containers.app.image}}' \
-  --output json
+npm run ops:aws-status
 ```
+
+The checked-in command owns the field-limited query and rejects responses containing an
+`environment` map or a known secret name. Its regression test is part of `npm test`. Do not
+replace it with an unfiltered `get-container-services` call, including during incident response.
 
 Then run the health, reconnect, and bounded load checks against the new origin and inspect `/metrics` for persistence failures. A persistence-enabled release is not accepted until `/health` reports all six persistence flags true and one authenticated production mission proves the band-history and verified-leaderboard write paths.
 

@@ -14,6 +14,7 @@
     "test:reconnect": "node tools/reconnect-failure-test.mjs",
     "test:hub": "node tools/public-hub-smoke-test.mjs",
     "test:operator": "node tools/operator-review-smoke-test.mjs",
+    "ops:aws-status": "node tools/aws-lightsail-status.mjs",
     "build:village-assets": "node tools/build-sherwood-village-slice.mjs",
     "validate:assets": "node tools/validate-assets.mjs",
     "validate:missions": "tsx tools/validate-missions.ts"
