@@ -45,6 +45,10 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("deposit_contribution"), contributionType: ContributionTypeSchema }),
   z.object({ type: z.literal("toggle_contribution"), contributionId: z.string().uuid() }),
   z.object({ type: z.literal("revoke_contribution"), contributionId: z.string().uuid() }),
+  z.object({ type: z.literal("offer_band_membership"), targetPlayerId: z.string().uuid() }),
+  z.object({ type: z.literal("respond_band_membership"), accept: z.boolean() }),
+  z.object({ type: z.literal("update_band_identity"), name: z.string().trim().min(3).max(28).regex(/^[A-Za-z0-9 _-]+$/), bannerId: z.enum(["oak", "fox", "arrow", "stag"]) }),
+  z.object({ type: z.literal("remove_band_member"), targetPlayerId: z.string().uuid() }),
   z.object({ type: z.literal("join_public_hub"), version: z.literal(PROTOCOL_VERSION), displayName: DisplayNameSchema, characterId: CharacterIdSchema, accessToken: z.string().min(20).max(4_096) }),
   z.object({ type: z.literal("hub_intent"), looking: z.boolean(), targetPreference: z.enum(["any", "peoples-purse", "prison-wagon", "royal-storehouse"]), desiredPartySize: z.number().int().min(2).max(4) }),
   z.object({ type: z.literal("hub_move"), sequence: z.number().int().nonnegative(), move: z.object({ x: z.number().min(-1).max(1), z: z.number().min(-1).max(1) }) }),
@@ -89,6 +93,8 @@ export interface RoomPlayer {
   loadoutId: LoadoutId
   ready: boolean
   connected: boolean
+  bandRole: "leader" | "member" | null
+  bandInvitePending: boolean
   health: number
   arrows: number
   loot: number
@@ -110,6 +116,7 @@ export interface MerryBandState {
   camp: { hearth: number; workbench: number; stores: number }
   progressionVersion: number
   missionCount: number
+  memberCount: number
 }
 
 export interface MissionGuard {

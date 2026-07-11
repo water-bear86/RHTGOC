@@ -6,6 +6,7 @@ begin;
 do $$
 declare
   drill_user uuid := gen_random_uuid();
+  drill_member uuid := gen_random_uuid();
   drill_band uuid;
   drill_mission uuid := gen_random_uuid();
   failed_mission uuid := gen_random_uuid();
@@ -14,10 +15,27 @@ declare
   duplicate_write jsonb;
   failed_write jsonb;
 begin
-  insert into auth.users(id) values(drill_user);
+  insert into auth.users(id) values(drill_user),(drill_member);
 
   restored_band := public.ensure_merry_band(drill_user,'Restore Drill','robin');
   drill_band := (restored_band ->> 'id')::uuid;
+
+  restored_band := public.add_merry_band_member(drill_band,drill_user,drill_member,'marian');
+  if (restored_band->>'memberCount')::integer <> 2 then
+    raise exception 'Restore drill membership assertion failed';
+  end if;
+  restored_band := public.update_merry_band_identity(drill_band,drill_user,'Restore Rangers','fox');
+  if restored_band->>'name' <> 'Restore Rangers' or restored_band->>'bannerId' <> 'fox' then
+    raise exception 'Restore drill band identity assertion failed';
+  end if;
+  restored_band := public.set_merry_band_hero_role(drill_band,drill_member,'much');
+  if not exists(select 1 from jsonb_array_elements(restored_band->'members') member where member->>'userId'=drill_member::text and member->>'heroRole'='much') then
+    raise exception 'Restore drill hero role assertion failed';
+  end if;
+  restored_band := public.remove_merry_band_member(drill_band,drill_user,drill_member);
+  if (restored_band->>'memberCount')::integer <> 1 then
+    raise exception 'Restore drill membership removal assertion failed';
+  end if;
 
   select public.record_band_mission_outcome(
     drill_band,

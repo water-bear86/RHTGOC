@@ -45,6 +45,6 @@ Run the transactional recovery assertion against that temporary project:
 psql -f tools/supabase-restore-drill.sql "$RESTORED_DATABASE_URL"
 ```
 
-The drill creates a disposable Auth user and band inside a transaction, applies one idempotent mission grant, proves a replay is rejected, records a failed mission without progression, verifies the restored camp/village/history projection and audit actor continuity, and rolls everything back. Never run a restore drill against the live project. Record the backup timestamp, restored project reference, row counts, assertion output, operator, and deletion time in the release log.
+The drill creates disposable Auth users and a band inside a transaction, proves explicit member add/remove, band identity updates, and persistent hero-role recovery, applies one idempotent mission grant, proves a replay is rejected, records a failed mission without progression, verifies the restored camp/village/history projection and audit actor continuity, and rolls everything back. Never run a restore drill against the live project. Record the backup timestamp, restored project reference, row counts, assertion output, operator, and deletion time in the release log.
 
 Enable Point-in-Time Recovery before the public alpha if the recovery-point objective must be shorter than the daily backup interval.

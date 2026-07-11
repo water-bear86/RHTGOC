@@ -35,6 +35,7 @@ export interface SocialState {
   incomingRequests: SocialFriend[]
   invites: DirectInvite[]
   recentPlayers: SocialProfile[]
+  blockedPlayerIds: string[]
 }
 
 function client(): any {
@@ -62,17 +63,19 @@ export async function registerSocialProfile(displayName: string): Promise<Social
 export async function loadSocialState(): Promise<SocialState> {
   const db = client()
   const { data: { session } } = await db.auth.getSession()
-  if (!session) return { session: null, profile: null, friends: [], incomingRequests: [], invites: [], recentPlayers: [] }
+  if (!session) return { session: null, profile: null, friends: [], incomingRequests: [], invites: [], recentPlayers: [], blockedPlayerIds: [] }
   const userId = session.user.id
-  const [{ data: own }, { data: relationships, error: relationshipError }, { data: invites, error: inviteError }, { data: recent, error: recentError }] = await Promise.all([
+  const [{ data: own }, { data: relationships, error: relationshipError }, { data: invites, error: inviteError }, { data: recent, error: recentError }, { data: blocks, error: blockError }] = await Promise.all([
     db.from("player_social_profiles").select("*").eq("user_id", userId).maybeSingle(),
     db.from("player_friendships").select("*").or(`user_low.eq.${userId},user_high.eq.${userId}`),
     db.from("direct_band_invites").select("*").eq("recipient_id", userId).eq("status", "pending").gt("expires_at", new Date().toISOString()).order("created_at", { ascending: false }).limit(10),
     db.from("recent_band_players").select("other_id,last_played_at").eq("owner_id",userId).order("last_played_at",{ascending:false}).limit(8),
+    db.from("player_blocks").select("blocked_id").eq("blocker_id", userId),
   ])
   if (relationshipError) throw relationshipError
   if (inviteError) throw inviteError
   if (recentError) throw recentError
+  if (blockError) throw blockError
   const rows = (relationships ?? []) as Array<{ user_low: string; user_high: string; requested_by: string; status: string }>
   const recentIds = ((recent ?? []) as Array<{other_id:string}>).map((row) => row.other_id)
   const otherIds = [...new Set([...rows.map((row) => row.user_low === userId ? row.user_high : row.user_low), ...recentIds])]
@@ -93,6 +96,7 @@ export async function loadSocialState(): Promise<SocialState> {
     incomingRequests: mapped.filter((friend) => !friend.accepted && !friend.requestedByMe),
     invites: (invites ?? []) as DirectInvite[],
     recentPlayers: recentIds.flatMap((id) => profileById.get(id) ? [profileById.get(id)!] : []),
+    blockedPlayerIds: ((blocks ?? []) as Array<{ blocked_id: string }>).map((row) => row.blocked_id),
   }
 }
 

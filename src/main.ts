@@ -16,7 +16,7 @@ import {
   type CharacterId,
   type Vec2,
 } from "./simulation"
-import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type LeaderboardKind } from "./leaderboard"
+import { loadLeaderboard, loadLeaderboardSeasons, submitLeaderboardEntry, subscribeToLeaderboard, type LeaderboardKind } from "./leaderboard"
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
@@ -141,6 +141,10 @@ const hubBand = document.querySelector<HTMLElement>("#hub-band")!
 const hubBandName = document.querySelector<HTMLElement>("#hub-band-name")!
 const hubBandCamp = document.querySelector<HTMLElement>("#hub-band-camp")!
 const hubBandHistory = document.querySelector<HTMLElement>("#hub-band-history")!
+const hubBandControls = document.querySelector<HTMLElement>("#hub-band-controls")!
+const hubBandNameInput = document.querySelector<HTMLInputElement>("#hub-band-name-input")!
+const hubBandBanner = document.querySelector<HTMLSelectElement>("#hub-band-banner")!
+const hubBandSave = document.querySelector<HTMLButtonElement>("#hub-band-save")!
 const hubSeason = document.querySelector<HTMLElement>("#hub-season")!
 const hubSeasonPhase = document.querySelector<HTMLElement>("#hub-season-phase")!
 const hubSeasonName = document.querySelector<HTMLElement>("#hub-season-name")!
@@ -890,6 +894,7 @@ const multiplayer = new MultiplayerClient({
 function hubPlayerAsRoomPlayer(player: PublicHubPlayer): RoomPlayer {
   return {
     id: player.id, displayName: player.displayName, characterId: player.characterId, loadoutId: "balanced", ready: player.looking, connected: true,
+    bandRole: null, bandInvitePending: false,
     health: 3, arrows: 0, loot: 0, downedFor: 0, signatureCooldown: 0, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0, trapHits: 0, sabotageCount: 0,
     position: { ...player.position }, lastInputSequence: 0,
   }
@@ -960,9 +965,13 @@ function renderHub(): void {
   hubReady.textContent = roomConnected ? (localReady ? "NOT READY" : "READY UP") : "START MISSION"
   hubBand.classList.toggle("hidden", !currentBand)
   if (currentBand) {
+    const localBandRole = currentRoomPlayers.find((player) => player.id === multiplayer.playerId)?.bandRole ?? null
     hubBandName.textContent = currentBand.name.toUpperCase()
-    hubBandCamp.textContent = `${currentBand.bannerId.toUpperCase()} BANNER · HEARTH ${currentBand.camp.hearth} · WORKBENCH ${currentBand.camp.workbench} · STORES ${currentBand.camp.stores}`
+    hubBandCamp.textContent = `${currentBand.bannerId.toUpperCase()} BANNER · ${currentBand.memberCount} MEMBER${currentBand.memberCount === 1 ? "" : "S"} · HEARTH ${currentBand.camp.hearth} · WORKBENCH ${currentBand.camp.workbench} · STORES ${currentBand.camp.stores}`
     hubBandHistory.textContent = currentBand.missionCount === 0 ? "No recorded missions yet." : `${currentBand.missionCount} recorded mission${currentBand.missionCount === 1 ? "" : "s"} · progression v${currentBand.progressionVersion}`
+    hubBandControls.classList.toggle("hidden", localBandRole !== "leader")
+    if (document.activeElement !== hubBandNameInput) hubBandNameInput.value = currentBand.name
+    hubBandBanner.value = currentBand.bannerId
   }
   hubRecent.textContent = currentLastResult
     ? `Last heist: ${currentLastResult.status === "succeeded" ? currentLastResult.grade : "PARTIAL"} · ${currentLastResult.score.toLocaleString()} renown${currentLastResult.totalCaptives > 0 ? ` · ${currentLastResult.rescuedCaptives}/${currentLastResult.totalCaptives} rescued` : ""}. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
@@ -1843,6 +1852,13 @@ async function refreshSocialPanel(): Promise<void> {
       state = await loadSocialState()
     }
     currentSocial = state
+    if (state.session) {
+      localStorage.setItem("sherwood:friend-ids", JSON.stringify([state.session.user.id, ...state.friends.map((friend) => friend.profile.user_id)]))
+      localStorage.setItem("sherwood:blocked-player-ids", JSON.stringify(state.blockedPlayerIds))
+    } else {
+      localStorage.removeItem("sherwood:friend-ids")
+      localStorage.removeItem("sherwood:blocked-player-ids")
+    }
     socialSignedOut.classList.toggle("hidden", Boolean(state.session))
     socialSignedIn.classList.toggle("hidden", !state.session)
     if (!state.session || !state.profile) return
@@ -2144,7 +2160,35 @@ function renderParty(players: RoomPlayer[]): void {
   for (const player of players) {
     const item = document.createElement("li")
     item.classList.toggle("ready", player.ready)
-    item.textContent = `${player.ready ? "✓" : "○"} ${player.displayName} · ${characterName(player.characterId)}${player.connected ? "" : " · reconnecting"}`
+    const identity = document.createElement("span")
+    identity.textContent = `${player.ready ? "✓" : "○"} ${player.displayName} · ${characterName(player.characterId)}${player.connected ? "" : " · reconnecting"}`
+    item.append(identity)
+    if (player.bandRole) {
+      const role = document.createElement("small")
+      role.className = "band-member"
+      role.textContent = player.bandRole.toUpperCase()
+      item.append(role)
+    }
+    const localPlayer = players.find((candidate) => candidate.id === multiplayer.playerId)
+    if (player.id === multiplayer.playerId && player.bandInvitePending) {
+      const accept = document.createElement("button")
+      accept.textContent = "JOIN BAND"
+      accept.addEventListener("click", () => multiplayer.respondBandMembership(true))
+      const decline = document.createElement("button")
+      decline.textContent = "DECLINE"
+      decline.addEventListener("click", () => multiplayer.respondBandMembership(false))
+      item.append(accept, decline)
+    } else if (localPlayer?.bandRole === "leader" && player.id !== multiplayer.playerId && !player.bandRole) {
+      const offer = document.createElement("button")
+      offer.textContent = "OFFER MEMBERSHIP"
+      offer.addEventListener("click", () => multiplayer.offerBandMembership(player.id))
+      item.append(offer)
+    } else if (localPlayer?.bandRole === "leader" && player.bandRole === "member") {
+      const remove = document.createElement("button")
+      remove.textContent = "REMOVE"
+      remove.addEventListener("click", () => multiplayer.removeBandMember(player.id))
+      item.append(remove)
+    }
     partyList.append(item)
 
     const compact = document.createElement("li")
@@ -2154,15 +2198,15 @@ function renderParty(players: RoomPlayer[]): void {
     presence.className = "presence"
     presence.textContent = player.connected ? "●" : "×"
     presence.setAttribute("aria-label", player.connected ? "Connected" : "Reconnecting")
-    const identity = document.createElement("span")
-    identity.className = "identity"
-    identity.textContent = `${player.displayName} · ${characterName(player.characterId)}`
+    const compactIdentity = document.createElement("span")
+    compactIdentity.className = "identity"
+    compactIdentity.textContent = `${player.displayName} · ${characterName(player.characterId)}`
     const vitality = document.createElement("b")
     vitality.className = "vitality"
     vitality.textContent = player.downedFor > 0
       ? `DOWN ${Math.ceil(player.downedFor)}s`
       : `${"♥".repeat(Math.max(0, player.health))}${player.characterId === "little-john" ? ` · 🛡${player.protectionScore} ⚒${player.crowdControl}` : player.characterId === "much" ? ` · ⛓${player.trapHits} ✂${player.sabotageCount}` : ""}`
-    compact.append(presence, identity, vitality)
+    compact.append(presence, compactIdentity, vitality)
     missionPartyList.append(compact)
   }
   lobbyStatus.textContent = players.length < 2 ? "Waiting for another outlaw…" : "Ready together to begin."
@@ -2353,6 +2397,15 @@ async function openLeaderboard(): Promise<void> {
   if (leaderboardPanel.classList.contains("hidden")) openPanel(leaderboardPanel, leaderboardButton)
   leaderboardState.textContent = "Loading the global board…"
   leaderboardList.replaceChildren()
+  const selectedSeason = boardSeason.value || "season-zero"
+  const seasons = await loadLeaderboardSeasons()
+  boardSeason.replaceChildren(...seasons.map((season) => {
+    const option = document.createElement("option")
+    option.value = season.slug
+    option.textContent = season.name
+    return option
+  }))
+  boardSeason.value = seasons.some((season) => season.slug === selectedSeason) ? selectedSeason : seasons[0]!.slug
   const kind = boardKind.value as LeaderboardKind
   const scope = boardScope.value
   const bandId = scope === "band" ? localStorage.getItem("sherwood:band-id") ?? undefined : undefined
@@ -2361,8 +2414,19 @@ async function openLeaderboard(): Promise<void> {
     return
   }
   let friendIds: string[] | undefined
+  let acceptedPlayerIds: string[] | undefined
+  let blockedPlayerIds: string[] = []
+  if (!currentSocial) {
+    try { currentSocial = await loadSocialState() } catch { /* offline board remains available */ }
+  }
+  if (currentSocial?.session) {
+    acceptedPlayerIds = [currentSocial.session.user.id, ...currentSocial.friends.map((friend) => friend.profile.user_id)]
+    blockedPlayerIds = currentSocial.blockedPlayerIds
+  } else {
+    try { blockedPlayerIds = JSON.parse(localStorage.getItem("sherwood:blocked-player-ids") ?? "[]") as string[] } catch { blockedPlayerIds = [] }
+  }
   if (scope === "friends") {
-    try { friendIds = JSON.parse(localStorage.getItem("sherwood:friend-ids") ?? "[]") as string[] }
+    try { friendIds = acceptedPlayerIds ?? JSON.parse(localStorage.getItem("sherwood:friend-ids") ?? "[]") as string[] }
     catch { friendIds = [] }
   }
   const board = await loadLeaderboard({
@@ -2373,6 +2437,7 @@ async function openLeaderboard(): Promise<void> {
     missionSlug: boardMission.value,
     bandId,
     playerIds: friendIds,
+    excludedPlayerIds: blockedPlayerIds,
   })
   const titles: Record<LeaderboardKind, string> = {
     "master-outlaws": "Master Outlaws",
@@ -2490,7 +2555,22 @@ function syncViews(elapsed: number, dt: number): void {
   }
   const player = state.player.position
   const groveDistance = renderProfile.tier === "degraded" ? 30 : 38
-  for (const grove of authoredGroveViews) grove.visible = Math.hypot(grove.position.x - player.x, grove.position.z - player.z) <= groveDistance
+  const cameraToPlayer = { x: player.x - camera.position.x, z: player.z - camera.position.z }
+  const cameraToPlayerLengthSquared = cameraToPlayer.x ** 2 + cameraToPlayer.z ** 2
+  for (const grove of authoredGroveViews) {
+    const playerDistance = Math.hypot(grove.position.x - player.x, grove.position.z - player.z)
+    const cameraToGrove = { x: grove.position.x - camera.position.x, z: grove.position.z - camera.position.z }
+    const segmentPosition = cameraToPlayerLengthSquared > 0
+      ? Math.max(0, Math.min(1, (cameraToGrove.x * cameraToPlayer.x + cameraToGrove.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
+      : 0
+    const sightline = {
+      x: camera.position.x + cameraToPlayer.x * segmentPosition,
+      z: camera.position.z + cameraToPlayer.z * segmentPosition,
+    }
+    const blocksCamera = segmentPosition > 0.05 && segmentPosition < 0.95
+      && Math.hypot(grove.position.x - sightline.x, grove.position.z - sightline.z) < grove.scale.x * 0.62
+    grove.visible = playerDistance <= groveDistance && !blocksCamera
+  }
   for (const view of alarmViews.values()) {
     if (view.userData.alarmStatus !== "triggered") continue
     const pulse = 1 + Math.sin(elapsed * 8) * 0.14 * renderProfile.motionScale
@@ -2735,6 +2815,14 @@ hubCopyCode.addEventListener("click", () => {
   if (!code) return
   const invite = `${location.origin}${location.pathname}?room=${code}`
   void navigator.clipboard.writeText(invite).then(() => showToast("INVITE LINK COPIED")).catch(() => showToast(`ROOM CODE ${code}`))
+})
+hubBandSave.addEventListener("click", () => {
+  const name = hubBandNameInput.value.trim()
+  if (!name.match(/^[A-Za-z0-9 _-]{3,28}$/)) {
+    showToast("BAND NAME MUST BE 3–28 LETTERS, NUMBERS, SPACES, DASHES OR UNDERSCORES")
+    return
+  }
+  multiplayer.updateBandIdentity(name, hubBandBanner.value as MerryBandState["bannerId"])
 })
 returnHubButton.addEventListener("click", () => multiplayer.returnToHub())
 hubAcceptRescue.addEventListener("click", () => {

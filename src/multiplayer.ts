@@ -123,6 +123,22 @@ export class MultiplayerClient {
     this.send({ type: "revoke_contribution", contributionId })
   }
 
+  offerBandMembership(targetPlayerId: string): void {
+    this.send({ type: "offer_band_membership", targetPlayerId })
+  }
+
+  respondBandMembership(accept: boolean): void {
+    this.send({ type: "respond_band_membership", accept })
+  }
+
+  updateBandIdentity(name: string, bannerId: MerryBandState["bannerId"]): void {
+    this.send({ type: "update_band_identity", name, bannerId })
+  }
+
+  removeBandMember(targetPlayerId: string): void {
+    this.send({ type: "remove_band_member", targetPlayerId })
+  }
+
   sendInput(move: Vec2): void {
     const now = performance.now()
     if (now - this.lastInputAt < 50) return

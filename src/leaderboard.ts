@@ -3,6 +3,7 @@ import { getSupabase } from "./supabase"
 
 export interface LeaderboardEntry {
   id: string
+  playerId?: string
   playerName: string
   characterId: CharacterId
   score: number
@@ -30,7 +31,10 @@ export interface LeaderboardFilters {
   missionSlug?: string
   bandId?: string
   playerIds?: string[]
+  excludedPlayerIds?: string[]
 }
+
+export interface LeaderboardSeason { slug: string; name: string }
 
 const STORAGE_KEY = "sherwood-rebellion:leaderboard:v1"
 
@@ -68,7 +72,7 @@ export async function loadLeaderboard(filters: LeaderboardFilters = {}): Promise
     if (seasonError) throw seasonError
     let query = supabase
       .from("leaderboard_entries")
-      .select("id, player_name, character_id, score, grade, mission_seconds, delivered, verified, created_at, party_size, mission_slug, band_id, rescues, precision, generosity, clean_escape")
+      .select("id, player_id, player_name, character_id, score, grade, mission_seconds, delivered, verified, created_at, party_size, mission_slug, band_id, rescues, precision, generosity, clean_escape")
       .eq("season_id", season.id)
       .eq("verified", true)
     if (filters.characterId) query = query.eq("character_id", filters.characterId)
@@ -85,6 +89,7 @@ export async function loadLeaderboard(filters: LeaderboardFilters = {}): Promise
     if (error) throw error
     const entries: LeaderboardEntry[] = data.map((entry) => ({
       id: entry.id,
+      playerId: entry.player_id ?? undefined,
       playerName: entry.player_name,
       characterId: entry.character_id as CharacterId,
       score: entry.score,
@@ -101,9 +106,23 @@ export async function loadLeaderboard(filters: LeaderboardFilters = {}): Promise
       generosity: entry.generosity,
       cleanEscape: entry.clean_escape,
     }))
-    return { entries, global: true }
+    const excluded = new Set(filters.excludedPlayerIds ?? [])
+    return { entries: entries.filter((entry) => !entry.playerId || !excluded.has(entry.playerId)), global: true }
   } catch {
     return { entries: sortEntries(localEntries(), kind), global: false }
+  }
+}
+
+export async function loadLeaderboardSeasons(): Promise<LeaderboardSeason[]> {
+  const supabase = getSupabase()
+  if (!supabase) return [{ slug: "season-zero", name: "Season Zero" }]
+  try {
+    const { data, error } = await supabase.from("leaderboard_seasons").select("slug,name").eq("is_public", true).order("starts_at", { ascending: false })
+    if (error) throw error
+    const seasons = (data ?? []).flatMap((row) => typeof row.slug === "string" && typeof row.name === "string" ? [{ slug: row.slug, name: row.name }] : [])
+    return seasons.length > 0 ? seasons : [{ slug: "season-zero", name: "Season Zero" }]
+  } catch {
+    return [{ slug: "season-zero", name: "Season Zero" }]
   }
 }
 

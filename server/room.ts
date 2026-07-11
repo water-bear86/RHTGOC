@@ -35,6 +35,13 @@ interface ConnectedPlayer extends RoomPlayer {
   sabotageCount: number
 }
 
+export interface BandMembershipMutation {
+  bandId: string
+  actorUserId: string
+  memberUserId: string
+  heroRole: CharacterId
+}
+
 function maxArrows(characterId: CharacterId): number {
   return characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4
 }
@@ -83,6 +90,8 @@ export class Room {
   private readonly bannedReconnectTokens = new Set<string>()
   private missionId = randomUUID()
   private bandActorUserId: string | null = null
+  private readonly bandMemberRoles = new Map<string, "leader" | "member">()
+  private readonly pendingBandMembershipOffers = new Set<string>()
   private bandClaimedForMissionId: string | null = null
   private leaderboardClaimedForMissionId: string | null = null
   private lastRescueOfferSourceMissionId: string | null = null
@@ -105,6 +114,7 @@ export class Room {
     if (this.band && this.band.id !== record.state.id) return false
     this.band = { ...record.state, camp: { ...record.state.camp } }
     this.bandActorUserId = record.actorUserId
+    this.syncBandMembers(record)
     this.village = { ...record.village }
     return true
   }
@@ -112,6 +122,7 @@ export class Room {
   refreshPersistentBand(record: PersistentBandRecord): boolean {
     if (!this.band || this.band.id !== record.state.id) return false
     this.band = { ...record.state, camp: { ...record.state.camp } }
+    this.syncBandMembers(record)
     this.village = {
       granary: Math.max(this.village.granary, record.village.granary),
       infirmary: Math.max(this.village.infirmary, record.village.infirmary),
@@ -137,6 +148,8 @@ export class Room {
       loadoutId: "balanced",
       ready: false,
       connected: true,
+      bandRole: authUserId ? this.bandMemberRoles.get(authUserId) ?? null : null,
+      bandInvitePending: false,
       health: 3,
       arrows: maxArrows(characterId),
       loot: 0,
@@ -254,6 +267,60 @@ export class Room {
     player.ready = false
     this.broadcastRoomState()
     return true
+  }
+
+  offerBandMembership(actorPlayerId: string, targetPlayerId: string): boolean {
+    const actor = this.players.get(actorPlayerId)
+    const target = this.players.get(targetPlayerId)
+    if (!this.band || !actor?.connected || actor.bandRole !== "leader" || this.moderatorId() !== actorPlayerId || !target?.connected || !target.authUserId || target.bandRole || actorPlayerId === targetPlayerId) return false
+    this.pendingBandMembershipOffers.add(targetPlayerId)
+    target.bandInvitePending = true
+    this.broadcastRoomState()
+    return true
+  }
+
+  bandMembershipCandidate(playerId: string): BandMembershipMutation | null {
+    const player = this.players.get(playerId)
+    if (!this.band || !this.bandActorUserId || !player?.authUserId || !this.pendingBandMembershipOffers.has(playerId) || player.bandRole) return null
+    return { bandId: this.band.id, actorUserId: this.bandActorUserId, memberUserId: player.authUserId, heroRole: player.characterId }
+  }
+
+  declineBandMembership(playerId: string): boolean {
+    const player = this.players.get(playerId)
+    if (!player || !this.pendingBandMembershipOffers.delete(playerId)) return false
+    player.bandInvitePending = false
+    this.broadcastRoomState()
+    return true
+  }
+
+  acceptBandMembership(playerId: string, record: PersistentBandRecord): boolean {
+    const player = this.players.get(playerId)
+    if (!player || !this.pendingBandMembershipOffers.delete(playerId) || !this.refreshPersistentBand(record)) return false
+    player.bandInvitePending = false
+    this.broadcastRoomState()
+    return true
+  }
+
+  bandIdentityActor(playerId: string): { bandId: string; actorUserId: string } | null {
+    const player = this.players.get(playerId)
+    return this.band && player?.authUserId && player.bandRole === "leader" && this.moderatorId() === playerId
+      ? { bandId: this.band.id, actorUserId: player.authUserId }
+      : null
+  }
+
+  bandRemovalCandidate(actorPlayerId: string, targetPlayerId: string): { bandId: string; actorUserId: string; memberUserId: string } | null {
+    const actor = this.players.get(actorPlayerId)
+    const target = this.players.get(targetPlayerId)
+    return this.band && actor?.authUserId && actor.bandRole === "leader" && this.moderatorId() === actorPlayerId && target?.authUserId && target.bandRole === "member"
+      ? { bandId: this.band.id, actorUserId: actor.authUserId, memberUserId: target.authUserId }
+      : null
+  }
+
+  bandHeroRoleUpdate(playerId: string): { bandId: string; userId: string; heroRole: CharacterId } | null {
+    const player = this.players.get(playerId)
+    return this.band && player?.authUserId && player.bandRole
+      ? { bandId: this.band.id, userId: player.authUserId, heroRole: player.characterId }
+      : null
   }
 
   selectMission(playerId: string, missionSlug: string): boolean {
@@ -533,6 +600,8 @@ export class Room {
       loadoutId: player.loadoutId,
       ready: player.ready,
       connected: player.connected,
+      bandRole: player.bandRole,
+      bandInvitePending: player.bandInvitePending,
       health: player.health,
       arrows: player.arrows,
       loot: player.loot,
@@ -663,6 +732,12 @@ export class Room {
     return [...this.players.values()]
       .filter((player) => player.connected)
       .sort((a, b) => a.spawnIndex - b.spawnIndex)[0]?.id ?? null
+  }
+
+  private syncBandMembers(record: PersistentBandRecord): void {
+    this.bandMemberRoles.clear()
+    for (const member of record.members) this.bandMemberRoles.set(member.userId, member.membershipRole)
+    for (const player of this.players.values()) player.bandRole = player.authUserId ? this.bandMemberRoles.get(player.authUserId) ?? null : null
   }
 
   broadcastRoomState(now = Date.now()): void {

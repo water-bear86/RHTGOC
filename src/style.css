@@ -203,6 +203,14 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .hub-band div { display: flex; justify-content: space-between; gap: 10px; color: var(--gold); font-size: 8px; font-weight: 800; letter-spacing: .08em; }
 .hub-band p { margin: 6px 0 2px; color: var(--cream); font-size: 8px; }
 .hub-band small { color: #f7f0d47a; font-size: 8px; }
+.hub-band-controls { display: grid !important; grid-template-columns: minmax(0, 1fr) 82px auto; margin-top: 9px; }
+.hub-band-controls.hidden { display: none !important; }
+.hub-band-controls input, .hub-band-controls select, .hub-band-controls button { min-width: 0; padding: 7px 8px; color: var(--cream); background: #10251dcc; border: 1px solid #e4b6534a; font-size: 8px; }
+.hub-band-controls button { cursor: pointer; font-weight: 800; }
+.room-lobby li { display: flex; align-items: center; gap: 7px; }
+.room-lobby li > span { flex: 1; }
+.room-lobby li button { padding: 5px 7px; font-size: 7px; }
+.room-lobby li .band-member { color: var(--gold); font-size: 7px; font-weight: 800; letter-spacing: .08em; }
 .hub-panel > p { margin: 0 0 13px; color: #f7f0d48a; font-size: 10px; line-height: 1.5; }
 .hub-rotations { display: grid; gap: 7px; margin: 7px 0 5px; }
 .hub-season { margin: 0 0 14px; padding: 11px; background: linear-gradient(145deg, #294632, #172d22); border: 1px solid #e4b65369; }

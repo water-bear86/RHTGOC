@@ -862,6 +862,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_merry_band_member: {
+        Args: {
+          p_actor_user_id: string
+          p_band_id: string
+          p_hero_role: string
+          p_member_user_id: string
+        }
+        Returns: Json
+      }
       apply_band_mission_reward: {
         Args: {
           p_allocation_choice: string
@@ -974,6 +983,14 @@ export type Database = {
         }
         Returns: string
       }
+      remove_merry_band_member: {
+        Args: {
+          p_actor_user_id: string
+          p_band_id: string
+          p_member_user_id: string
+        }
+        Returns: Json
+      }
       register_social_profile: {
         Args: { p_display_name: string }
         Returns: {
@@ -1012,6 +1029,10 @@ export type Database = {
         Returns: string
       }
       send_friend_request: { Args: { p_friend_code: string }; Returns: boolean }
+      set_merry_band_hero_role: {
+        Args: { p_band_id: string; p_hero_role: string; p_user_id: string }
+        Returns: Json
+      }
       snapshot_leaderboard_season: {
         Args: { p_season_id: string }
         Returns: number
@@ -1019,6 +1040,15 @@ export type Database = {
       update_social_presence: {
         Args: { p_enabled: boolean; p_room_code?: string; p_status: string }
         Returns: boolean
+      }
+      update_merry_band_identity: {
+        Args: {
+          p_actor_user_id: string
+          p_band_id: string
+          p_banner_id: string
+          p_name: string
+        }
+        Returns: Json
       }
     }
     Enums: {

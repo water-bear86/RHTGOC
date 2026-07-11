@@ -10,9 +10,10 @@ function fakeSocket(): WebSocket {
 }
 
 const persistedBand: PersistentBandRecord = {
-  state: { id: "8c820e61-d711-4c0e-9020-789ea98d315a", name: "Oak Hearts", bannerId: "oak", camp: { hearth: 1, workbench: 0, stores: 0 }, progressionVersion: 1, missionCount: 0 },
+  state: { id: "8c820e61-d711-4c0e-9020-789ea98d315a", name: "Oak Hearts", bannerId: "oak", camp: { hearth: 1, workbench: 0, stores: 0 }, progressionVersion: 1, missionCount: 0, memberCount: 1 },
   village: { granary: 2, infirmary: 1, watchtower: 0 },
   actorUserId: "b9fd2fb4-2114-4e4f-aa40-619a0af652a3",
+  members: [{ userId: "b9fd2fb4-2114-4e4f-aa40-619a0af652a3", membershipRole: "leader", heroRole: "robin" }],
 }
 
 describe("Merry Band room", () => {
@@ -213,6 +214,29 @@ describe("Merry Band room", () => {
     expect(room.refreshPersistentBand({ ...persistedBand, state: { ...persistedBand.state, camp: { hearth: 1, workbench: 1, stores: 0 }, progressionVersion: 2, missionCount: 1 }, village: { granary: 3, infirmary: 1, watchtower: 0 } })).toBe(true)
     expect(room.band).toMatchObject({ missionCount: 1, progressionVersion: 2, camp: { workbench: 1 } })
     expect(room.village.granary).toBe(3)
+  })
+
+  it("requires a leader offer and explicit member consent before persistent membership", () => {
+    const room = new Room("BAND24", rotationWindowAt, () => null, persistedBand)
+    const leader = room.addPlayer(fakeSocket(), "Robin", "robin", persistedBand.actorUserId)
+    const memberUserId = "5f50e927-f18b-4a4e-a061-d39f87dd8374"
+    const marian = room.addPlayer(fakeSocket(), "Marian", "marian", memberUserId)
+    const guest = room.addPlayer(fakeSocket(), "Guest", "much")
+    expect(room.publicPlayer(leader).bandRole).toBe("leader")
+    expect(room.offerBandMembership(leader.id, guest.id)).toBe(false)
+    expect(room.offerBandMembership(marian.id, leader.id)).toBe(false)
+    expect(room.offerBandMembership(leader.id, marian.id)).toBe(true)
+    expect(room.publicPlayer(marian).bandInvitePending).toBe(true)
+    expect(room.bandMembershipCandidate(marian.id)).toEqual({ bandId: persistedBand.state.id, actorUserId: persistedBand.actorUserId, memberUserId, heroRole: "marian" })
+    const accepted: PersistentBandRecord = {
+      ...persistedBand,
+      state: { ...persistedBand.state, memberCount: 2 },
+      members: [...persistedBand.members, { userId: memberUserId, membershipRole: "member", heroRole: "marian" }],
+    }
+    expect(room.acceptBandMembership(marian.id, accepted)).toBe(true)
+    expect(room.publicPlayer(marian)).toMatchObject({ bandRole: "member", bandInvitePending: false })
+    expect(room.bandRemovalCandidate(leader.id, marian.id)).toEqual({ bandId: persistedBand.state.id, actorUserId: persistedBand.actorUserId, memberUserId })
+    expect(room.bandIdentityActor(leader.id)).toEqual({ bandId: persistedBand.state.id, actorUserId: persistedBand.actorUserId })
   })
 
   it("emits one authoritative seasonal outcome only after community allocation resolves", () => {

@@ -36,6 +36,10 @@ describe("Merry Band protocol", () => {
     expect(parseClientMessage({ type: "deposit_contribution", contributionType: "unlimited-gold" })).toBeNull()
     expect(parseClientMessage({ type: "toggle_contribution", contributionId: "8c02777e-2bb5-5afd-9f42-7a7b1ca4c622" })).not.toBeNull()
     expect(parseClientMessage({ type: "revoke_contribution", contributionId: "../../forged" })).toBeNull()
+    expect(parseClientMessage({ type: "offer_band_membership", targetPlayerId: "8c02777e-2bb5-5afd-9f42-7a7b1ca4c622" })).not.toBeNull()
+    expect(parseClientMessage({ type: "respond_band_membership", accept: true })).toEqual({ type: "respond_band_membership", accept: true })
+    expect(parseClientMessage({ type: "update_band_identity", name: "Green Bough", bannerId: "stag" })).not.toBeNull()
+    expect(parseClientMessage({ type: "update_band_identity", name: "<script>", bannerId: "freeform" })).toBeNull()
   })
 
   it("rejects malformed names, room codes, and movement", () => {

@@ -598,9 +598,77 @@ sockets.on("connection", (socket) => {
       send(socket, { type: "error", code: "FORBIDDEN", message: "That daily target expired or requires a different party size" })
     }
     if (message.type === "set_ready" && message.ready) telemetry.increment("players_ready_total")
-    if (message.type === "select_character" && !joinedRoom.selectCharacter(playerId, message.characterId)) {
-      send(socket, { type: "error", code: "ROLE_FULL", message: "That role is full — choose the other outlaw" })
-      joinedRoom.broadcastRoomState()
+    if (message.type === "select_character") {
+      if (!joinedRoom.selectCharacter(playerId, message.characterId)) {
+        send(socket, { type: "error", code: "ROLE_FULL", message: "That role is full — choose another outlaw" })
+        joinedRoom.broadcastRoomState()
+      } else {
+        const mutation = joinedRoom.bandHeroRoleUpdate(playerId)
+        if (mutation && bandStore) {
+          try {
+            joinedRoom.refreshPersistentBand(await bandStore.setHeroRole(mutation.bandId, mutation.userId, mutation.heroRole))
+            joinedRoom.broadcastRoomState()
+            telemetry.increment("band_hero_role_update_total")
+          } catch (error) {
+            telemetry.increment("band_hero_role_update_failure_total")
+            structuredLog("band_hero_role_update_failed", { traceId: roomTraces.get(joinedRoom.code) ?? null, reason: error instanceof Error ? error.message : "unknown" }, "error")
+          }
+        }
+      }
+    }
+    if (message.type === "offer_band_membership") {
+      if (!joinedRoom.offerBandMembership(playerId, message.targetPlayerId)) send(socket, { type: "error", code: "FORBIDDEN", message: "Only the band leader can offer an authenticated outlaw permanent membership" })
+      else telemetry.increment("band_membership_offers_total")
+    }
+    if (message.type === "respond_band_membership") {
+      if (!message.accept) {
+        if (!joinedRoom.declineBandMembership(playerId)) send(socket, { type: "error", code: "FORBIDDEN", message: "There is no active band offer to decline" })
+        else telemetry.increment("band_membership_declines_total")
+      } else {
+        const mutation = joinedRoom.bandMembershipCandidate(playerId)
+        if (!mutation || !bandStore) send(socket, { type: "error", code: "FORBIDDEN", message: bandStore ? "There is no active band offer to accept" : "Permanent Merry Bands are not available on this server" })
+        else {
+          try {
+            const record = await bandStore.addMember(mutation.bandId, mutation.actorUserId, mutation.memberUserId, mutation.heroRole)
+            if (!joinedRoom.acceptBandMembership(playerId, record)) throw new Error("BAND_OFFER_EXPIRED")
+            telemetry.increment("band_membership_accepts_total")
+          } catch (error) {
+            telemetry.increment("band_membership_accept_failure_total")
+            send(socket, { type: "error", code: "FORBIDDEN", message: "Permanent band membership could not be saved" })
+            structuredLog("band_membership_accept_failed", { traceId: roomTraces.get(joinedRoom.code) ?? null, reason: error instanceof Error ? error.message : "unknown" }, "error")
+          }
+        }
+      }
+    }
+    if (message.type === "update_band_identity") {
+      const actor = joinedRoom.bandIdentityActor(playerId)
+      if (!actor || !bandStore) send(socket, { type: "error", code: "FORBIDDEN", message: "Only the persistent band leader can change its name or banner" })
+      else {
+        try {
+          joinedRoom.refreshPersistentBand(await bandStore.updateIdentity(actor.bandId, actor.actorUserId, message.name, message.bannerId))
+          joinedRoom.broadcastRoomState()
+          telemetry.increment("band_identity_updates_total")
+        } catch (error) {
+          telemetry.increment("band_identity_update_failure_total")
+          send(socket, { type: "error", code: "FORBIDDEN", message: "The band name or banner could not be saved" })
+          structuredLog("band_identity_update_failed", { traceId: roomTraces.get(joinedRoom.code) ?? null, reason: error instanceof Error ? error.message : "unknown" }, "error")
+        }
+      }
+    }
+    if (message.type === "remove_band_member") {
+      const mutation = joinedRoom.bandRemovalCandidate(playerId, message.targetPlayerId)
+      if (!mutation || !bandStore) send(socket, { type: "error", code: "FORBIDDEN", message: "Only the band leader can remove an active member" })
+      else {
+        try {
+          joinedRoom.refreshPersistentBand(await bandStore.removeMember(mutation.bandId, mutation.actorUserId, mutation.memberUserId))
+          joinedRoom.broadcastRoomState()
+          telemetry.increment("band_membership_removals_total")
+        } catch (error) {
+          telemetry.increment("band_membership_remove_failure_total")
+          send(socket, { type: "error", code: "FORBIDDEN", message: "That band member could not be removed" })
+          structuredLog("band_membership_remove_failed", { traceId: roomTraces.get(joinedRoom.code) ?? null, reason: error instanceof Error ? error.message : "unknown" }, "error")
+        }
+      }
     }
     if (message.type === "select_mission" && !joinedRoom.selectMission(playerId, message.missionSlug)) {
       send(socket, { type: "error", code: "FORBIDDEN", message: "Only the band leader can choose an available mission" })
