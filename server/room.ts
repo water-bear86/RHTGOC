@@ -22,6 +22,13 @@ interface ConnectedPlayer extends RoomPlayer {
   transferCount: number
   lastPingTick: number
   totalTransferred: number
+  protectionScore: number
+  crowdControl: number
+  heavyCarryPeak: number
+}
+
+function maxArrows(characterId: CharacterId): number {
+  return characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4
 }
 
 const spawnPoints = [
@@ -62,7 +69,7 @@ export class Room {
       ready: false,
       connected: true,
       health: 3,
-      arrows: characterId === "robin" ? 6 : 4,
+      arrows: maxArrows(characterId),
       loot: 0,
       position: { ...position },
       lastInputSequence: 0,
@@ -81,6 +88,9 @@ export class Room {
       transferCount: 0,
       lastPingTick: -20,
       totalTransferred: 0,
+      protectionScore: 0,
+      crowdControl: 0,
+      heavyCarryPeak: 0,
     }
     this.players.set(player.id, player)
     return player
@@ -129,7 +139,7 @@ export class Room {
     if (!player || this.phase !== "lobby") return false
     if (!this.characterAvailable(characterId, playerId)) return false
     player.characterId = characterId
-    player.arrows = characterId === "robin" ? 6 : 4
+    player.arrows = maxArrows(characterId)
     player.ready = false
     this.broadcastRoomState()
     return true
@@ -223,6 +233,9 @@ export class Room {
       loot: player.loot,
       downedFor: player.downedFor,
       signatureCooldown: player.signatureCooldown,
+      protectionScore: player.protectionScore,
+      crowdControl: player.crowdControl,
+      heavyCarryPeak: player.heavyCarryPeak,
       position: player.position,
       lastInputSequence: player.lastInputSequence,
     }
@@ -248,7 +261,7 @@ export class Room {
     this.broadcast({
       type: "snapshot",
       tick: this.tick,
-      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown })),
+      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak })),
       mission: this.mission.snapshot(),
     })
   }

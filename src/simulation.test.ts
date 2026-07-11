@@ -53,6 +53,23 @@ describe("Sherwood simulation", () => {
     expect(signature.guardIds).toHaveLength(2)
   })
 
+  it("gives Little John readable crowd control and a heavy-carry advantage", () => {
+    const john = createInitialState("little-john")
+    john.player.position = { x: 9, z: -7 }
+    expect(john.player.arrows).toBe(3)
+    const signature = activateSignature(john)
+    expect(signature.event).toBe("little-john-sweep")
+    expect(signature.guardIds.length).toBeGreaterThanOrEqual(2)
+    expect(john.player.signatureCooldown).toBe(20)
+
+    const robin = createInitialState("robin")
+    john.player.loot = 300
+    robin.player.loot = 300
+    updateSimulation(john, { move: { x: 1, z: 0 } }, 1)
+    updateSimulation(robin, { move: { x: 1, z: 0 } }, 1)
+    expect(john.player.position.x).toBeGreaterThan(robin.player.position.x)
+  })
+
   it("scores speed, precision, survival, and generosity", () => {
     const state = createInitialState("marian")
     state.delivered = DELIVERY_TARGET

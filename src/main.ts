@@ -50,6 +50,7 @@ const helpButton = document.querySelector<HTMLButtonElement>("#help-button")!
 const helpPanel = document.querySelector<HTMLDivElement>("#help-panel")!
 const closeHelp = document.querySelector<HTMLButtonElement>("#close-help")!
 const signatureElement = document.querySelector<HTMLElement>("#signature")!
+const signatureKeyElement = document.querySelector<HTMLElement>(".signature-status i")!
 const leaderboardButton = document.querySelector<HTMLButtonElement>("#leaderboard-button")!
 const leaderboardPanel = document.querySelector<HTMLDivElement>("#leaderboard-panel")!
 const closeLeaderboard = document.querySelector<HTMLButtonElement>("#close-leaderboard")!
@@ -164,6 +165,7 @@ let lastPanelTrigger: HTMLElement | null = null
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
+const vanguardEffects: { ring: THREE.Mesh; age: number }[] = []
 interface RemoteView {
   view: THREE.Group
   fallback: THREE.Group
@@ -202,6 +204,17 @@ const palette = {
   red: 0x8d352b,
   green: 0x315f37,
   water: 0x5c8791,
+}
+
+const characterNames: Record<CharacterId, string> = {
+  robin: "Robin Hood",
+  marian: "Maid Marian",
+  "little-john": "Little John",
+  much: "Much",
+}
+
+function characterName(characterId: CharacterId): string {
+  return characterNames[characterId]
 }
 
 function material(color: number, roughness = 0.9): THREE.MeshStandardMaterial {
@@ -344,9 +357,10 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
   const character = new THREE.Group()
   const isRobin = role === "robin"
   const isMarian = role === "marian"
-  const isHero = isRobin || isMarian
-  const tunicColor = isRobin ? palette.green : isMarian ? 0x4d536f : palette.red
-  const tunic = mesh(new THREE.CylinderGeometry(0.38, 0.52, 1.35, 8), tunicColor)
+  const isLittleJohn = role === "little-john"
+  const isHero = role !== "guard"
+  const tunicColor = isRobin ? palette.green : isMarian ? 0x4d536f : isLittleJohn ? 0x76532f : role === "much" ? 0x665337 : palette.red
+  const tunic = mesh(new THREE.CylinderGeometry(isLittleJohn ? 0.48 : 0.38, isLittleJohn ? 0.62 : 0.52, isLittleJohn ? 1.52 : 1.35, 8), tunicColor)
   tunic.position.y = 1.08
   const belt = mesh(new THREE.CylinderGeometry(0.43, 0.43, 0.14, 8), 0x3e2a21)
   belt.position.y = 1.15
@@ -362,7 +376,7 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
   hat.position.y = 2.23
   hat.rotation.z = isHero ? -0.35 : 0
   character.add(tunic, belt, head, legLeft, legRight, hat)
-  if (isHero) {
+  if (isHero && !isLittleJohn) {
     const bow = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 5, 18, Math.PI * 1.45), material(0x7e512f))
     bow.position.set(-0.5, 1.15, 0)
     bow.rotation.set(Math.PI / 2, 0, Math.PI / 2)
@@ -373,6 +387,17 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
       mantle.rotation.x = 0.08
       character.add(mantle)
     }
+  } else if (isLittleJohn) {
+    const staff = mesh(new THREE.CylinderGeometry(0.055, 0.065, 2.9, 8), 0x654225)
+    staff.position.set(0.55, 1.25, 0)
+    staff.rotation.z = -0.16
+    const ironBand = mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.22, 8), 0x8b8f86)
+    ironBand.position.set(0.78, 2.66, 0)
+    ironBand.rotation.z = -0.16
+    const shoulder = mesh(new THREE.TorusGeometry(0.48, 0.075, 6, 18, Math.PI), 0x3e2a21)
+    shoulder.position.set(0, 1.64, 0)
+    shoulder.rotation.x = Math.PI / 2
+    character.add(staff, ironBand, shoulder)
   } else {
     const spear = mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.5, 5), 0x3c2c20)
     spear.position.set(0.48, 1.15, 0)
@@ -562,7 +587,8 @@ function refreshControlCopy(): void {
   helpMove.textContent = `${keyLabel(key.moveUp)} / ${keyLabel(key.moveLeft)} / ${keyLabel(key.moveDown)} / ${keyLabel(key.moveRight)}, controller stick, or mapped pointer movement`
   helpInteract.textContent = `${keyLabel(key.interact)} near the cart or village fire`
   helpFire.textContent = `${keyLabel(key.fire)} stuns the nearest guard in range`
-  helpSignature.textContent = `${keyLabel(key.signature)} uses Robin's Twin Shot or Marian's Veil`
+  helpSignature.textContent = `${keyLabel(key.signature)} uses Twin Shot, Marian's Veil, or Little John's Oak Sweep`
+  signatureKeyElement.textContent = keyLabel(key.signature)
   helpSignals.textContent = `${keyLabel(key.pingDanger)} / ${keyLabel(key.pingTarget)} / ${keyLabel(key.pingRoute)} / ${keyLabel(key.pingLoot)} / ${keyLabel(key.pingRegroup)} place symbol-coded signals`
   helpSupport.textContent = `${keyLabel(key.revive)} revives a nearby outlaw · ${keyLabel(key.transferLoot)} transfers up to 60 coin`
   introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE`
@@ -780,6 +806,9 @@ function showMissionEvent(event: MissionEvent): void {
     cart_robbed: "THE TAX CART IS OURS — RUN!",
     loot_delivered: "COIN RETURNED TO THE PEOPLE",
     guard_stunned: "Guard stunned",
+    crowd_controlled: "OAK SWEEP — ESCORT SCATTERED",
+    ally_protected: "VANGUARD PROTECTION",
+    heavy_carry: "HEAVY CARRY SECURED",
     player_hit: "The Sheriff strikes!",
     player_downed: "AN OUTLAW IS DOWN",
     player_revived: "OUTLAW RESCUED",
@@ -792,7 +821,10 @@ function showMissionEvent(event: MissionEvent): void {
     mission_succeeded: "SHERWOOD RISES",
     mission_failed: "THE BAND HAS FALLEN",
   }
-  const message = messages[event.type]
+  if (event.type === "signature_used" && event.detail === "little-john-sweep") showVanguardImpact(event.playerId)
+  const message = event.type === "signature_used" && event.detail === "little-john-sweep"
+    ? "OAK SWEEP — HOLD THE LINE"
+    : messages[event.type]
   if (message) showToast(message)
 }
 
@@ -821,7 +853,7 @@ function renderSafetyPanel(players: RoomPlayer[]): void {
     if (player.id === multiplayer.playerId) continue
     const item = document.createElement("li")
     const identity = document.createElement("span")
-    identity.textContent = `${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}`
+    identity.textContent = `${player.displayName} · ${characterName(player.characterId)}`
     const actions = document.createElement("div")
     actions.className = "safety-actions"
     const mute = document.createElement("button")
@@ -901,6 +933,14 @@ function renderMissionResolution(mission: MissionSnapshot): void {
     detail.textContent = `${value}/100`
     resultBreakdown.append(term, detail)
   }
+  const localPlayer = currentRoomPlayers.find((player) => player.id === multiplayer.playerId)
+  if (localPlayer?.characterId === "little-john") {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = "Vanguard impact"
+    detail.textContent = `${localPlayer.protectionScore} protection · ${localPlayer.crowdControl} controlled · ${localPlayer.heavyCarryPeak} max carry`
+    resultBreakdown.append(term, detail)
+  }
   communityAllocation.textContent = `${mission.result.communityCoin} crown coin is locked for the winning village project. Personal renown cannot reduce it.`
   for (const button of voteButtons) {
     const choice = button.dataset.vote as VoteChoice
@@ -952,7 +992,7 @@ function renderParty(players: RoomPlayer[]): void {
   for (const player of players) {
     const item = document.createElement("li")
     item.classList.toggle("ready", player.ready)
-    item.textContent = `${player.ready ? "✓" : "○"} ${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}${player.connected ? "" : " · reconnecting"}`
+    item.textContent = `${player.ready ? "✓" : "○"} ${player.displayName} · ${characterName(player.characterId)}${player.connected ? "" : " · reconnecting"}`
     partyList.append(item)
 
     const compact = document.createElement("li")
@@ -964,10 +1004,12 @@ function renderParty(players: RoomPlayer[]): void {
     presence.setAttribute("aria-label", player.connected ? "Connected" : "Reconnecting")
     const identity = document.createElement("span")
     identity.className = "identity"
-    identity.textContent = `${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}`
+    identity.textContent = `${player.displayName} · ${characterName(player.characterId)}`
     const vitality = document.createElement("b")
     vitality.className = "vitality"
-    vitality.textContent = player.downedFor > 0 ? `DOWN ${Math.ceil(player.downedFor)}s` : "♥".repeat(Math.max(0, player.health))
+    vitality.textContent = player.downedFor > 0
+      ? `DOWN ${Math.ceil(player.downedFor)}s`
+      : `${"♥".repeat(Math.max(0, player.health))}${player.characterId === "little-john" ? ` · 🛡${player.protectionScore} ⚒${player.crowdControl}` : ""}`
     compact.append(presence, identity, vitality)
     missionPartyList.append(compact)
   }
@@ -1101,6 +1143,21 @@ function fireArrow(): void {
   showToast("Guard stunned")
 }
 
+function showVanguardImpact(playerId?: string): void {
+  const source = playerId && playerId !== multiplayer.playerId
+    ? currentRoomPlayers.find((player) => player.id === playerId)?.position
+    : state.player.position
+  if (!source) return
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.8, 1.05, 36),
+    new THREE.MeshBasicMaterial({ color: 0xf0c86a, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }),
+  )
+  ring.position.set(source.x, 0.12, source.z)
+  ring.rotation.x = -Math.PI / 2
+  scene.add(ring)
+  vanguardEffects.push({ ring, age: 0 })
+}
+
 function useSignature(): void {
   if (multiplayerActive) {
     multiplayer.sendAction("signature")
@@ -1110,9 +1167,11 @@ function useSignature(): void {
   const messages: Record<string, string> = {
     "marian-veil": "MARIAN'S VEIL — PURSUIT BROKEN",
     "robin-volley": "TWIN SHOT — GUARDS PINNED",
+    "little-john-sweep": "OAK SWEEP — HOLD THE LINE",
     "volley-missed": "No guards in Twin Shot range",
     "signature-unavailable": `Signature ready in ${Math.ceil(state.player.signatureCooldown)}s`,
   }
+  if (result.event === "little-john-sweep") showVanguardImpact()
   showToast(messages[result.event] ?? result.event)
 }
 
@@ -1163,7 +1222,7 @@ async function openLeaderboard(): Promise<void> {
     const detail = document.createElement("span")
     const score = document.createElement("strong")
     name.textContent = `${entry.verified ? "◆ " : ""}${entry.playerName}`
-    detail.textContent = `${entry.characterId === "marian" ? "Maid Marian" : "Robin Hood"} · ${entry.grade} · ${entry.missionSeconds}s`
+    detail.textContent = `${characterName(entry.characterId)} · ${entry.grade} · ${entry.missionSeconds}s`
     score.textContent = kind === "peoples-champions"
       ? `${entry.generosity ?? 0}%`
       : kind === "clean-escapes"
@@ -1222,7 +1281,7 @@ function showEnding(won: boolean): void {
   title.innerHTML = won ? "Sherwood<br /><em>rises.</em>" : "The rebellion<br /><em>needs another try.</em>"
   copy.textContent = won
     ? `${state.delivered} crown coin reached the people. Mastery grade ${mastery.grade} · ${mastery.score.toLocaleString()} points · ${Math.round(state.stats.elapsedSeconds)} seconds.`
-    : `The guards caught ${state.player.characterId === "marian" ? "Marian" : "Robin"}. Grade ${mastery.grade} · ${mastery.score.toLocaleString()} points. Change your route and time your signature.`
+    : `The guards caught ${characterName(state.player.characterId)}. Grade ${mastery.grade} · ${mastery.score.toLocaleString()} points. Change your route and time your signature.`
   startButton.innerHTML = "PLAY AGAIN <span>→</span>"
   small.textContent = "RESTART THE 3D PROTOTYPE"
   intro.classList.remove("closed")
@@ -1321,6 +1380,19 @@ function syncViews(elapsed: number, dt: number): void {
       arrowEffects.splice(i, 1)
     }
   }
+  for (let index = vanguardEffects.length - 1; index >= 0; index -= 1) {
+    const effect = vanguardEffects[index]
+    effect.age += dt
+    const progress = Math.min(1, effect.age / 0.55)
+    effect.ring.scale.setScalar(1 + progress * 5 * Math.max(0.25, renderProfile.motionScale))
+    ;(effect.ring.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - progress)
+    if (progress >= 1) {
+      scene.remove(effect.ring)
+      effect.ring.geometry.dispose()
+      ;(effect.ring.material as THREE.Material).dispose()
+      vanguardEffects.splice(index, 1)
+    }
+  }
 }
 
 function animate(): void {
@@ -1361,8 +1433,10 @@ function animate(): void {
 function predictMultiplayerMovement(move: Vec2, dt: number): void {
   const length = Math.hypot(move.x, move.z)
   if (length <= 0.001 || state.player.health <= 0 || localDownedFor > 0) return
-  const speed = state.player.characterId === "marian" ? 6.75 : 6.2
-  const lootPenalty = Math.max(0.68, 1 - state.player.loot / 600)
+  const speed = state.player.characterId === "marian" ? 6.75 : state.player.characterId === "little-john" ? 5.9 : 6.2
+  const lootPenalty = state.player.characterId === "little-john"
+    ? Math.max(0.82, 1 - state.player.loot / 1_100)
+    : Math.max(0.68, 1 - state.player.loot / 600)
   state.player.position.x = Math.max(-22, Math.min(22, state.player.position.x + (move.x / length) * speed * lootPenalty * dt))
   state.player.position.z = Math.max(-22, Math.min(22, state.player.position.z + (move.z / length) * speed * lootPenalty * dt))
 }
@@ -1422,7 +1496,8 @@ readyButton.addEventListener("click", () => multiplayer.setReady(!localReady))
 characterButtons.forEach((button) => {
   button.addEventListener("click", () => {
     if (running) return
-    selectLocalCharacter(button.dataset.character === "marian" ? "marian" : "robin", true)
+    const characterId = button.dataset.character
+    if (characterId === "robin" || characterId === "marian" || characterId === "little-john" || characterId === "much") selectLocalCharacter(characterId, true)
   })
 })
 

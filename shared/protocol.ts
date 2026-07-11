@@ -1,10 +1,10 @@
 import { z } from "zod"
 
-export const PROTOCOL_VERSION = 3 as const
+export const PROTOCOL_VERSION = 4 as const
 export const MAX_ROOM_PLAYERS = 4
 export const RECONNECT_GRACE_MS = 30_000
 
-export const CharacterIdSchema = z.enum(["robin", "marian"])
+export const CharacterIdSchema = z.enum(["robin", "marian", "little-john", "much"])
 export type CharacterId = z.infer<typeof CharacterIdSchema>
 
 const DisplayNameSchema = z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9 _-]+$/)
@@ -66,6 +66,9 @@ export interface RoomPlayer {
   loot: number
   downedFor: number
   signatureCooldown: number
+  protectionScore: number
+  crowdControl: number
+  heavyCarryPeak: number
   position: { x: number; z: number }
   lastInputSequence: number
 }
@@ -79,7 +82,7 @@ export interface MissionGuard {
 export interface MissionEvent {
   sequence: number
   tick: number
-  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "guard_stunned" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
+  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
   playerId?: string
   value?: number
   detail?: string
@@ -156,7 +159,7 @@ export interface VillageState {
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
   | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; players: RoomPlayer[] }
-  | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown">>; mission: MissionSnapshot }
+  | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string }
 

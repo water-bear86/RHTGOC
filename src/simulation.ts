@@ -1,6 +1,6 @@
 export interface Vec2 { x: number; z: number }
 
-export type CharacterId = "robin" | "marian"
+export type CharacterId = "robin" | "marian" | "little-john" | "much"
 
 export interface MissionStats {
   elapsedSeconds: number
@@ -54,7 +54,7 @@ export const DELIVERY_TARGET = 300
 const distance = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z)
 
 export function getMaxArrows(characterId: CharacterId): number {
-  return characterId === "robin" ? 6 : 4
+  return characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4
 }
 
 export function createInitialState(characterId: CharacterId = "robin"): GameState {
@@ -113,8 +113,11 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
 
   const moveLength = Math.hypot(input.move.x, input.move.z)
   if (moveLength > 0.001) {
-    const speed = player.characterId === "marian" ? 6.75 : 6.2
-    const movement = speed * dt
+    const speed = player.characterId === "marian" ? 6.75 : player.characterId === "little-john" ? 5.9 : 6.2
+    const lootPenalty = player.characterId === "little-john"
+      ? Math.max(0.82, 1 - player.loot / 1_100)
+      : Math.max(0.68, 1 - player.loot / 600)
+    const movement = speed * lootPenalty * dt
     player.position.x += (input.move.x / moveLength) * movement
     player.position.z += (input.move.z / moveLength) * movement
     state.stats.distanceTravelled += movement
@@ -232,6 +235,20 @@ export function activateSignature(state: GameState): { event: string; guardIds: 
     player.veilFor = 6
     state.heat = Math.max(0, state.heat - 28)
     return { event: "marian-veil", guardIds: [] }
+  }
+
+  if (player.characterId === "little-john") {
+    const targets = state.guards
+      .map((guard) => ({ guard, range: distance(guard.position, player.position) }))
+      .filter(({ guard, range }) => guard.stunnedFor <= 0 && range < 6)
+    if (targets.length === 0) {
+      player.signatureCooldown = 0
+      state.stats.signatureUses -= 1
+      return { event: "signature-unavailable", guardIds: [] }
+    }
+    for (const { guard } of targets) guard.stunnedFor = 5
+    player.signatureCooldown = 20
+    return { event: "little-john-sweep", guardIds: targets.map(({ guard }) => guard.id) }
   }
 
   const targets = state.guards

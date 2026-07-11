@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest"
 import type { MissionPlayer } from "./mission"
 import { Mission, missionSeed } from "./mission"
+import type { CharacterId } from "../shared/protocol"
 
-function player(id = "robin", characterId: "robin" | "marian" = "robin"): MissionPlayer {
+function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer {
   return {
     id,
     characterId,
     connected: true,
     position: { x: -8, z: 7 },
     health: 3,
-    arrows: characterId === "robin" ? 6 : 4,
+    arrows: characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4,
     loot: 0,
     input: { x: 0, z: 0 },
     lastInputSequence: 0,
@@ -24,6 +25,9 @@ function player(id = "robin", characterId: "robin" | "marian" = "robin"): Missio
     transferCount: 0,
     lastPingTick: -20,
     totalTransferred: 0,
+    protectionScore: 0,
+    crowdControl: 0,
+    heavyCarryPeak: 0,
   }
 }
 
@@ -103,6 +107,44 @@ describe("authoritative mission", () => {
     expect(marian.health).toBe(1)
     expect(marian.downedFor).toBe(0)
     expect(mission.snapshot().supportScore).toBe(450)
+  })
+
+  it("validates Little John's crowd-control signature and cooldown on the server", () => {
+    const john = player("john", "little-john")
+    const marian = player("marian", "marian")
+    john.position = { x: 9, z: -7 }
+    marian.position = { ...john.position }
+    const mission = new Mission("ABC234", new Map([[john.id, john], [marian.id, marian]]))
+    expect(mission.action(john.id, "signature")).toBe(true)
+    expect(mission.action(john.id, "signature")).toBe(false)
+    expect(john.signatureCooldown).toBe(20)
+    expect(john.crowdControl).toBeGreaterThanOrEqual(2)
+    expect(john.protectionScore).toBe(100)
+    expect(marian.invulnerableFor).toBe(3.5)
+    expect(mission.events.some((event) => event.type === "crowd_controlled" && event.detail === "little-john-sweep")).toBe(true)
+  })
+
+  it("gives the Vanguard a stronger revive and lower heavy-loot slowdown", () => {
+    const john = player("john", "little-john")
+    const robin = player("robin", "robin")
+    const downed = player("downed", "marian")
+    downed.health = 0
+    downed.downedFor = 10
+    downed.position = { ...john.position }
+    const mission = new Mission("ABC234", new Map([[john.id, john], [robin.id, robin], [downed.id, downed]]))
+    expect(mission.action(john.id, "revive", downed.id)).toBe(true)
+    expect(downed.health).toBe(2)
+    expect(downed.invulnerableFor).toBe(4.5)
+    expect(john.protectionScore).toBe(250)
+
+    john.loot = 300
+    robin.loot = 300
+    const johnBefore = john.position.x
+    const robinBefore = robin.position.x
+    mission.setInput(john.id, 1, { x: 1, z: 0 }, 100)
+    mission.setInput(robin.id, 1, { x: 1, z: 0 }, 100)
+    mission.update(1)
+    expect(john.position.x - johnBefore).toBeGreaterThan(robin.position.x - robinBefore)
   })
 
   it("rate-limits contextual pings and expires them deterministically", () => {

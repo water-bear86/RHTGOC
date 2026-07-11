@@ -23,6 +23,13 @@ describe("Merry Band room", () => {
     expect(room.selectCharacter(marian.id, "robin")).toBe(false)
   })
 
+  it("synchronizes Little John selection and Vanguard resources before readiness", () => {
+    const room = new Room("ABC234")
+    const player = room.addPlayer(fakeSocket(), "John", "robin")
+    expect(room.selectCharacter(player.id, "little-john")).toBe(true)
+    expect(room.publicPlayer(player)).toMatchObject({ characterId: "little-john", arrows: 3, ready: false, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0 })
+  })
+
   it("keeps deterministic, collision-free spawns when a slot is pruned", () => {
     const room = new Room("ABC234")
     const first = room.addPlayer(fakeSocket(), "First", "robin")

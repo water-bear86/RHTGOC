@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { createClient } from "@supabase/supabase-js"
 import type { MissionResult } from "../shared/protocol"
+import type { CharacterId } from "../shared/protocol"
 import type { RpcClient } from "./band-store"
 
 export interface VerifiedRun {
@@ -9,7 +10,7 @@ export interface VerifiedRun {
   authUserId?: string
   bandId?: string
   playerName: string
-  characterId: "robin" | "marian"
+  characterId: CharacterId
   partySize: number
   missionSeconds: number
   delivered: number

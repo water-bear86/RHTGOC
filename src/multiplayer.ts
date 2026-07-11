@@ -4,7 +4,7 @@ import type { Vec2 } from "./simulation"
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
   onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[]) => void
-  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown">>, mission: MissionSnapshot) => void
+  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak">>, mission: MissionSnapshot) => void
   onError?: (message: string) => void
   onConnection?: (connected: boolean) => void
 }

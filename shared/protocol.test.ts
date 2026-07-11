@@ -11,6 +11,12 @@ describe("Merry Band protocol", () => {
     })
   })
 
+  it("accepts the four authored outlaw roles", () => {
+    for (const characterId of ["robin", "marian", "little-john", "much"]) {
+      expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "Oakheart", characterId })).not.toBeNull()
+    }
+  })
+
   it("rejects malformed names, room codes, and movement", () => {
     expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "<script>", characterId: "robin" })).toBeNull()
     expect(parseClientMessage({ type: "join_room", version: PROTOCOL_VERSION, roomCode: "abc", displayName: "Robin", characterId: "robin" })).toBeNull()

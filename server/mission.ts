@@ -21,6 +21,9 @@ export interface MissionPlayer {
   transferCount: number
   lastPingTick: number
   totalTransferred: number
+  protectionScore: number
+  crowdControl: number
+  heavyCarryPeak: number
 }
 
 interface MissionGuardState {
@@ -206,8 +209,10 @@ export class Mission {
       if (!player.connected || player.health <= 0 || player.captured) continue
       const moveLength = Math.hypot(player.input.x, player.input.z)
       if (moveLength > 0.001) {
-        const roleSpeed = player.characterId === "marian" ? 6.75 : 6.2
-        const lootPenalty = Math.max(0.68, 1 - player.loot / 600)
+        const roleSpeed = player.characterId === "marian" ? 6.75 : player.characterId === "little-john" ? 5.9 : 6.2
+        const lootPenalty = player.characterId === "little-john"
+          ? Math.max(0.82, 1 - player.loot / 1_100)
+          : Math.max(0.68, 1 - player.loot / 600)
         const movement = roleSpeed * lootPenalty * dt
         player.position.x = Math.max(-22, Math.min(22, player.position.x + (player.input.x / moveLength) * movement))
         player.position.z = Math.max(-22, Math.min(22, player.position.z + (player.input.z / moveLength) * movement))
@@ -243,7 +248,7 @@ export class Mission {
       cartCoin: this.cartCoin,
       delivered: this.delivered,
       target: this.deliveryTarget,
-      supportScore: [...this.players.values()].reduce((total, player) => total + player.rescueCount * 350 + player.transferCount * 100, 0),
+      supportScore: [...this.players.values()].reduce((total, player) => total + player.rescueCount * 350 + player.transferCount * 100 + player.protectionScore + player.crowdControl * 75, 0),
       guards: this.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, stunnedFor: guard.stunnedFor })),
       pings: this.pings.map((ping) => ({ ...ping, position: { ...ping.position } })),
       latestEvent: this.events.at(-1) ?? null,
@@ -265,6 +270,10 @@ export class Mission {
       if (this.phase !== "robbery" || this.cartCoin === 0) return false
       const stolen = this.cartCoin
       player.loot += stolen
+      if (player.characterId === "little-john") {
+        player.heavyCarryPeak = Math.max(player.heavyCarryPeak, player.loot)
+        this.record("heavy_carry", player.id, player.heavyCarryPeak)
+      }
       this.cartCoin = 0
       this.cartRefill = 28
       this.heat = 100
@@ -276,7 +285,7 @@ export class Mission {
     this.setPhase("extraction", player.id)
     const delivered = player.loot
     player.loot = 0
-    player.arrows = player.characterId === "robin" ? 6 : 4
+    player.arrows = player.characterId === "robin" ? 6 : player.characterId === "little-john" ? 3 : 4
     this.delivered += delivered
     this.heat = Math.max(0, this.heat - 45)
     this.record("loot_delivered", player.id, delivered)
@@ -326,6 +335,20 @@ export class Mission {
     if (player.characterId === "marian") {
       player.veilFor = 5
       this.heat = Math.max(0, this.heat - 30)
+    } else if (player.characterId === "little-john") {
+      const targets = this.guards.filter((guard) => guard.stunnedFor <= 0 && distance(guard.position, player.position) < 6)
+      const allies = [...this.players.values()].filter((candidate) => candidate.id !== player.id && candidate.connected && !candidate.captured && distance(candidate.position, player.position) < 6)
+      if (targets.length === 0 && allies.length === 0) return false
+      for (const target of targets) target.stunnedFor = 5
+      for (const ally of allies) ally.invulnerableFor = Math.max(ally.invulnerableFor, 3.5)
+      player.crowdControl += targets.length
+      player.protectionScore += allies.length * 100
+      if (targets.length > 0) this.record("crowd_controlled", player.id, targets.length, "little-john-sweep")
+      if (allies.length > 0) this.record("ally_protected", player.id, allies.length, "little-john-sweep")
+      if (this.phase === "ambush") {
+        this.ambushStuns += targets.length
+        if (this.ambushStuns >= this.ambushTarget) this.setPhase("robbery", player.id)
+      }
     } else {
       const targets = this.guards
         .filter((guard) => distance(guard.position, player.position) < 11)
@@ -338,17 +361,21 @@ export class Mission {
         if (this.ambushStuns >= this.ambushTarget) this.setPhase("robbery", player.id)
       }
     }
-    player.signatureCooldown = 18
-    this.record("signature_used", player.id)
+    player.signatureCooldown = player.characterId === "little-john" ? 20 : 18
+    this.record("signature_used", player.id, undefined, player.characterId === "little-john" ? "little-john-sweep" : player.characterId)
     return true
   }
 
   private revive(player: MissionPlayer, target: MissionPlayer): boolean {
     if (target.downedFor <= 0 || target.captured) return false
-    target.health = 1
+    target.health = player.characterId === "little-john" ? 2 : 1
     target.downedFor = 0
-    target.invulnerableFor = 2.5
+    target.invulnerableFor = player.characterId === "little-john" ? 4.5 : 2.5
     player.rescueCount += 1
+    if (player.characterId === "little-john") {
+      player.protectionScore += 250
+      this.record("ally_protected", player.id, 250, "vanguard-revive")
+    }
     this.record("player_revived", player.id, player.rescueCount)
     return true
   }
