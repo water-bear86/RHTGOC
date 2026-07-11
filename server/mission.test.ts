@@ -152,6 +152,32 @@ describe("authoritative mission", () => {
     expect(target.health).toBe(2)
   })
 
+  it("materializes bounded band preparations and consumes only authoritative interactions", () => {
+    const robin = player()
+    robin.arrows = 1
+    const mission = new Mission("PREP28", new Map([[robin.id, robin]]), undefined, {
+      preparations: [
+        { id: "b13b1ec9-a85b-4d0b-8eef-0fefc9413f50", type: "supplies", contributorLabel: "Oakheart" },
+        { id: "6ad54b67-0cc6-46ac-b67a-b09b315cb8ad", type: "intelligence", contributorLabel: "Marian" },
+        { id: "d6c08d84-1795-4ac3-98c3-d5da9f02ed42", type: "snare-kit", contributorLabel: "Much" },
+        { id: "ff5f45d4-02a1-43c2-a922-f5ddcf2adca8", type: "safe-house", contributorLabel: "John" },
+      ],
+    })
+    const initial = mission.snapshot()
+    expect(initial.preparations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "supplies", status: "active" }),
+      expect.objectContaining({ type: "intelligence", status: "consumed" }),
+      expect.objectContaining({ type: "snare-kit", status: "consumed" }),
+      expect.objectContaining({ type: "safe-house", status: "active" }),
+    ]))
+    expect(initial.traps.some((trap) => trap.ownerId === "contribution:d6c08d84-1795-4ac3-98c3-d5da9f02ed42")).toBe(true)
+    expect(mission.events.filter((event) => event.type === "contribution_consumed")).toHaveLength(2)
+    expect(mission.action(robin.id, "interact")).toBe(true)
+    expect(robin.arrows).toBe(6)
+    expect(mission.snapshot().preparations.find((preparation) => preparation.type === "supplies")?.status).toBe("consumed")
+    expect(mission.action(robin.id, "interact")).toBe(false)
+  })
+
   it("validates Little John's crowd-control signature and cooldown on the server", () => {
     const john = player("john", "little-john")
     const marian = player("marian", "marian")

@@ -1,4 +1,7 @@
 import { WebSocket } from "ws"
+import { readFileSync } from "node:fs"
+
+const { version: protocolVersion } = JSON.parse(readFileSync(new URL("../shared/protocol-version.json", import.meta.url), "utf8"))
 
 const endpoint = process.env.ROOM_SERVER_URL ?? "ws://127.0.0.1:8787/rooms"
 
@@ -35,7 +38,7 @@ const invalid = await invalidResponse
 if (invalid.code !== "INVALID_MESSAGE") throw new Error(`Unexpected invalid-message response: ${JSON.stringify(invalid)}`)
 
 const welcomeResponse = waitForMessage(original, (message) => message.type === "welcome")
-original.send(JSON.stringify({ type: "create_room", version: 4, displayName: "Failure Robin", characterId: "robin" }))
+original.send(JSON.stringify({ type: "create_room", version: protocolVersion, displayName: "Failure Robin", characterId: "robin" }))
 const welcome = await welcomeResponse
 original.terminate()
 await new Promise((resolve) => setTimeout(resolve, 150))
@@ -44,7 +47,7 @@ const reconnected = await connect()
 const reconnectResponse = waitForMessage(reconnected, (message) => message.type === "welcome")
 reconnected.send(JSON.stringify({
   type: "join_room",
-  version: 4,
+  version: protocolVersion,
   roomCode: welcome.roomCode,
   displayName: "Failure Robin",
   characterId: "robin",

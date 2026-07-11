@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
-import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type CharacterId, type LastMissionResult, type LoadoutId, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
+import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
 import { Mission } from "./mission"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import { isRotationActive, rotationWindowAt, type SheriffRotationWindow } from "../shared/sheriff-rotation"
@@ -51,6 +51,12 @@ export interface RescueOfferTransition {
   offer: RescueOffer
 }
 
+export interface ContributionTransition {
+  sequence: number
+  at: number
+  contribution: BandContribution
+}
+
 export class Room {
   readonly code: string
   readonly players = new Map<string, ConnectedPlayer>()
@@ -62,6 +68,9 @@ export class Room {
   selectedRescueOfferId: string | null = null
   rescueOffer: RescueOffer | null = null
   readonly rescueOfferEvents: RescueOfferTransition[] = []
+  readonly contributions = new Map<string, BandContribution>()
+  readonly selectedContributionIds = new Set<string>()
+  readonly contributionEvents: ContributionTransition[] = []
   rotationAttemptCount = 0
   village: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
   lastResult: LastMissionResult | null = null
@@ -71,6 +80,8 @@ export class Room {
   private leaderboardPersistence: "idle" | "pending" | "done" = "idle"
   private lastRescueOfferSourceMissionId: string | null = null
   private rescueEventSequence = 0
+  private contributionEventSequence = 0
+  private preparationsResolvedForMissionId: string | null = null
 
   constructor(code: string, private readonly getRotationWindow: (now: number) => SheriffRotationWindow = rotationWindowAt) {
     this.code = code
@@ -170,12 +181,24 @@ export class Room {
         this.broadcastRoomState(now)
         return false
       }
+      this.expireContributions(now)
+      const preparations = [...this.selectedContributionIds]
+        .map((id) => this.contributions.get(id))
+        .filter((contribution): contribution is BandContribution => Boolean(contribution && contribution.status === "available" && now < contribution.expiresAt))
+      this.selectedContributionIds.clear()
+      for (const contribution of preparations) {
+        contribution.status = "locked"
+        contribution.missionId = this.missionId
+        this.selectedContributionIds.add(contribution.id)
+        this.recordContributionTransition(contribution, now)
+      }
       this.phase = "mission"
       const definition = getMissionDefinition(this.missionSlug)
       for (const player of this.players.values()) player.position = { ...definition.spawns.players[player.spawnIndex] }
       this.mission ??= new Mission(this.code, this.players, definition, {
         rotation,
         rescueOffer: rescueOffer ? { id: rescueOffer.id, sourceMissionId: rescueOffer.sourceMissionId } : null,
+        preparations: preparations.map(({ id, type, contributorLabel }) => ({ id, type, contributorLabel })),
       })
       this.mission.village = { ...this.village }
       if (rotation) this.rotationAttemptCount += 1
@@ -252,6 +275,66 @@ export class Room {
     return true
   }
 
+  depositContribution(playerId: string, type: ContributionType, now = Date.now()): BandContribution | null {
+    const player = this.players.get(playerId)
+    if (!player?.connected || this.phase !== "lobby") return null
+    const expired = this.expireContributions(now)
+    const available = [...this.contributions.values()].filter((contribution) => contribution.status === "available")
+    if (available.length >= 6 || available.filter((contribution) => contribution.type === type).length >= 2 || available.filter((contribution) => contribution.contributorPlayerId === playerId).length >= 2) {
+      if (expired) this.broadcastRoomState(now)
+      return null
+    }
+    this.pruneContributionHistory()
+    const contribution: BandContribution = {
+      id: randomUUID(),
+      type,
+      contributorPlayerId: playerId,
+      contributorLabel: player.displayName,
+      createdAt: now,
+      expiresAt: now + 24 * 60 * 60_000,
+      status: "available",
+      missionId: null,
+      resolvedAt: null,
+    }
+    this.contributions.set(contribution.id, contribution)
+    this.recordContributionTransition(contribution, now)
+    this.broadcastRoomState(now)
+    return contribution
+  }
+
+  toggleContribution(playerId: string, contributionId: string, now = Date.now()): boolean {
+    if (this.phase !== "lobby" || this.moderatorId() !== playerId) return false
+    const expired = this.expireContributions(now)
+    const contribution = this.contributions.get(contributionId)
+    if (!contribution || contribution.status !== "available") {
+      if (expired) this.broadcastRoomState(now)
+      return false
+    }
+    if (this.selectedContributionIds.has(contributionId)) this.selectedContributionIds.delete(contributionId)
+    else {
+      if (this.selectedContributionIds.size >= 3) return false
+      this.selectedContributionIds.add(contributionId)
+    }
+    this.broadcastRoomState(now)
+    return true
+  }
+
+  revokeContribution(playerId: string, contributionId: string, now = Date.now()): boolean {
+    if (this.phase !== "lobby") return false
+    const expired = this.expireContributions(now)
+    const contribution = this.contributions.get(contributionId)
+    if (!contribution || contribution.contributorPlayerId !== playerId || contribution.status !== "available") {
+      if (expired) this.broadcastRoomState(now)
+      return false
+    }
+    contribution.status = "revoked"
+    contribution.resolvedAt = now
+    this.selectedContributionIds.delete(contributionId)
+    this.recordContributionTransition(contribution, now)
+    this.broadcastRoomState(now)
+    return true
+  }
+
   selectLoadout(playerId: string, loadoutId: LoadoutId): boolean {
     const player = this.players.get(playerId)
     if (!player || this.phase !== "lobby") return false
@@ -261,8 +344,9 @@ export class Room {
     return true
   }
 
-  returnToHub(playerId: string): boolean {
+  returnToHub(playerId: string, now = Date.now()): boolean {
     if (!this.mission || this.moderatorId() !== playerId || this.mission.status === "active" || (this.mission.status === "succeeded" && !this.mission.vote?.resolved)) return false
+    this.resolveMissionContributions(now, false)
     if (this.mission.status === "succeeded") this.village = { ...this.mission.village }
     this.lastResult = this.mission.result ? {
       score: this.mission.result.score,
@@ -275,7 +359,9 @@ export class Room {
     this.mission = null
     this.selectedRotationId = null
     this.selectedRescueOfferId = null
+    this.selectedContributionIds.clear()
     this.missionId = randomUUID()
+    this.preparationsResolvedForMissionId = null
     this.leaderboardPersistence = "idle"
     for (const player of this.players.values()) this.resetPlayerForHub(player)
     this.broadcastRoomState()
@@ -366,15 +452,24 @@ export class Room {
   update(dt: number, now = Date.now()): void {
     this.pruneDisconnected(now)
     this.expireRescueOffer(now)
-    if (!this.mission) return
+    const contributionsExpired = this.expireContributions(now)
+    if (!this.mission) {
+      if (contributionsExpired) this.broadcastRoomState(now)
+      return
+    }
     this.mission.update(dt)
     this.tick = this.mission.tick
     if (this.mission.status === "failed" && !this.mission.rescueOfferId) this.ensureRescueOffer(now)
     if (this.mission.status !== "active" && this.mission.rescueOfferId) this.resolveRescueOffer(now)
+    if (this.mission.status !== "active") this.resolveMissionContributions(now)
   }
 
   drainRescueOfferEvents(): RescueOfferTransition[] {
     return this.rescueOfferEvents.splice(0, this.rescueOfferEvents.length)
+  }
+
+  drainContributionEvents(): ContributionTransition[] {
+    return this.contributionEvents.splice(0, this.contributionEvents.length)
   }
 
   publicPlayer(player: ConnectedPlayer): RoomPlayer {
@@ -472,6 +567,45 @@ export class Room {
     this.rescueOfferEvents.push({ sequence: ++this.rescueEventSequence, at, offer: { ...this.rescueOffer } })
   }
 
+  private expireContributions(now: number): boolean {
+    let changed = false
+    for (const contribution of this.contributions.values()) {
+      if (contribution.status !== "available" || now < contribution.expiresAt) continue
+      contribution.status = "expired"
+      contribution.resolvedAt = now
+      this.selectedContributionIds.delete(contribution.id)
+      this.recordContributionTransition(contribution, now)
+      changed = true
+    }
+    return changed
+  }
+
+  private resolveMissionContributions(now: number, broadcast = true): void {
+    if (!this.mission || this.preparationsResolvedForMissionId === this.missionId) return
+    for (const contribution of this.contributions.values()) {
+      if (contribution.status !== "locked" || contribution.missionId !== this.missionId) continue
+      const preparation = this.mission.preparations.find((candidate) => candidate.id === contribution.id)
+      contribution.status = preparation?.status === "consumed" ? "consumed" : "refunded"
+      contribution.resolvedAt = now
+      this.recordContributionTransition(contribution, now)
+    }
+    this.selectedContributionIds.clear()
+    this.preparationsResolvedForMissionId = this.missionId
+    if (broadcast) this.broadcastRoomState(now)
+  }
+
+  private recordContributionTransition(contribution: BandContribution, at: number): void {
+    this.contributionEvents.push({ sequence: ++this.contributionEventSequence, at, contribution: { ...contribution } })
+  }
+
+  private pruneContributionHistory(): void {
+    const stale = [...this.contributions.values()]
+      .filter((contribution) => contribution.status !== "available" && contribution.status !== "locked")
+      .sort((left, right) => (right.resolvedAt ?? right.createdAt) - (left.resolvedAt ?? left.createdAt))
+      .slice(12)
+    for (const contribution of stale) this.contributions.delete(contribution.id)
+  }
+
   private moderatorId(): string | null {
     return [...this.players.values()]
       .filter((player) => player.connected)
@@ -490,6 +624,10 @@ export class Room {
       rotations: rotationWindow.current,
       upcomingRotations: rotationWindow.upcoming,
       rescueOffer: this.rescueOffer ? { ...this.rescueOffer } : null,
+      contributions: [...this.contributions.values()]
+        .sort((left, right) => right.createdAt - left.createdAt)
+        .map((contribution) => ({ ...contribution })),
+      selectedContributionIds: [...this.selectedContributionIds],
       players: [...this.players.values()].map((player) => this.publicPlayer(player)),
       village: { ...this.village },
       lastResult: this.lastResult ? { ...this.lastResult } : null,

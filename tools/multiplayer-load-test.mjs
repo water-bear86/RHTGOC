@@ -1,4 +1,7 @@
 import { WebSocket } from "ws"
+import { readFileSync } from "node:fs"
+
+const { version: protocolVersion } = JSON.parse(readFileSync(new URL("../shared/protocol-version.json", import.meta.url), "utf8"))
 
 const endpoint = process.env.ROOM_SERVER_URL ?? "ws://127.0.0.1:8787/rooms"
 const soak = process.env.SOAK === "1"
@@ -41,12 +44,12 @@ function send(socket, message) {
 async function createRoom(index) {
   const robin = await connect()
   const robinWelcome = waitForMessage(robin, (message) => message.type === "welcome")
-  send(robin, { type: "create_room", version: 4, displayName: `Load Robin ${index}`, characterId: "robin" })
+  send(robin, { type: "create_room", version: protocolVersion, displayName: `Load Robin ${index}`, characterId: "robin" })
   const { roomCode } = await robinWelcome
 
   const marian = await connect()
   const marianWelcome = waitForMessage(marian, (message) => message.type === "welcome")
-  send(marian, { type: "join_room", version: 4, roomCode, displayName: `Load Marian ${index}`, characterId: "marian" })
+  send(marian, { type: "join_room", version: protocolVersion, roomCode, displayName: `Load Marian ${index}`, characterId: "marian" })
   await marianWelcome
   return { roomCode, sockets: [robin, marian] }
 }

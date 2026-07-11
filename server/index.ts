@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises"
 import { extname, join, normalize } from "node:path"
 import { WebSocket, WebSocketServer } from "ws"
 import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "../shared/protocol"
-import { Room, type RescueOfferTransition } from "./room"
+import { Room, type ContributionTransition, type RescueOfferTransition } from "./room"
 import { createBandStoreFromEnv } from "./band-store"
 import { createLeaderboardStoreFromEnv } from "./leaderboard-store"
 import { structuredLog, Telemetry } from "./telemetry"
@@ -12,12 +12,14 @@ import { getMissionDefinition } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import { SheriffRotationService } from "./rotation-service"
 import { createRescueOfferStoreFromEnv } from "./rescue-offer-store"
+import { createContributionStoreFromEnv } from "./contribution-store"
 
 const port = Number(process.env.PORT ?? 8787)
 const rooms = new Map<string, Room>()
 const bandStore = createBandStoreFromEnv()
 const leaderboardStore = createLeaderboardStoreFromEnv()
 const rescueOfferStore = createRescueOfferStoreFromEnv()
+const contributionStore = createContributionStoreFromEnv()
 const telemetry = new Telemetry()
 const rotationService = new SheriffRotationService()
 const opsAdminSecret = process.env.OPS_ADMIN_SECRET
@@ -29,6 +31,8 @@ let activeConnections = 0
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const pendingRescueTransitions = new Map<string, { transition: RescueOfferTransition; attempts: number; nextAttemptAt: number }>()
 let rescuePersistenceFlushing = false
+const pendingContributionTransitions = new Map<string, { transition: ContributionTransition; attempts: number; nextAttemptAt: number }>()
+let contributionPersistenceFlushing = false
 
 function roomCode(): string {
   let code = ""
@@ -107,6 +111,41 @@ async function flushRescueTransitions(now = Date.now()): Promise<void> {
   }
 }
 
+function enqueueContributionTransition(transition: ContributionTransition): void {
+  if (!contributionStore) return
+  const key = `${transition.contribution.id}:${transition.sequence}`
+  pendingContributionTransitions.set(key, { transition, attempts: 0, nextAttemptAt: Date.now() })
+  telemetry.gauge("contribution_persistence_queue", pendingContributionTransitions.size)
+}
+
+async function flushContributionTransitions(now = Date.now()): Promise<void> {
+  if (!contributionStore || contributionPersistenceFlushing) return
+  contributionPersistenceFlushing = true
+  try {
+    for (const [key, pending] of pendingContributionTransitions) {
+      if (pending.nextAttemptAt > now) continue
+      try {
+        await contributionStore.recordTransition(pending.transition)
+        pendingContributionTransitions.delete(key)
+        telemetry.increment("contribution_persistence_success_total")
+      } catch (error) {
+        pending.attempts += 1
+        pending.nextAttemptAt = now + Math.min(60_000, 1_000 * 2 ** Math.min(6, pending.attempts))
+        telemetry.increment("contribution_persistence_retry_total")
+        structuredLog("contribution_persistence_retry", {
+          contributionId: pending.transition.contribution.id,
+          sequence: pending.transition.sequence,
+          attempts: pending.attempts,
+          reason: error instanceof Error ? error.message : "unknown",
+        }, "error")
+      }
+    }
+  } finally {
+    contributionPersistenceFlushing = false
+    telemetry.gauge("contribution_persistence_queue", pendingContributionTransitions.size)
+  }
+}
+
 const httpServer = createServer(async (request, response) => {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname
   if (pathname === "/rotations" && request.method === "GET") {
@@ -161,6 +200,7 @@ const httpServer = createServer(async (request, response) => {
       bandPersistence: bandStore !== null,
       verifiedLeaderboardWrites: leaderboardStore !== null,
       rescueOfferPersistence: rescueOfferStore !== null,
+      contributionPersistence: contributionStore !== null,
       missionId: defaultMission.id,
       missionVersion: defaultMission.missionVersion,
       missionContentHash: defaultMission.contentHash,
@@ -286,6 +326,15 @@ sockets.on("connection", (socket) => {
     if (message.type === "abandon_rescue" && !joinedRoom.abandonRescue(playerId, message.offerId)) {
       send(socket, { type: "error", code: "FORBIDDEN", message: "That rescue offer cannot be abandoned" })
     }
+    if (message.type === "deposit_contribution" && !joinedRoom.depositContribution(playerId, message.contributionType)) {
+      send(socket, { type: "error", code: "FORBIDDEN", message: "The shared cache is full, expired, or unavailable during a mission" })
+    }
+    if (message.type === "toggle_contribution" && !joinedRoom.toggleContribution(playerId, message.contributionId)) {
+      send(socket, { type: "error", code: "FORBIDDEN", message: "Only the band leader can select up to three available preparations" })
+    }
+    if (message.type === "revoke_contribution" && !joinedRoom.revokeContribution(playerId, message.contributionId)) {
+      send(socket, { type: "error", code: "FORBIDDEN", message: "Only the contributor can revoke an unlocked preparation" })
+    }
     if (message.type === "input") joinedRoom.setInput(playerId, message.sequence, message.move)
     if (message.type === "action") {
       joinedRoom.action(playerId, message.action, message.targetPlayerId)
@@ -303,6 +352,9 @@ sockets.on("connection", (socket) => {
     if (message.type === "return_to_hub") telemetry.increment("hub_returns_total")
     if (message.type === "accept_rescue") telemetry.increment("rescue_offer_accept_attempts_total")
     if (message.type === "abandon_rescue") telemetry.increment("rescue_offer_abandon_attempts_total")
+    if (message.type === "deposit_contribution") telemetry.increment(`contribution_${message.contributionType}_deposit_attempts_total`)
+    if (message.type === "toggle_contribution") telemetry.increment("contribution_selection_attempts_total")
+    if (message.type === "revoke_contribution") telemetry.increment("contribution_revoke_attempts_total")
     if (message.type === "moderation" && !joinedRoom.moderate(playerId, message.targetPlayerId, message.action, message.reason)) {
       send(socket, { type: "error", code: "FORBIDDEN", message: "That moderation action is not allowed" })
     }
@@ -338,6 +390,17 @@ setInterval(() => {
         context: transition.offer.context,
         targetCount: transition.offer.targetCount,
         attempts: transition.offer.attempts,
+      })
+    }
+    for (const transition of room.drainContributionEvents()) {
+      enqueueContributionTransition(transition)
+      telemetry.increment(`contribution_${transition.contribution.status}_total`)
+      structuredLog("contribution_transition", {
+        traceId: roomTraces.get(code) ?? null,
+        contributionId: transition.contribution.id,
+        contributionType: transition.contribution.type,
+        status: transition.contribution.status,
+        missionId: transition.contribution.missionId,
       })
     }
     const verifiedRuns = leaderboardStore?.recordVerifiedRun ? room.claimVerifiedRuns() : null
@@ -394,6 +457,7 @@ setInterval(() => {
 }, 50)
 
 setInterval(() => void flushRescueTransitions(), 1_000)
+setInterval(() => void flushContributionTransitions(), 1_000)
 
 setInterval(() => {
   for (const room of rooms.values()) room.broadcastSnapshot()
@@ -406,6 +470,7 @@ httpServer.listen(port, "0.0.0.0", () => {
     bandPersistence: bandStore !== null,
     verifiedLeaderboardWrites: leaderboardStore !== null,
     rescueOfferPersistence: rescueOfferStore !== null,
+    contributionPersistence: contributionStore !== null,
     missionId: defaultMission.id,
     missionVersion: defaultMission.missionVersion,
     missionContentHash: defaultMission.contentHash,

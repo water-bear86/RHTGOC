@@ -20,7 +20,7 @@ import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type L
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
-import type { LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionSnapshot, MissionTrap, PingKind, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { BandContribution, ContributionType, LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionPreparation, MissionSnapshot, MissionTrap, PingKind, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import {
@@ -123,6 +123,9 @@ const hubRescue = document.querySelector<HTMLElement>("#hub-rescue")!
 const hubRescueCopy = document.querySelector<HTMLElement>("#hub-rescue-copy")!
 const hubAcceptRescue = document.querySelector<HTMLButtonElement>("#hub-accept-rescue")!
 const hubAbandonRescue = document.querySelector<HTMLButtonElement>("#hub-abandon-rescue")!
+const contributionDepositButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-contribution-type]")]
+const hubContributionList = document.querySelector<HTMLUListElement>("#hub-contribution-list")!
+const hubContributionState = document.querySelector<HTMLElement>("#hub-contribution-state")!
 const hubMissions = document.querySelector<HTMLDivElement>("#hub-missions")!
 const hubRoles = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-character]")]
 const hubLoadout = document.querySelector<HTMLSelectElement>("#hub-loadout")!
@@ -195,6 +198,8 @@ let upcomingRotations: SheriffRotation[] = []
 let rotationsPaused = false
 let selectedRotationId: string | null = null
 let currentRescueOffer: RescueOffer | null = null
+let currentContributions: BandContribution[] = []
+let selectedContributionIds: string[] = []
 let signalSabotaged = false
 let latestMissionSnapshot: MissionSnapshot | null = null
 let missionPackageStatus = "client package valid"
@@ -224,6 +229,7 @@ const trapViews = new Map<number, THREE.Group>()
 const captiveViews = new Map<number, THREE.Group>()
 const alarmViews = new Map<string, THREE.Group>()
 const lootCacheViews = new Map<string, THREE.Group>()
+const preparationViews = new Map<string, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
 const authoredGroveViews: THREE.Group[] = []
 const mutedPlayerIds = new Set<string>()
@@ -712,7 +718,7 @@ const multiplayer = new MultiplayerClient({
     lobbyStatus.textContent = "Share this code, then ready up together."
     enterHub(true)
   },
-  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer) => {
+  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer, contributions, nextSelectedContributionIds) => {
     currentRoomPlayers = players
     currentMissionSlug = missionSlug
     currentVillage = { ...village }
@@ -722,6 +728,8 @@ const multiplayer = new MultiplayerClient({
     currentRotations = nextRotations
     upcomingRotations = nextUpcomingRotations
     currentRescueOffer = rescueOffer
+    currentContributions = contributions
+    selectedContributionIds = nextSelectedContributionIds
     renderParty(players)
     renderSafetyPanel(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
@@ -802,6 +810,7 @@ function setMissionWorldVisible(visible: boolean): void {
     syncCaptiveViews([])
     syncAlarmViews([])
     syncLootCacheViews([])
+    syncPreparationViews([])
     storehouseView.visible = false
     disguiseRackView.visible = false
   }
@@ -831,6 +840,7 @@ function renderHub(): void {
   }
   renderRotationCountdown()
   renderRescueOffer()
+  renderContributions()
   hubMissions.replaceChildren()
   for (const mission of MISSION_CATALOG.values()) {
     const button = document.createElement("button")
@@ -902,6 +912,65 @@ function renderRescueOffer(): void {
   hubAcceptRescue.disabled = !isLeader || offer.status !== "active" || remaining <= 0
   hubAcceptRescue.textContent = offer.status === "accepted" ? "RESCUE SELECTED" : offer.status === "completed" ? "RESCUE COMPLETE" : "ACCEPT RESCUE"
   hubAbandonRescue.disabled = !isLeader || (offer.status !== "active" && offer.status !== "accepted")
+}
+
+function renderContributions(): void {
+  const labels: Record<ContributionType, string> = {
+    supplies: "Supply cache",
+    intelligence: "Scout intelligence",
+    "snare-kit": "Road snare kit",
+    "safe-house": "Safe-house aid",
+  }
+  const localId = multiplayer.playerId
+  const isLeader = currentRoomPlayers[0]?.id === localId
+  const available = currentContributions.filter((contribution) => contribution.status === "available")
+  const localAvailable = available.filter((contribution) => contribution.contributorPlayerId === localId)
+  for (const button of contributionDepositButtons) {
+    const type = button.dataset.contributionType as ContributionType
+    button.disabled = !roomConnected
+      || available.length >= 6
+      || localAvailable.length >= 2
+      || available.filter((contribution) => contribution.type === type).length >= 2
+  }
+  hubContributionList.replaceChildren()
+  for (const contribution of currentContributions.slice(0, 12)) {
+    const selected = selectedContributionIds.includes(contribution.id)
+    const item = document.createElement("li")
+    item.classList.toggle("selected", selected)
+    const copy = document.createElement("span")
+    const title = document.createElement("b")
+    const detail = document.createElement("small")
+    title.textContent = labels[contribution.type]
+    const minutes = Math.max(0, Math.ceil((contribution.expiresAt - Date.now()) / 60_000))
+    detail.textContent = `${contribution.contributorLabel} · ${selected ? "selected · " : ""}${contribution.status}${contribution.status === "available" ? ` · ${minutes}m` : ""}`
+    copy.append(title, detail)
+    const actions = document.createElement("span")
+    actions.className = "contribution-actions"
+    if (contribution.status === "available" && isLeader) {
+      const choose = document.createElement("button")
+      choose.textContent = selected ? "REMOVE" : "SELECT"
+      choose.disabled = !selected && selectedContributionIds.length >= 3
+      choose.addEventListener("click", () => multiplayer.toggleContribution(contribution.id))
+      actions.append(choose)
+    }
+    if (contribution.status === "available" && contribution.contributorPlayerId === localId) {
+      const revoke = document.createElement("button")
+      revoke.className = "revoke"
+      revoke.textContent = "REVOKE"
+      revoke.addEventListener("click", () => multiplayer.revokeContribution(contribution.id))
+      actions.append(revoke)
+    }
+    item.append(copy, actions)
+    hubContributionList.append(item)
+  }
+  if (currentContributions.length === 0) {
+    const empty = document.createElement("li")
+    empty.textContent = roomConnected ? "No shared preparations yet." : "Online bands can leave bounded preparations here."
+    hubContributionList.append(empty)
+  }
+  hubContributionState.textContent = roomConnected
+    ? `${selectedContributionIds.length}/3 selected for the next mission · ${available.length}/6 available · readiness locks the set.`
+    : "Form a band to share preparation."
 }
 
 function enterHub(online: boolean): void {
@@ -1176,6 +1245,7 @@ function updateMissionDebug(): void {
     `INFILTRATION alarms=${mission?.alarmLevel ?? 0} waves=${mission?.reinforcementWave ?? 0} intel=${mission?.intelFound ? "yes" : "no"} ledger=${mission?.ledgerStolen ? "yes" : "no"}`,
     `ROTATION ${mission?.rotationId ?? "standard"} · modifiers=${mission?.rotationModifierIds.join(",") || "seeded"}`,
     `RESCUE CHAIN ${mission?.rescueOfferId ?? "none"} · source=${mission?.rescueSourceMissionId ?? "none"}`,
+    `PREPARATION ${(mission?.preparations ?? []).map((preparation) => `${preparation.type}:${preparation.status}:${preparation.contributorLabel}`).join(" · ") || "none"}`,
   ].join("\n")
 }
 
@@ -1222,7 +1292,8 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   const completedOptional = mission.optionalObjectives.filter((objective) => objective.completed).length
   const sabotageState = mission.signalSabotaged ? ` · SIGNAL CUT ${Math.ceil(mission.reinforcementDelaySeconds)}s` : ""
   const rotationState = mission.rotationId ? ` · DAILY ${mission.rotationId.split("-").slice(-2).join(" ").toUpperCase()}` : ""
-  missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState}${rotationState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
+  const preparationState = mission.preparations.length > 0 ? ` · PREP ${mission.preparations.filter((preparation) => preparation.status === "consumed").length}/${mission.preparations.length}` : ""
+  missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState}${rotationState}${preparationState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
   if (mission.phase === "robbery") localStorage.setItem("sherwood:tutorial-complete", "true")
   while (guardViews.length < mission.guards.length) {
     const guardState = mission.guards[guardViews.length]
@@ -1252,6 +1323,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   syncCaptiveViews(mission.captives)
   syncAlarmViews(mission.alarms)
   syncLootCacheViews(mission.lootCaches)
+  syncPreparationViews(mission.preparations)
   cartView.position.set(mission.cartPosition.x, 0, mission.cartPosition.z)
   signalView.position.set(definition.spawns.reinforcementSignal.x, 0, definition.spawns.reinforcementSignal.z)
   cartView.children.forEach((child) => {
@@ -1287,6 +1359,7 @@ function showMissionEvent(event: MissionEvent): void {
     intel_found: "PATROL INTELLIGENCE FOUND",
     ledger_stolen: "THE NOTTINGHAM LEDGER IS OURS",
     extraction_reached: "SECURED VALUE REACHED EXTRACTION",
+    contribution_consumed: "SHARED PREPARATION USED — CREDIT RECORDED",
     reinforcement_arrived: "SHERIFF'S RELIEF PATROL ARRIVED",
     guard_stunned: "Guard stunned",
     crowd_controlled: "OAK SWEEP — ESCORT SCATTERED",
@@ -1373,6 +1446,68 @@ function syncTrapViews(traps: MissionTrap[]): void {
     if (activeIds.has(id)) continue
     scene.remove(view)
     trapViews.delete(id)
+  }
+}
+
+function createPreparationView(preparation: MissionPreparation): THREE.Group {
+  const group = new THREE.Group()
+  if (preparation.type === "supplies") {
+    const crate = mesh(new THREE.BoxGeometry(1.05, 0.62, 0.72), 0x6d4b2c)
+    crate.position.y = 0.34
+    const band = mesh(new THREE.BoxGeometry(1.12, 0.12, 0.78), 0xd1a94b)
+    band.position.y = 0.52
+    const arrows = mesh(new THREE.CylinderGeometry(0.11, 0.15, 0.86, 8), 0x315f37)
+    arrows.rotation.z = Math.PI / 2
+    arrows.position.set(0, 0.84, 0)
+    group.add(crate, band, arrows)
+  } else if (preparation.type === "intelligence") {
+    const stand = mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.35, 6), 0x4f3522)
+    stand.position.y = 0.68
+    const map = mesh(new THREE.PlaneGeometry(1.1, 0.72), 0xe8dfbd, { cast: false })
+    map.position.set(0, 1.34, 0)
+    const seal = mesh(new THREE.CircleGeometry(0.13, 12), 0x8d352b, { cast: false })
+    seal.position.set(0.34, 1.2, 0.01)
+    group.add(stand, map, seal)
+  } else if (preparation.type === "safe-house") {
+    const tent = mesh(new THREE.ConeGeometry(1.35, 1.8, 4), 0x48693f)
+    tent.rotation.y = Math.PI / 4
+    tent.position.y = 0.9
+    const doorway = mesh(new THREE.PlaneGeometry(0.55, 0.85), 0x172d21, { cast: false })
+    doorway.position.set(0, 0.5, 0.96)
+    group.add(tent, doorway)
+  }
+  const marker = mesh(new THREE.RingGeometry(0.82, 0.96, 24), 0xe2af43, { cast: false })
+  marker.rotation.x = -Math.PI / 2
+  marker.position.y = 0.06
+  group.add(marker)
+  group.position.set(preparation.position.x, 0, preparation.position.z)
+  group.userData.type = preparation.type
+  return group
+}
+
+function syncPreparationViews(preparations: MissionPreparation[]): void {
+  const visible = preparations.filter((preparation) => preparation.type !== "snare-kit" && (preparation.status === "active" || preparation.type === "intelligence"))
+  const activeIds = new Set(visible.map((preparation) => preparation.id))
+  for (const preparation of visible) {
+    let view = preparationViews.get(preparation.id)
+    if (!view) {
+      view = createPreparationView(preparation)
+      preparationViews.set(preparation.id, view)
+      scene.add(view)
+    }
+    view.position.set(preparation.position.x, 0, preparation.position.z)
+    view.visible = true
+    view.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+        child.material.transparent = preparation.status === "consumed"
+        child.material.opacity = preparation.status === "consumed" ? 0.45 : 1
+      }
+    })
+  }
+  for (const [id, view] of preparationViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(view)
+    preparationViews.delete(id)
   }
 }
 
@@ -1607,6 +1742,13 @@ function renderMissionResolution(mission: MissionSnapshot): void {
     const detail = document.createElement("dd")
     term.textContent = "Rescue chain"
     detail.textContent = `${mission.rescueOfferId} · rescuer credit and recovered value settle on the room server`
+    resultBreakdown.append(term, detail)
+  }
+  if (mission.preparations.length > 0) {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = "Band preparation"
+    detail.textContent = mission.preparations.map((preparation) => `${preparation.status === "consumed" ? "✓" : "↩"} ${preparation.type.replaceAll("-", " ")} by ${preparation.contributorLabel}`).join(" · ")
     resultBreakdown.append(term, detail)
   }
   const voteChoices = resultsPanel.querySelector<HTMLElement>(".vote-choices")!
@@ -2257,6 +2399,10 @@ hubAcceptRescue.addEventListener("click", () => {
 hubAbandonRescue.addEventListener("click", () => {
   if (currentRescueOffer) multiplayer.abandonRescue(currentRescueOffer.id)
 })
+contributionDepositButtons.forEach((button) => button.addEventListener("click", () => {
+  const type = button.dataset.contributionType
+  if (type === "supplies" || type === "intelligence" || type === "snare-kit" || type === "safe-house") multiplayer.depositContribution(type)
+}))
 
 characterButtons.forEach((button) => {
   button.addEventListener("click", () => {

@@ -27,6 +27,10 @@ describe("Merry Band protocol", () => {
     expect(parseClientMessage({ type: "return_to_hub" })).toEqual({ type: "return_to_hub" })
     expect(parseClientMessage({ type: "accept_rescue", offerId: "8c02777e-2bb5-5afd-9f42-7a7b1ca4c622" })).not.toBeNull()
     expect(parseClientMessage({ type: "abandon_rescue", offerId: "not-a-uuid" })).toBeNull()
+    expect(parseClientMessage({ type: "deposit_contribution", contributionType: "safe-house" })).toEqual({ type: "deposit_contribution", contributionType: "safe-house" })
+    expect(parseClientMessage({ type: "deposit_contribution", contributionType: "unlimited-gold" })).toBeNull()
+    expect(parseClientMessage({ type: "toggle_contribution", contributionId: "8c02777e-2bb5-5afd-9f42-7a7b1ca4c622" })).not.toBeNull()
+    expect(parseClientMessage({ type: "revoke_contribution", contributionId: "../../forged" })).toBeNull()
   })
 
   it("rejects malformed names, room codes, and movement", () => {

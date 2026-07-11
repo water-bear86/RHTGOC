@@ -1,10 +1,10 @@
-import { PROTOCOL_VERSION, type CharacterId, type LastMissionResult, type LoadoutId, type MissionSnapshot, type PingKind, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState, type VoteChoice } from "../shared/protocol"
+import { PROTOCOL_VERSION, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MissionSnapshot, type PingKind, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState, type VoteChoice } from "../shared/protocol"
 import type { Vec2 } from "./simulation"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
-  onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[], missionSlug: string, village: VillageState, lastResult: LastMissionResult | null, selectedRotationId: string | null, rotationsPaused: boolean, rotations: SheriffRotation[], upcomingRotations: SheriffRotation[], rescueOffer: RescueOffer | null) => void
+  onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[], missionSlug: string, village: VillageState, lastResult: LastMissionResult | null, selectedRotationId: string | null, rotationsPaused: boolean, rotations: SheriffRotation[], upcomingRotations: SheriffRotation[], rescueOffer: RescueOffer | null, contributions: BandContribution[], selectedContributionIds: string[]) => void
   onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>, mission: MissionSnapshot) => void
   onError?: (message: string) => void
   onConnection?: (connected: boolean) => void
@@ -74,6 +74,18 @@ export class MultiplayerClient {
 
   abandonRescue(offerId: string): void {
     this.send({ type: "abandon_rescue", offerId })
+  }
+
+  depositContribution(type: ContributionType): void {
+    this.send({ type: "deposit_contribution", contributionType: type })
+  }
+
+  toggleContribution(contributionId: string): void {
+    this.send({ type: "toggle_contribution", contributionId })
+  }
+
+  revokeContribution(contributionId: string): void {
+    this.send({ type: "revoke_contribution", contributionId })
   }
 
   sendInput(move: Vec2): void {
@@ -160,7 +172,7 @@ export class MultiplayerClient {
       localStorage.setItem(`sherwood:reconnect:${message.roomCode}`, message.reconnectToken)
       this.events.onWelcome?.(message.playerId, message.roomCode)
     }
-    if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players, message.missionSlug, message.village, message.lastResult, message.selectedRotationId, message.rotationsPaused, message.rotations, message.upcomingRotations, message.rescueOffer)
+    if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players, message.missionSlug, message.village, message.lastResult, message.selectedRotationId, message.rotationsPaused, message.rotations, message.upcomingRotations, message.rescueOffer, message.contributions, message.selectedContributionIds)
     if (message.type === "snapshot") {
       const now = performance.now()
       if (this.playerId && now - this.lastMetricsAt >= 10_000) {

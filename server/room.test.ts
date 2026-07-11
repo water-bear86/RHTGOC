@@ -198,6 +198,87 @@ describe("Merry Band room", () => {
     expect(room.phase).toBe("mission")
   })
 
+  it("caps, selects, locks, credits, and refunds shared preparations authoritatively", () => {
+    const now = 10_000
+    const room = new Room("PREP28")
+    const leader = room.addPlayer(fakeSocket(), "Leader", "robin")
+    const member = room.addPlayer(fakeSocket(), "Scout", "marian")
+    const supplies = room.depositContribution(leader.id, "supplies", now)!
+    const safeHouse = room.depositContribution(leader.id, "safe-house", now + 1)!
+    const intelligence = room.depositContribution(member.id, "intelligence", now + 2)!
+    const snare = room.depositContribution(member.id, "snare-kit", now + 3)!
+    expect(room.depositContribution(leader.id, "supplies", now + 4)).toBeNull()
+    expect(room.toggleContribution(member.id, supplies.id, now + 5)).toBe(false)
+    expect(room.toggleContribution(leader.id, supplies.id, now + 6)).toBe(true)
+    expect(room.toggleContribution(leader.id, intelligence.id, now + 7)).toBe(true)
+    expect(room.toggleContribution(leader.id, snare.id, now + 8)).toBe(true)
+    expect(room.toggleContribution(leader.id, safeHouse.id, now + 9)).toBe(false)
+    room.disconnect(member.id, now + 9)
+    expect(room.reconnect(fakeSocket(), member.reconnectToken, now + 9)?.id).toBe(member.id)
+    expect(room.contributions.get(intelligence.id)?.contributorPlayerId).toBe(member.id)
+    room.setReady(leader.id, true, now + 10)
+    room.setReady(member.id, true, now + 11)
+    expect(room.phase).toBe("mission")
+    expect(room.mission?.snapshot().preparations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: supplies.id, status: "active" }),
+      expect.objectContaining({ id: intelligence.id, status: "consumed" }),
+      expect.objectContaining({ id: snare.id, status: "consumed" }),
+    ]))
+    expect(room.contributions.get(supplies.id)).toMatchObject({ status: "locked", missionId: expect.any(String) })
+    room.mission!.status = "failed"
+    room.update(0.05, now + 20)
+    expect(room.contributions.get(supplies.id)?.status).toBe("refunded")
+    expect(room.contributions.get(intelligence.id)?.status).toBe("consumed")
+    expect(room.contributions.get(snare.id)?.status).toBe("consumed")
+    expect(room.contributions.get(safeHouse.id)?.status).toBe("available")
+    const terminal = room.drainContributionEvents().filter((transition) => transition.contribution.resolvedAt === now + 20)
+    expect(terminal.map((transition) => transition.contribution.status).sort()).toEqual(["consumed", "consumed", "refunded"])
+  })
+
+  it("serializes concurrent-like deposits against room, type, and contributor caps", () => {
+    const room = new Room("PREP31")
+    const robin = room.addPlayer(fakeSocket(), "Robin", "robin")
+    const marian = room.addPlayer(fakeSocket(), "Marian", "marian")
+    const john = room.addPlayer(fakeSocket(), "John", "little-john")
+    expect(room.depositContribution(robin.id, "supplies", 1_000)).not.toBeNull()
+    expect(room.depositContribution(marian.id, "supplies", 1_000)).not.toBeNull()
+    expect(room.depositContribution(john.id, "supplies", 1_000)).toBeNull()
+    expect(room.depositContribution(robin.id, "intelligence", 1_000)).not.toBeNull()
+    expect(room.depositContribution(robin.id, "snare-kit", 1_000)).toBeNull()
+    expect(room.depositContribution(marian.id, "intelligence", 1_000)).not.toBeNull()
+    expect(room.depositContribution(john.id, "snare-kit", 1_000)).not.toBeNull()
+    expect(room.depositContribution(john.id, "safe-house", 1_000)).not.toBeNull()
+    expect([...room.contributions.values()].filter((contribution) => contribution.status === "available")).toHaveLength(6)
+  })
+
+  it("expires available contributions and lets only their contributor revoke an unlocked one", () => {
+    const room = new Room("PREP29")
+    const leader = room.addPlayer(fakeSocket(), "Leader", "robin")
+    const member = room.addPlayer(fakeSocket(), "Member", "marian")
+    const expiring = room.depositContribution(member.id, "supplies", 1_000)!
+    expect(room.revokeContribution(leader.id, expiring.id, 2_000)).toBe(false)
+    expect(room.toggleContribution(leader.id, expiring.id, 2_001)).toBe(true)
+    room.update(0, expiring.expiresAt)
+    expect(room.contributions.get(expiring.id)?.status).toBe("expired")
+    expect(room.selectedContributionIds.has(expiring.id)).toBe(false)
+    const revocable = room.depositContribution(member.id, "safe-house", expiring.expiresAt + 1)!
+    expect(room.revokeContribution(member.id, revocable.id, expiring.expiresAt + 2)).toBe(true)
+    expect(room.contributions.get(revocable.id)?.status).toBe("revoked")
+  })
+
+  it("refunds unused locked preparation even when a cancelled run returns before another server tick", () => {
+    const room = new Room("PREP30")
+    const leader = room.addPlayer(fakeSocket(), "Leader", "robin")
+    const member = room.addPlayer(fakeSocket(), "Member", "marian")
+    const supplies = room.depositContribution(leader.id, "supplies", 1_000)!
+    room.toggleContribution(leader.id, supplies.id, 1_001)
+    room.setReady(leader.id, true, 1_002)
+    room.setReady(member.id, true, 1_003)
+    room.mission!.status = "failed"
+    expect(room.returnToHub(leader.id, 1_004)).toBe(true)
+    expect(room.contributions.get(supplies.id)).toMatchObject({ status: "refunded", resolvedAt: 1_004 })
+  })
+
   it("reconnects within grace and rejects expired tokens", () => {
     const room = new Room("ABC234")
     const player = room.addPlayer(fakeSocket(), "Marian", "marian")

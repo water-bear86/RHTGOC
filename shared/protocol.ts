@@ -1,7 +1,8 @@
 import { z } from "zod"
 import type { SheriffRotation } from "./sheriff-rotation"
+import protocolVersion from "./protocol-version.json"
 
-export const PROTOCOL_VERSION = 6 as const
+export const PROTOCOL_VERSION = protocolVersion.version
 export const MAX_ROOM_PLAYERS = 4
 export const RECONNECT_GRACE_MS = 30_000
 
@@ -9,6 +10,8 @@ export const CharacterIdSchema = z.enum(["robin", "marian", "little-john", "much
 export type CharacterId = z.infer<typeof CharacterIdSchema>
 export const LoadoutIdSchema = z.enum(["balanced", "bandage", "smoke"])
 export type LoadoutId = z.infer<typeof LoadoutIdSchema>
+export const ContributionTypeSchema = z.enum(["supplies", "intelligence", "snare-kit", "safe-house"])
+export type ContributionType = z.infer<typeof ContributionTypeSchema>
 
 const DisplayNameSchema = z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9 _-]+$/)
 const RoomCodeSchema = z.string().trim().length(6).regex(/^[A-Z2-9]+$/)
@@ -36,6 +39,9 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("return_to_hub") }),
   z.object({ type: z.literal("accept_rescue"), offerId: z.string().uuid() }),
   z.object({ type: z.literal("abandon_rescue"), offerId: z.string().uuid() }),
+  z.object({ type: z.literal("deposit_contribution"), contributionType: ContributionTypeSchema }),
+  z.object({ type: z.literal("toggle_contribution"), contributionId: z.string().uuid() }),
+  z.object({ type: z.literal("revoke_contribution"), contributionId: z.string().uuid() }),
   z.object({
     type: z.literal("input"),
     sequence: z.number().int().nonnegative(),
@@ -94,7 +100,7 @@ export interface MissionGuard {
 export interface MissionEvent {
   sequence: number
   tick: number
-  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "wagon_intercepted" | "lock_breached" | "captives_freed" | "captive_extracted" | "alarm_triggered" | "alarm_sabotaged" | "disguise_acquired" | "cache_looted" | "intel_found" | "ledger_stolen" | "extraction_reached" | "reinforcement_arrived" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "trap_placed" | "trap_triggered" | "reinforcement_sabotaged" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
+  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "wagon_intercepted" | "lock_breached" | "captives_freed" | "captive_extracted" | "alarm_triggered" | "alarm_sabotaged" | "disguise_acquired" | "cache_looted" | "intel_found" | "ledger_stolen" | "extraction_reached" | "contribution_consumed" | "reinforcement_arrived" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "trap_placed" | "trap_triggered" | "reinforcement_sabotaged" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
   playerId?: string
   value?: number
   detail?: string
@@ -138,6 +144,14 @@ export interface MissionLootCache {
   status: "secured" | "looted"
   position: { x: number; z: number }
   value: number
+}
+
+export interface MissionPreparation {
+  id: string
+  type: ContributionType
+  contributorLabel: string
+  status: "active" | "consumed"
+  position: { x: number; z: number }
 }
 
 export interface MissionSnapshot {
@@ -188,6 +202,7 @@ export interface MissionSnapshot {
   rotationObjectiveIds: string[]
   rescueOfferId: string | null
   rescueSourceMissionId: string | null
+  preparations: MissionPreparation[]
 }
 
 export type VoteChoice = "granary" | "infirmary" | "watchtower"
@@ -246,9 +261,21 @@ export interface RescueOffer {
   recoveredValue: number
 }
 
+export interface BandContribution {
+  id: string
+  type: ContributionType
+  contributorPlayerId: string
+  contributorLabel: string
+  createdAt: number
+  expiresAt: number
+  status: "available" | "locked" | "consumed" | "refunded" | "expired" | "revoked"
+  missionId: string | null
+  resolvedAt: number | null
+}
+
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
-  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; rescueOffer: RescueOffer | null; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
+  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; rescueOffer: RescueOffer | null; contributions: BandContribution[]; selectedContributionIds: string[]; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
   | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string }

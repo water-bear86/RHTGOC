@@ -1,4 +1,4 @@
-import type { CharacterId, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionKind, MissionLootCache, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { BandContribution, CharacterId, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionKind, MissionLootCache, MissionPreparation, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
@@ -6,6 +6,7 @@ import type { SheriffRotation } from "../shared/sheriff-rotation"
 export interface MissionOptions {
   rotation?: SheriffRotation | null
   rescueOffer?: { id: string; sourceMissionId: string } | null
+  preparations?: Array<Pick<BandContribution, "id" | "type" | "contributorLabel">>
 }
 
 export interface MissionPlayer {
@@ -87,6 +88,7 @@ export class Mission {
   readonly rotationObjectiveIds: string[]
   readonly rescueOfferId: string | null
   readonly rescueSourceMissionId: string | null
+  readonly preparations: MissionPreparation[] = []
   status: "active" | "succeeded" | "failed" = "active"
   phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction" = "scout"
   entryRoute: "forest" | "river" | null = null
@@ -146,6 +148,24 @@ export class Mission {
     this.rescueOfferId = options.rescueOffer?.id ?? null
     this.rescueSourceMissionId = options.rescueOffer?.sourceMissionId ?? null
     if (this.rescueOfferId && definition.slug !== "prison-wagon") throw new Error("INVALID_RESCUE_MISSION")
+    for (const [index, contribution] of (options.preparations ?? []).entries()) {
+      const position = contribution.type === "snare-kit"
+        ? definition.routes.entry[index % definition.routes.entry.length].position
+        : contribution.type === "safe-house"
+          ? definition.routes.escape[index % definition.routes.escape.length].position
+          : { x: definition.spawns.players[0].x + 1.4 + index * 0.65, z: definition.spawns.players[0].z + 0.6 }
+      const preparation: MissionPreparation = {
+        id: contribution.id,
+        type: contribution.type,
+        contributorLabel: contribution.contributorLabel,
+        status: contribution.type === "intelligence" || contribution.type === "snare-kit" ? "consumed" : "active",
+        position: { ...position },
+      }
+      this.preparations.push(preparation)
+      if (contribution.type === "snare-kit") {
+        this.traps.push({ id: this.nextTrapId++, ownerId: `contribution:${contribution.id}`, position: { ...position }, expiresAtTick: definition.rules.trapLifetimeTicks })
+      }
+    }
     this.missionKind = definition.scenario?.kind ?? "tax-cart"
     this.cartPosition = { ...definition.spawns.cart }
     if (definition.scenario?.kind === "prison-wagon") {
@@ -190,6 +210,7 @@ export class Mission {
     const modifierGuard = this.modifiers.some((modifier) => modifier.id === "watchful-sheriff") ? 1 : 0
     this.guards = guardStarts.slice(0, 3 + Math.max(0, Math.min(2, players.size - 2)) + modifierGuard)
     this.record("mission_started")
+    for (const preparation of this.preparations.filter((candidate) => candidate.status === "consumed")) this.record("contribution_consumed", undefined, undefined, `${preparation.type}:${preparation.id}`)
   }
 
   setInput(playerId: string, sequence: number, move: { x: number; z: number }, now = Date.now()): boolean {
@@ -354,10 +375,12 @@ export class Mission {
       rotationObjectiveIds: [...this.rotationObjectiveIds],
       rescueOfferId: this.rescueOfferId,
       rescueSourceMissionId: this.rescueSourceMissionId,
+      preparations: this.preparations.map((preparation) => ({ ...preparation, position: { ...preparation.position } })),
     }
   }
 
   private interact(player: MissionPlayer): boolean {
+    if (this.interactPreparation(player)) return true
     if (this.missionKind === "prison-wagon") return this.interactPrisonWagon(player)
     if (this.missionKind === "storehouse") return this.interactStorehouse(player)
     if (player.characterId === "much" && !this.signalSabotaged && this.phase !== "extraction" && distance(player.position, this.definition.spawns.reinforcementSignal) < 3.2) {
@@ -410,6 +433,22 @@ export class Mission {
       this.ambushStuns = 0
       this.setPhase("scout", player.id)
     }
+    return true
+  }
+
+  private interactPreparation(player: MissionPlayer): boolean {
+    const preparation = this.preparations
+      .filter((candidate) => candidate.status === "active" && (candidate.type === "supplies" || candidate.type === "safe-house"))
+      .sort((left, right) => distance(left.position, player.position) - distance(right.position, player.position))[0]
+    if (!preparation || distance(preparation.position, player.position) > 2.6) return false
+    if (preparation.type === "supplies") player.arrows = player.characterId === "robin" ? 6 : player.characterId === "little-john" ? 3 : 4
+    if (preparation.type === "safe-house") {
+      player.health = 3
+      player.arrows = player.characterId === "robin" ? 6 : player.characterId === "little-john" ? 3 : 4
+      player.invulnerableFor = Math.max(player.invulnerableFor, 2)
+    }
+    preparation.status = "consumed"
+    this.record("contribution_consumed", player.id, undefined, `${preparation.type}:${preparation.id}`)
     return true
   }
 
