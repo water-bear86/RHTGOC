@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MissionSnapshot, type PingKind, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState, type VoteChoice } from "../shared/protocol"
+import { PROTOCOL_VERSION, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MissionSnapshot, type PingKind, type PublicHubPlayer, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState, type VoteChoice } from "../shared/protocol"
 import type { Vec2 } from "./simulation"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import type { SherwoodSeasonSnapshot } from "../shared/sherwood-season"
@@ -10,6 +10,8 @@ export interface MultiplayerEvents {
   onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>, mission: MissionSnapshot) => void
   onError?: (message: string) => void
   onConnection?: (connected: boolean) => void
+  onHubWelcome?: (instanceId: string, participantId: string, capacity: number) => void
+  onHubState?: (players: PublicHubPlayer[]) => void
 }
 
 export class MultiplayerClient {
@@ -20,6 +22,7 @@ export class MultiplayerClient {
   private reconnectTimer: number | null = null
   private reconnectAttempt = 0
   private reconnectSession: { roomCode: string; displayName: string; characterId: CharacterId } | null = null
+  private hubSession: { displayName: string; characterId: CharacterId } | null = null
   private heartbeatTimer: number | null = null
   private intentionallyClosed = false
   private connectionId = 0
@@ -32,18 +35,48 @@ export class MultiplayerClient {
   constructor(private readonly events: MultiplayerEvents) {}
 
   createRoom(displayName: string, characterId: CharacterId): void {
+    this.hubSession = null
     this.reconnectSession = null
     this.pendingIdentity = { displayName, characterId }
     void this.getAccessToken().then((accessToken) => this.connect(() => this.send({ type: "create_room", version: PROTOCOL_VERSION, displayName, characterId, accessToken })))
   }
 
   joinRoom(roomCode: string, displayName: string, characterId: CharacterId): void {
+    this.hubSession = null
     const normalizedCode = roomCode.trim().toUpperCase()
     this.reconnectSession = { roomCode: normalizedCode, displayName, characterId }
     this.pendingIdentity = { displayName, characterId }
     const reconnectToken = localStorage.getItem(`sherwood:reconnect:${normalizedCode}`) ?? undefined
     void this.getAccessToken().then((accessToken) => this.connect(() => this.send({ type: "join_room", version: PROTOCOL_VERSION, roomCode: normalizedCode, displayName, characterId, reconnectToken, accessToken })))
   }
+
+  joinPublicHub(displayName: string, characterId: CharacterId): void {
+    this.reconnectSession = null
+    this.hubSession = { displayName, characterId }
+    this.pendingIdentity = { displayName, characterId }
+    void this.getAccessToken().then((accessToken) => {
+      if (!accessToken) {
+        this.events.onError?.("Sign in before entering the public camp")
+        return
+      }
+      this.connect(() => this.send({ type: "join_public_hub", version: PROTOCOL_VERSION, displayName, characterId, accessToken }))
+    })
+  }
+
+  setHubIntent(looking: boolean, targetPreference: PublicHubPlayer["targetPreference"], desiredPartySize: 2 | 3 | 4): void { this.send({ type: "hub_intent", looking, targetPreference, desiredPartySize }) }
+  sendHubMove(move: Vec2): void {
+    const now = performance.now()
+    if (now - this.lastInputAt < 50) return
+    this.lastInputAt = now
+    this.sequence += 1
+    this.send({ type: "hub_move", sequence: this.sequence, move })
+  }
+  sendHubEmote(kind: "wave" | "cheer" | "bow"): void { this.send({ type: "hub_emote", kind }) }
+  sendHubPing(kind: "regroup" | "target"): void { this.send({ type: "hub_ping", kind }) }
+  formHubBand(): void { this.send({ type: "hub_form_band" }) }
+  reportHubPlayer(targetParticipantId: string, reason: "harassment" | "griefing" | "unsafe-name" | "cheating"): void { this.send({ type: "hub_report", targetParticipantId, reason }) }
+  blockHubPlayer(targetParticipantId: string): void { this.send({ type: "hub_block", targetParticipantId }) }
+  leavePublicHub(): void { this.send({ type: "hub_leave" }); this.hubSession = null }
 
   setReady(ready: boolean): void {
     this.send({ type: "set_ready", ready })
@@ -124,6 +157,7 @@ export class MultiplayerClient {
     this.socket?.close()
     this.socket = null
     this.reconnectSession = null
+    this.hubSession = null
     this.playerId = null
     this.roomCode = null
   }
@@ -154,7 +188,7 @@ export class MultiplayerClient {
       if (this.heartbeatTimer !== null) window.clearInterval(this.heartbeatTimer)
       this.heartbeatTimer = null
       this.events.onConnection?.(false)
-      if (!this.intentionallyClosed && this.reconnectSession) this.scheduleReconnect()
+      if (!this.intentionallyClosed && (this.reconnectSession || this.hubSession)) this.scheduleReconnect()
     })
     this.socket.addEventListener("error", () => this.events.onError?.("Unable to reach the Merry Band server"))
     this.socket.addEventListener("message", (event) => this.handleMessage(JSON.parse(String(event.data)) as ServerMessage))
@@ -175,6 +209,14 @@ export class MultiplayerClient {
       this.events.onWelcome?.(message.playerId, message.roomCode)
     }
     if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players, message.missionSlug, message.village, message.lastResult, message.selectedRotationId, message.rotationsPaused, message.rotations, message.upcomingRotations, message.rescueOffer, message.contributions, message.selectedContributionIds, message.season)
+    if (message.type === "hub_welcome") this.events.onHubWelcome?.(message.instanceId, message.participantId, message.capacity)
+    if (message.type === "hub_state") this.events.onHubState?.(message.players)
+    if (message.type === "hub_band_ready" && this.pendingIdentity) {
+      const identity = this.pendingIdentity
+      this.hubSession = null
+      this.reconnectSession = { roomCode: message.roomCode, ...identity }
+      window.setTimeout(() => void this.getAccessToken().then((accessToken) => this.send({ type: "join_room", version: PROTOCOL_VERSION, roomCode: message.roomCode, displayName: identity.displayName, characterId: identity.characterId, accessToken })), message.leader ? 0 : 120)
+    }
     if (message.type === "snapshot") {
       const now = performance.now()
       if (this.playerId && now - this.lastMetricsAt >= 10_000) {
@@ -195,12 +237,19 @@ export class MultiplayerClient {
   }
 
   private scheduleReconnect(): void {
-    if (!this.reconnectSession || this.reconnectTimer !== null) return
+    if ((!this.reconnectSession && !this.hubSession) || this.reconnectTimer !== null) return
     const delay = Math.min(5_000, 500 * 2 ** this.reconnectAttempt)
     this.reconnectAttempt += 1
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null
       const session = this.reconnectSession
+      const hub = this.hubSession
+      if (hub) {
+        void this.getAccessToken().then((accessToken) => {
+          if (accessToken) this.connect(() => this.send({ type: "join_public_hub", version: PROTOCOL_VERSION, displayName: hub.displayName, characterId: hub.characterId, accessToken }))
+        })
+        return
+      }
       if (!session) return
       const reconnectToken = localStorage.getItem(`sherwood:reconnect:${session.roomCode}`) ?? undefined
       void this.getAccessToken().then((accessToken) => this.connect(() => this.send({

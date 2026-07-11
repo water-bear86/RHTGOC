@@ -12,6 +12,7 @@
     "test:load": "node tools/multiplayer-load-test.mjs",
     "test:soak": "SOAK=1 node tools/multiplayer-load-test.mjs",
     "test:reconnect": "node tools/reconnect-failure-test.mjs",
+    "test:hub": "node tools/public-hub-smoke-test.mjs",
     "validate:assets": "node tools/validate-assets.mjs",
     "validate:missions": "tsx tools/validate-missions.ts"
   },

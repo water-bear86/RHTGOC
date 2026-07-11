@@ -17,6 +17,7 @@ import { SherwoodSeasonService, type SeasonTransition } from "./season-service"
 import { campaignRotationWindow } from "../shared/sherwood-season"
 import { createSeasonStoreFromEnv } from "./season-store"
 import { createSocialStoreFromEnv } from "./social-store"
+import { PublicHubService } from "./public-hub"
 
 const port = Number(process.env.PORT ?? 8787)
 const rooms = new Map<string, Room>()
@@ -26,6 +27,7 @@ const rescueOfferStore = createRescueOfferStoreFromEnv()
 const contributionStore = createContributionStoreFromEnv()
 const seasonStore = createSeasonStoreFromEnv()
 const socialStore = createSocialStoreFromEnv()
+const publicHub = new PublicHubService()
 let seasonReady = seasonStore === null
 const telemetry = new Telemetry()
 const rotationService = new SheriffRotationService()
@@ -37,6 +39,7 @@ const defaultMission = getMissionDefinition()
 const observedRoomPhases = new Map<string, string>()
 const observedMissionStatus = new Map<string, string>()
 const roomTraces = new Map<string, string>()
+const reservedRoomsUntil = new Map<string, number>()
 let activeConnections = 0
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const pendingRescueTransitions = new Map<string, { transition: RescueOfferTransition; attempts: number; nextAttemptAt: number }>()
@@ -366,6 +369,7 @@ sockets.on("connection", (socket) => {
   telemetry.gauge("active_connections", activeConnections)
   let joinedRoom: Room | null = null
   let playerId: string | null = null
+  let hubParticipantId: string | null = null
   let lastClientMetricsAt = 0
 
   socket.on("message", async (raw) => {
@@ -386,6 +390,10 @@ sockets.on("connection", (socket) => {
 
     if (message.type === "create_room" || message.type === "join_room") {
       try {
+        if (hubParticipantId) {
+          publicHub.leave(hubParticipantId)
+          hubParticipantId = null
+        }
         const authUserId = await verifySupabaseUser(message.accessToken)
         if (message.accessToken && supabaseUrl && supabasePublishableKey && !authUserId) {
           send(socket, { type: "error", code: "FORBIDDEN", message: "Your Sherwood sign-in expired. Sign in again or continue as a guest." })
@@ -415,6 +423,7 @@ sockets.on("connection", (socket) => {
           structuredLog("room_created", { traceId })
         }
         joinedRoom = room
+        reservedRoomsUntil.delete(room.code)
         playerId = player.id
         send(socket, { type: "welcome", version: PROTOCOL_VERSION, playerId: player.id, reconnectToken: player.reconnectToken, roomCode: room.code })
         room.broadcastRoomState()
@@ -428,6 +437,70 @@ sockets.on("connection", (socket) => {
             : "This mission has already begun"
         send(socket, { type: "error", code, message })
       }
+      return
+    }
+
+    if (message.type === "join_public_hub") {
+      if (joinedRoom || hubParticipantId) {
+        send(socket, { type: "error", code: "FORBIDDEN", message: "Leave the current band or public camp before joining another" })
+        return
+      }
+      const authUserId = await verifySupabaseUser(message.accessToken)
+      if (!authUserId) {
+        telemetry.increment("hub_auth_rejected_total")
+        send(socket, { type: "error", code: "FORBIDDEN", message: "The public camp requires a current Sherwood sign-in" })
+        return
+      }
+      const [friendIds, blockedIds] = await Promise.all([
+        socialStore?.getAcceptedFriendIds(authUserId).catch(() => []) ?? [],
+        socialStore?.getHubBlockedIds(authUserId).catch(() => []) ?? [],
+      ])
+      const participant = publicHub.join(socket, authUserId, message.displayName, message.characterId, friendIds, Date.now(), blockedIds)
+      hubParticipantId = participant.id
+      telemetry.increment("hub_opt_ins_total")
+      return
+    }
+
+    if (hubParticipantId) {
+      if (message.type === "hub_intent") publicHub.setIntent(hubParticipantId, message.looking, message.targetPreference, message.desiredPartySize as 2 | 3 | 4)
+      else if (message.type === "hub_move") publicHub.move(hubParticipantId, message.sequence, message.move)
+      else if (message.type === "hub_emote") {
+        if (publicHub.emote(hubParticipantId, message.kind)) telemetry.increment(`hub_emote_${message.kind}_total`)
+        else telemetry.increment("hub_emote_rate_limited_total")
+      } else if (message.type === "hub_ping") {
+        if (publicHub.ping(hubParticipantId, message.kind)) telemetry.increment(`hub_ping_${message.kind}_total`)
+        else telemetry.increment("hub_ping_rate_limited_total")
+      } else if (message.type === "hub_report") {
+        const report = publicHub.report(hubParticipantId, message.targetParticipantId, message.reason)
+        if (report) {
+          telemetry.increment("hub_reports_total")
+          structuredLog("hub_reported", { reason: message.reason })
+          void socialStore?.recordHubReport(report.reporterUserId, report.targetUserId, report.reason).catch(() => telemetry.increment("hub_report_persistence_failure_total"))
+        } else telemetry.increment("hub_report_rate_limited_total")
+      } else if (message.type === "hub_block") {
+        const block = publicHub.block(hubParticipantId, message.targetParticipantId)
+        if (block) {
+          telemetry.increment("hub_blocks_total")
+          void socialStore?.recordHubBlock(block.blockerUserId, block.blockedUserId).catch(() => telemetry.increment("hub_block_persistence_failure_total"))
+        }
+      } else if (message.type === "hub_form_band") {
+        const group = publicHub.formBand(hubParticipantId)
+        if (!group) send(socket, { type: "error", code: "FORBIDDEN", message: "At least one compatible looking-for-band outlaw is required" })
+        else {
+          const code = roomCode()
+          const room = new Room(code, (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)), (now) => seasonService.snapshot(now))
+          rooms.set(code, room)
+          reservedRoomsUntil.set(code, Date.now() + 10_000)
+          roomTraces.set(code, randomUUID())
+          group.forEach((participant, index) => send(participant.socket, { type: "hub_band_ready", roomCode: code, leader: index === 0 }))
+          telemetry.increment("hub_private_bands_formed_total")
+          structuredLog("hub_private_band_formed", { traceId: roomTraces.get(code) ?? null, partySize: group.length })
+        }
+      } else if (message.type === "hub_leave") {
+        publicHub.leave(hubParticipantId)
+        hubParticipantId = null
+        telemetry.increment("hub_leaves_total")
+      } else if (message.type === "ping") send(socket, { type: "pong", clientTime: message.clientTime, serverTime: Date.now() })
       return
     }
 
@@ -508,6 +581,7 @@ sockets.on("connection", (socket) => {
     telemetry.gauge("active_connections", activeConnections)
     telemetry.increment("disconnects_total")
     if (joinedRoom && playerId) joinedRoom.disconnect(playerId)
+    if (hubParticipantId) publicHub.leave(hubParticipantId)
   })
 })
 
@@ -565,8 +639,9 @@ setInterval(() => {
           }, "error")
         })
     }
-    if (room.players.size === 0) {
+    if (room.players.size === 0 && (reservedRoomsUntil.get(code) ?? 0) <= Date.now()) {
       rooms.delete(code)
+      reservedRoomsUntil.delete(code)
       observedRoomPhases.delete(code)
       observedMissionStatus.delete(code)
       const traceId = roomTraces.get(code) ?? null
@@ -619,6 +694,13 @@ setInterval(() => void flushRecentPlayers(), 1_000)
 setInterval(() => {
   for (const room of rooms.values()) room.broadcastSnapshot()
 }, 100)
+
+setInterval(() => {
+  publicHub.cleanup()
+  publicHub.broadcastAll()
+  telemetry.gauge("public_hub_instances", publicHub.instances.size)
+  telemetry.gauge("public_hub_players", [...publicHub.instances.values()].reduce((sum, instance) => sum + instance.participants.size, 0))
+}, 250)
 
 async function startServer(): Promise<void> {
   if (seasonStore) {

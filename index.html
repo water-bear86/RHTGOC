@@ -74,6 +74,7 @@
           <button id="ready-button">READY UP</button>
         </div>
         <button class="hidden" id="rejoin-room">REJOIN LAST BAND</button>
+        <button id="join-public-hub">OPT INTO PUBLIC CAMPFIRE</button>
         <button id="start-button">ENTER THE CAMPFIRE <span>→</span></button>
         <small id="intro-controls">WASD / CLICK TO MOVE · E TO INTERACT · SPACE TO FIRE · Q SIGNATURE</small>
       </div>
@@ -243,6 +244,18 @@
       </label>
       <div class="hub-actions"><button id="hub-copy-code">COPY INVITE CODE</button><button id="hub-ready">START SOLO</button></div>
       <small id="hub-state">Move around the fire. The board keeps the playfield clear.</small>
+    </section>
+    <section class="public-hub-panel hidden" id="public-hub-panel" aria-label="Opt-in public campfire">
+      <span class="eyebrow">OPT-IN PUBLIC CAMP</span>
+      <div class="hub-heading"><h2>Find a band</h2><b id="public-hub-count">0/12</b></div>
+      <p>No public text or voice. Use fixed intent, pings, emotes, mute, block, and report.</p>
+      <label>TARGET <select id="public-hub-target"><option value="any">Any trusted mission</option><option value="peoples-purse">People's Purse</option><option value="prison-wagon">Iron Road</option><option value="royal-storehouse">Nottingham Ledger</option></select></label>
+      <label>PARTY SIZE <select id="public-hub-size"><option value="2">2 outlaws</option><option value="3">3 outlaws</option><option value="4">4 outlaws</option></select></label>
+      <div class="public-hub-actions"><button id="public-hub-looking">START LOOKING</button><button id="public-hub-form" disabled>FORM PRIVATE BAND</button></div>
+      <div class="public-hub-emotes"><button data-hub-emote="wave">WAVE</button><button data-hub-emote="cheer">CHEER</button><button data-hub-emote="bow">BOW</button><button data-hub-ping="regroup">REGROUP</button></div>
+      <ul id="public-hub-list"></ul>
+      <button id="public-hub-leave">LEAVE PUBLIC CAMP</button>
+      <small id="public-hub-status">Presence in this instance expires after one idle minute.</small>
     </section>
     <script type="module" src="/src/main.ts"></script>
   </body>

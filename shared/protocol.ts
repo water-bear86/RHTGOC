@@ -45,6 +45,15 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("deposit_contribution"), contributionType: ContributionTypeSchema }),
   z.object({ type: z.literal("toggle_contribution"), contributionId: z.string().uuid() }),
   z.object({ type: z.literal("revoke_contribution"), contributionId: z.string().uuid() }),
+  z.object({ type: z.literal("join_public_hub"), version: z.literal(PROTOCOL_VERSION), displayName: DisplayNameSchema, characterId: CharacterIdSchema, accessToken: z.string().min(20).max(4_096) }),
+  z.object({ type: z.literal("hub_intent"), looking: z.boolean(), targetPreference: z.enum(["any", "peoples-purse", "prison-wagon", "royal-storehouse"]), desiredPartySize: z.number().int().min(2).max(4) }),
+  z.object({ type: z.literal("hub_move"), sequence: z.number().int().nonnegative(), move: z.object({ x: z.number().min(-1).max(1), z: z.number().min(-1).max(1) }) }),
+  z.object({ type: z.literal("hub_emote"), kind: z.enum(["wave", "cheer", "bow"]) }),
+  z.object({ type: z.literal("hub_ping"), kind: z.enum(["regroup", "target"]) }),
+  z.object({ type: z.literal("hub_form_band") }),
+  z.object({ type: z.literal("hub_report"), targetParticipantId: z.string().uuid(), reason: z.enum(["harassment", "griefing", "unsafe-name", "cheating"]) }),
+  z.object({ type: z.literal("hub_block"), targetParticipantId: z.string().uuid() }),
+  z.object({ type: z.literal("hub_leave") }),
   z.object({
     type: z.literal("input"),
     sequence: z.number().int().nonnegative(),
@@ -276,9 +285,26 @@ export interface BandContribution {
   resolvedAt: number | null
 }
 
+export interface PublicHubPlayer {
+  id: string
+  displayName: string
+  characterId: CharacterId
+  position: { x: number; z: number }
+  looking: boolean
+  targetPreference: "any" | "peoples-purse" | "prison-wagon" | "royal-storehouse"
+  desiredPartySize: 2 | 3 | 4
+  emote: "wave" | "cheer" | "bow" | null
+  emoteExpiresAt: number
+  ping: "regroup" | "target" | null
+  pingExpiresAt: number
+}
+
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
   | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; rescueOffer: RescueOffer | null; contributions: BandContribution[]; selectedContributionIds: string[]; season: SherwoodSeasonSnapshot | null; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
+  | { type: "hub_welcome"; instanceId: string; participantId: string; capacity: number }
+  | { type: "hub_state"; instanceId: string; players: PublicHubPlayer[] }
+  | { type: "hub_band_ready"; roomCode: string; leader: boolean }
   | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string }

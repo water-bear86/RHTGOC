@@ -20,7 +20,7 @@ import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard, type L
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
-import type { BandContribution, ContributionType, LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionPreparation, MissionSnapshot, MissionTrap, PingKind, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { BandContribution, ContributionType, LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionPreparation, MissionSnapshot, MissionTrap, PingKind, PublicHubPlayer, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import type { SherwoodSeasonSnapshot } from "../shared/sherwood-season"
@@ -133,6 +133,7 @@ const mobileSpectatorSetting = document.querySelector<HTMLInputElement>("#settin
 const missionDebugButton = document.querySelector<HTMLButtonElement>("#mission-debug-button")!
 const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
 const rejoinRoomButton = document.querySelector<HTMLButtonElement>("#rejoin-room")!
+const joinPublicHubButton = document.querySelector<HTMLButtonElement>("#join-public-hub")!
 const hubPanel = document.querySelector<HTMLElement>("#hub-panel")!
 const hubRoomCode = document.querySelector<HTMLElement>("#hub-room-code")!
 const hubRecent = document.querySelector<HTMLElement>("#hub-recent")!
@@ -160,6 +161,17 @@ const hubCopyCode = document.querySelector<HTMLButtonElement>("#hub-copy-code")!
 const hubReady = document.querySelector<HTMLButtonElement>("#hub-ready")!
 const hubState = document.querySelector<HTMLElement>("#hub-state")!
 const returnHubButton = document.querySelector<HTMLButtonElement>("#return-hub")!
+const publicHubPanel = document.querySelector<HTMLElement>("#public-hub-panel")!
+const publicHubCount = document.querySelector<HTMLElement>("#public-hub-count")!
+const publicHubTarget = document.querySelector<HTMLSelectElement>("#public-hub-target")!
+const publicHubSize = document.querySelector<HTMLSelectElement>("#public-hub-size")!
+const publicHubLooking = document.querySelector<HTMLButtonElement>("#public-hub-looking")!
+const publicHubForm = document.querySelector<HTMLButtonElement>("#public-hub-form")!
+const publicHubEmotes = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-emote]")]
+const publicHubPings = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-ping]")]
+const publicHubList = document.querySelector<HTMLUListElement>("#public-hub-list")!
+const publicHubLeave = document.querySelector<HTMLButtonElement>("#public-hub-leave")!
+const publicHubStatus = document.querySelector<HTMLElement>("#public-hub-status")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
 const invitedRoom = new URLSearchParams(location.search).get("room")?.trim().toUpperCase()
 if (invitedRoom?.match(/^[A-Z2-9]{6}$/)) roomCodeInput.value = invitedRoom
@@ -236,6 +248,10 @@ let previousGamepadButtons: boolean[] = []
 let lastPanelTrigger: HTMLElement | null = null
 let currentSocial: SocialState | null = null
 let lastPresenceSignature = ""
+let inPublicHub = false
+let publicHubParticipantId: string | null = null
+let publicHubPlayers: PublicHubPlayer[] = []
+let publicHubIsLooking = false
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
@@ -738,6 +754,11 @@ scene.add(destinationMarker)
 
 const multiplayer = new MultiplayerClient({
   onWelcome: (_playerId, roomCode) => {
+    inPublicHub = false
+    publicHubIsLooking = false
+    publicHubPlayers = []
+    publicHubParticipantId = null
+    publicHubPanel.classList.add("hidden")
     roomConnected = true
     localStorage.setItem("sherwood:last-room-code", roomCode)
     lobbyCode.textContent = roomCode
@@ -831,7 +852,40 @@ const multiplayer = new MultiplayerClient({
     if (inHub) hubState.textContent = connected ? "Connected · choose a target and ready together." : "Connection lost · attempting to return to this camp."
     if (!connected) void syncPresence("available", null)
   },
+  onHubWelcome: (_instanceId, participantId, capacity) => {
+    inPublicHub = true
+    inHub = false
+    multiplayerActive = false
+    publicHubParticipantId = participantId
+    running = true
+    intro.classList.add("closed")
+    hubPanel.classList.add("hidden")
+    publicHubPanel.classList.remove("hidden")
+    partyHud.classList.add("hidden")
+    setMissionWorldVisible(false)
+    objectiveElement.textContent = "Meet outlaws and form a private band"
+    missionModifiers.textContent = `OPT-IN PUBLIC CAMP · CAP ${capacity} · NO PUBLIC CHAT`
+    void syncPresence("available", null)
+  },
+  onHubState: (players) => {
+    publicHubPlayers = players
+    const local = players.find((player) => player.id === publicHubParticipantId)
+    if (local) state.player.position = { ...local.position }
+    const remotes = players.filter((player) => player.id !== publicHubParticipantId).map(hubPlayerAsRoomPlayer)
+    ensureRemotePlayers(remotes)
+    const receivedAt = performance.now()
+    for (const player of remotes) remoteViews.get(player.id)?.snapshots.push(player.position, receivedAt)
+    renderPublicHub()
+  },
 })
+
+function hubPlayerAsRoomPlayer(player: PublicHubPlayer): RoomPlayer {
+  return {
+    id: player.id, displayName: player.displayName, characterId: player.characterId, loadoutId: "balanced", ready: player.looking, connected: true,
+    health: 3, arrows: 0, loot: 0, downedFor: 0, signatureCooldown: 0, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0, trapHits: 0, sabotageCount: 0,
+    position: { ...player.position }, lastInputSequence: 0,
+  }
+}
 
 function setMissionWorldVisible(visible: boolean): void {
   cartView.visible = visible
@@ -902,6 +956,42 @@ function renderHub(): void {
   hubState.textContent = roomConnected
     ? `${isLeader ? "Band leader chooses the target." : "The band leader chooses the target."} Ready together when roles and kits are set.`
     : "Move around the fire or start the selected mission."
+}
+
+function renderPublicHub(): void {
+  publicHubCount.textContent = `${publicHubPlayers.length}/12`
+  publicHubLooking.textContent = publicHubIsLooking ? "STOP LOOKING" : "START LOOKING"
+  const desiredPartySize = Number(publicHubSize.value)
+  const compatible = publicHubPlayers.filter((player) => player.id !== publicHubParticipantId && player.looking && player.desiredPartySize === desiredPartySize && (publicHubTarget.value === "any" || player.targetPreference === "any" || player.targetPreference === publicHubTarget.value)).length
+  publicHubForm.disabled = !publicHubIsLooking || compatible < desiredPartySize - 1
+  publicHubList.replaceChildren()
+  for (const player of publicHubPlayers) {
+    const item = document.createElement("li")
+    const copy = document.createElement("div")
+    const name = document.createElement("span")
+    const detail = document.createElement("small")
+    name.textContent = `${player.displayName} · ${characterName(player.characterId)}${player.emote ? ` · ${player.emote.toUpperCase()}` : ""}${player.ping ? ` · ${player.ping.toUpperCase()}!` : ""}`
+    detail.textContent = player.looking ? `LOOKING · ${player.targetPreference.replaceAll("-", " ")} · ${player.desiredPartySize}P` : "At the fire"
+    copy.append(name, detail)
+    const actions = document.createElement("div")
+    if (player.id !== publicHubParticipantId) {
+      const mute = document.createElement("button")
+      mute.textContent = mutedPlayerIds.has(player.id) ? "UNMUTE" : "MUTE"
+      mute.addEventListener("click", () => { if (mutedPlayerIds.has(player.id)) mutedPlayerIds.delete(player.id); else mutedPlayerIds.add(player.id); renderPublicHub() })
+      const report = document.createElement("button")
+      report.textContent = "REPORT"
+      report.addEventListener("click", () => { multiplayer.reportHubPlayer(player.id, "griefing"); publicHubStatus.textContent = "Fixed-reason report recorded without public text." })
+      const block = document.createElement("button")
+      block.textContent = "BLOCK"
+      block.addEventListener("click", () => { mutedPlayerIds.add(player.id); multiplayer.blockHubPlayer(player.id); publicHubStatus.textContent = "Blocked player hidden from this public camp." })
+      actions.append(mute, report, block)
+    }
+    item.append(copy, actions)
+    publicHubList.append(item)
+  }
+  publicHubStatus.textContent = publicHubIsLooking
+    ? `${compatible} compatible outlaw${compatible === 1 ? "" : "s"} · friends receive placement priority when capacity permits.`
+    : "Opt in to looking-for-band when your target and party size are ready."
 }
 
 function renderRotationCountdown(): void {
@@ -2498,7 +2588,14 @@ function animate(): void {
   if (running) {
     const move = getMoveInput()
     let events: string[] = []
-    if (inHub) {
+    if (inPublicHub) {
+      multiplayer.sendHubMove(move)
+      const length = Math.hypot(move.x, move.z)
+      if (length > 0.001) {
+        state.player.position.x = Math.max(-18, Math.min(-4, state.player.position.x + (move.x / length) * 5.8 * dt))
+        state.player.position.z = Math.max(2, Math.min(16, state.player.position.z + (move.z / length) * 5.8 * dt))
+      }
+    } else if (inHub) {
       const length = Math.hypot(move.x, move.z)
       if (length > 0.001) {
         state.player.position.x = Math.max(-20, Math.min(20, state.player.position.x + (move.x / length) * 5.8 * dt))
@@ -2569,6 +2666,21 @@ rejoinRoomButton.addEventListener("click", () => {
   multiplayer.joinRoom(code, displayName, selectedCharacter)
 })
 
+joinPublicHubButton.addEventListener("click", () => void (async () => {
+  const social = await loadSocialState().catch(() => null)
+  if (!social?.session) {
+    openPanel(socialPanel, joinPublicHubButton)
+    socialStatus.textContent = "Sign in by private email link before opting into the public camp."
+    await refreshSocialPanel()
+    return
+  }
+  currentSocial = social
+  const displayName = playerNameInput.value.trim().slice(0, 20)
+  if (!displayName) return
+  localStorage.setItem("sherwood-rebellion:player-name", displayName)
+  multiplayer.joinPublicHub(displayName, selectedCharacter)
+})())
+
 createRoomButton.addEventListener("click", () => {
   const displayName = playerNameInput.value.trim().slice(0, 20)
   if (!displayName) {
@@ -2616,6 +2728,30 @@ hubAcceptRescue.addEventListener("click", () => {
 })
 hubAbandonRescue.addEventListener("click", () => {
   if (currentRescueOffer) multiplayer.abandonRescue(currentRescueOffer.id)
+})
+publicHubLooking.addEventListener("click", () => {
+  publicHubIsLooking = !publicHubIsLooking
+  multiplayer.setHubIntent(publicHubIsLooking, publicHubTarget.value as PublicHubPlayer["targetPreference"], Number(publicHubSize.value) as 2 | 3 | 4)
+  renderPublicHub()
+})
+for (const select of [publicHubTarget, publicHubSize]) select.addEventListener("change", () => {
+  if (publicHubIsLooking) multiplayer.setHubIntent(true, publicHubTarget.value as PublicHubPlayer["targetPreference"], Number(publicHubSize.value) as 2 | 3 | 4)
+})
+publicHubForm.addEventListener("click", () => multiplayer.formHubBand())
+publicHubEmotes.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubEmote(button.dataset.hubEmote as "wave" | "cheer" | "bow")))
+publicHubPings.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubPing(button.dataset.hubPing as "regroup" | "target")))
+publicHubLeave.addEventListener("click", () => {
+  multiplayer.leavePublicHub()
+  window.setTimeout(() => multiplayer.close(), 80)
+  inPublicHub = false
+  publicHubIsLooking = false
+  publicHubParticipantId = null
+  publicHubPlayers = []
+  publicHubPanel.classList.add("hidden")
+  intro.classList.remove("closed")
+  running = false
+  ensureRemotePlayers([])
+  void syncPresence("available", null)
 })
 contributionDepositButtons.forEach((button) => button.addEventListener("click", () => {
   const type = button.dataset.contributionType
