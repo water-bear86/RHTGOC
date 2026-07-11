@@ -34,6 +34,7 @@
       </aside>
       <button class="help-button" id="help-button" aria-label="Open controls">?</button>
       <button class="leaderboard-button" id="leaderboard-button" aria-label="Open leaderboard">♜</button>
+      <button class="safety-button" id="safety-button" aria-label="Open band safety">♢</button>
       <div class="prompt" id="prompt">Click the ground or use WASD to move</div>
       <div class="toast" id="toast"></div>
     </div>
@@ -102,6 +103,14 @@
         <button data-vote="watchtower">WATCHTOWER <b>0</b></button>
       </div>
       <p class="board-state" id="vote-state">The band decides together.</p>
+    </div>
+    <div class="panel safety-panel hidden" id="safety-panel">
+      <button id="close-safety" aria-label="Close band safety">×</button>
+      <span class="eyebrow">BAND SAFETY</span>
+      <h2>Keep Sherwood civil</h2>
+      <p class="board-state">Mute is local. Reports use fixed reasons. The room leader can remove or block a player from the current room.</p>
+      <ul id="safety-party-list"></ul>
+      <small class="board-note">No public chat, voice, trading, or user-generated content is enabled.</small>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -128,6 +128,9 @@ sockets.on("connection", (socket) => {
     if (message.type === "action") joinedRoom.action(playerId, message.action, message.targetPlayerId)
     if (message.type === "world_ping") joinedRoom.ping(playerId, message.kind)
     if (message.type === "redistribution_vote") joinedRoom.vote(playerId, message.choice)
+    if (message.type === "moderation" && !joinedRoom.moderate(playerId, message.targetPlayerId, message.action, message.reason)) {
+      send(socket, { type: "error", code: "FORBIDDEN", message: "That moderation action is not allowed" })
+    }
     if (message.type === "ping") send(socket, { type: "pong", clientTime: message.clientTime, serverTime: Date.now() })
   })
 

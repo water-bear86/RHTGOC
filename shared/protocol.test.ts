@@ -27,5 +27,7 @@ describe("Merry Band protocol", () => {
     expect(parseClientMessage({ type: "world_ping", kind: "admin" })).toBeNull()
     expect(parseClientMessage({ type: "redistribution_vote", choice: "granary" })).toEqual({ type: "redistribution_vote", choice: "granary" })
     expect(parseClientMessage({ type: "redistribution_vote", choice: "personal_wallet" })).toBeNull()
+    expect(parseClientMessage({ type: "moderation", action: "report", targetPlayerId: "f7870cde-771f-4d25-aa85-85c20c862a49", reason: "griefing" })).not.toBeNull()
+    expect(parseClientMessage({ type: "moderation", action: "report", targetPlayerId: "f7870cde-771f-4d25-aa85-85c20c862a49", reason: "free-text" })).toBeNull()
   })
 })

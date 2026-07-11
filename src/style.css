@@ -66,6 +66,7 @@ button { font: inherit; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .help-button { pointer-events: auto; position: absolute; right: 28px; bottom: 28px; width: 38px; height: 38px; color: var(--cream); background: #10251dc7; border: 1px solid #f7f0d452; border-radius: 50%; cursor: pointer; }
 .leaderboard-button { pointer-events: auto; position: absolute; right: 76px; bottom: 28px; width: 38px; height: 38px; color: var(--gold); background: #10251dc7; border: 1px solid #e4b65369; border-radius: 50%; cursor: pointer; }
+.safety-button { pointer-events: auto; position: absolute; right: 124px; bottom: 28px; width: 38px; height: 38px; color: #b7cd8b; background: #10251dc7; border: 1px solid #b7cd8b69; border-radius: 50%; cursor: pointer; }
 
 .intro { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; overflow-y: auto; background: radial-gradient(circle at 58% 40%, transparent 0 18%, #07120bc4 70%), linear-gradient(90deg, #07120bee, #07120b33); transition: opacity .8s ease, visibility .8s; }
 .intro.closed { opacity: 0; visibility: hidden; pointer-events: none; }
@@ -128,6 +129,11 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .vote-choices button.selected { border-color: var(--gold); color: var(--gold); }
 .vote-choices button:disabled { cursor: default; opacity: .65; }
 .vote-choices b { display: block; margin-top: 5px; color: var(--gold); }
+.safety-panel ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.safety-panel li { padding: 9px; background: #ffffff08; }
+.safety-panel li > span { display: block; margin-bottom: 7px; font-size: 11px; }
+.safety-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.safety-actions button { position: static; padding: 6px 8px; color: var(--cream); background: #294632; border: 1px solid #f7f0d42b; font-size: 8px; cursor: pointer; }
 
 @media (max-height: 850px) {
   .intro { place-items: start center; }
@@ -157,4 +163,5 @@ h1 em { color: #b7cd8b; font-style: normal; }
   .prompt { bottom: 18px; max-width: 72vw; text-align: center; }
   .help-button { right: 14px; bottom: 18px; }
   .leaderboard-button { right: 60px; bottom: 18px; }
+  .safety-button { right: 106px; bottom: 18px; }
 }

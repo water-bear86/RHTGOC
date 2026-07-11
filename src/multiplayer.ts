@@ -71,6 +71,10 @@ export class MultiplayerClient {
     this.send({ type: "redistribution_vote", choice })
   }
 
+  moderate(action: "report" | "remove" | "block", targetPlayerId: string, reason?: "harassment" | "griefing" | "unsafe-name" | "cheating"): void {
+    this.send({ type: "moderation", action, targetPlayerId, reason })
+  }
+
   close(): void {
     this.intentionallyClosed = true
     this.connectionId += 1

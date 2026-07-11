@@ -63,6 +63,10 @@ const resultBreakdown = document.querySelector<HTMLDListElement>("#result-breakd
 const communityAllocation = document.querySelector<HTMLElement>("#community-allocation")!
 const voteState = document.querySelector<HTMLElement>("#vote-state")!
 const voteButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-vote]")]
+const safetyButton = document.querySelector<HTMLButtonElement>("#safety-button")!
+const safetyPanel = document.querySelector<HTMLDivElement>("#safety-panel")!
+const closeSafety = document.querySelector<HTMLButtonElement>("#close-safety")!
+const safetyPartyList = document.querySelector<HTMLUListElement>("#safety-party-list")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
 
 const scene = new THREE.Scene()
@@ -122,6 +126,7 @@ interface RemoteView {
 const remoteViews = new Map<string, RemoteView>()
 const pingViews = new Map<number, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
+const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
 let robinRangerMixer: THREE.AnimationMixer | null = null
@@ -424,6 +429,7 @@ const multiplayer = new MultiplayerClient({
   onRoomState: (_roomCode, phase, players) => {
     currentRoomPlayers = players
     renderParty(players)
+    renderSafetyPanel(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
     localReady = localPlayer?.ready ?? false
     if (localPlayer) {
@@ -464,6 +470,7 @@ const multiplayer = new MultiplayerClient({
       return snapshotPlayer ? { ...roomPlayer, ...snapshotPlayer } : roomPlayer
     })
     renderParty(currentRoomPlayers)
+    renderSafetyPanel(currentRoomPlayers)
     applyMissionSnapshot(mission)
   },
   onError: (message) => {
@@ -550,8 +557,9 @@ function showMissionEvent(event: MissionEvent): void {
 }
 
 function syncPingViews(pings: WorldPing[]): void {
-  const activeIds = new Set(pings.map((ping) => ping.id))
-  for (const ping of pings) {
+  const visiblePings = pings.filter((ping) => !mutedPlayerIds.has(ping.playerId))
+  const activeIds = new Set(visiblePings.map((ping) => ping.id))
+  for (const ping of visiblePings) {
     let view = pingViews.get(ping.id)
     if (!view) {
       view = createPingView(ping)
@@ -564,6 +572,40 @@ function syncPingViews(pings: WorldPing[]): void {
     if (activeIds.has(id)) continue
     scene.remove(view)
     pingViews.delete(id)
+  }
+}
+
+function renderSafetyPanel(players: RoomPlayer[]): void {
+  safetyPartyList.replaceChildren()
+  for (const player of players) {
+    if (player.id === multiplayer.playerId) continue
+    const item = document.createElement("li")
+    const identity = document.createElement("span")
+    identity.textContent = `${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}`
+    const actions = document.createElement("div")
+    actions.className = "safety-actions"
+    const mute = document.createElement("button")
+    mute.textContent = mutedPlayerIds.has(player.id) ? "UNMUTE" : "MUTE"
+    mute.addEventListener("click", () => {
+      if (mutedPlayerIds.has(player.id)) mutedPlayerIds.delete(player.id)
+      else mutedPlayerIds.add(player.id)
+      renderSafetyPanel(currentRoomPlayers)
+    })
+    const report = document.createElement("button")
+    report.textContent = "REPORT GRIEFING"
+    report.addEventListener("click", () => {
+      multiplayer.moderate("report", player.id, "griefing")
+      showToast("Report sent to the room audit")
+    })
+    const remove = document.createElement("button")
+    remove.textContent = "REMOVE"
+    remove.addEventListener("click", () => multiplayer.moderate("remove", player.id))
+    const block = document.createElement("button")
+    block.textContent = "BLOCK"
+    block.addEventListener("click", () => multiplayer.moderate("block", player.id))
+    actions.append(mute, report, remove, block)
+    item.append(identity, actions)
+    safetyPartyList.append(item)
   }
 }
 
@@ -820,7 +862,7 @@ function useSignature(): void {
 }
 
 function isModalOpen(): boolean {
-  return !helpPanel.classList.contains("hidden") || !leaderboardPanel.classList.contains("hidden") || !resultsPanel.classList.contains("hidden")
+  return !helpPanel.classList.contains("hidden") || !leaderboardPanel.classList.contains("hidden") || !resultsPanel.classList.contains("hidden") || !safetyPanel.classList.contains("hidden")
 }
 
 async function openLeaderboard(): Promise<void> {
@@ -1108,6 +1150,8 @@ leaderboardButton.addEventListener("click", () => void openLeaderboard())
 closeLeaderboard.addEventListener("click", () => leaderboardPanel.classList.add("hidden"))
 closeResults.addEventListener("click", () => resultsPanel.classList.add("hidden"))
 voteButtons.forEach((button) => button.addEventListener("click", () => multiplayer.vote(button.dataset.vote as VoteChoice)))
+safetyButton.addEventListener("click", () => safetyPanel.classList.remove("hidden"))
+closeSafety.addEventListener("click", () => safetyPanel.classList.add("hidden"))
 
 window.addEventListener("keydown", (event) => {
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) event.preventDefault()

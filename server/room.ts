@@ -37,6 +37,8 @@ export class Room {
   phase: "lobby" | "mission" = "lobby"
   tick = 0
   mission: Mission | null = null
+  readonly moderationEvents: Array<{ at: number; actorId: string; targetId: string; action: "report" | "remove" | "block"; reason?: string }> = []
+  private readonly bannedReconnectTokens = new Set<string>()
 
   constructor(code: string) {
     this.code = code
@@ -83,6 +85,7 @@ export class Room {
   }
 
   reconnect(socket: WebSocket, token: string, now = Date.now()): ConnectedPlayer | null {
+    if (this.bannedReconnectTokens.has(token)) return null
     const player = [...this.players.values()].find((candidate) => candidate.reconnectToken === token)
     if (!player || player.disconnectedAt === null || now - player.disconnectedAt > RECONNECT_GRACE_MS) return null
     player.socket = socket
@@ -146,6 +149,27 @@ export class Room {
     this.mission?.castVote(playerId, choice)
   }
 
+  moderate(
+    actorId: string,
+    targetId: string,
+    action: "report" | "remove" | "block",
+    reason?: "harassment" | "griefing" | "unsafe-name" | "cheating",
+    now = Date.now(),
+  ): boolean {
+    const actor = this.players.get(actorId)
+    const target = this.players.get(targetId)
+    if (!actor?.connected || !target || actorId === targetId) return false
+    if (action === "report" && !reason) return false
+    if (action !== "report" && this.moderatorId() !== actorId) return false
+    this.moderationEvents.push({ at: now, actorId, targetId, action, reason })
+    if (action === "report") return true
+    if (action === "block") this.bannedReconnectTokens.add(target.reconnectToken)
+    target.socket?.close(4003, action === "block" ? "Blocked from this band" : "Removed from this band")
+    this.players.delete(targetId)
+    this.broadcastRoomState()
+    return true
+  }
+
   update(dt: number): void {
     this.pruneDisconnected(Date.now())
     if (!this.mission) return
@@ -173,6 +197,12 @@ export class Room {
   private characterAvailable(characterId: CharacterId, excludingPlayerId?: string): boolean {
     const selected = [...this.players.values()].filter((player) => player.id !== excludingPlayerId && player.characterId === characterId)
     return selected.length < 2
+  }
+
+  private moderatorId(): string | null {
+    return [...this.players.values()]
+      .filter((player) => player.connected)
+      .sort((a, b) => a.spawnIndex - b.spawnIndex)[0]?.id ?? null
   }
 
   broadcastRoomState(): void {

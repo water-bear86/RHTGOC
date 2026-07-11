@@ -39,6 +39,12 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("world_ping"), kind: z.enum(["danger", "target", "route", "loot", "regroup"]) }),
   z.object({ type: z.literal("redistribution_vote"), choice: z.enum(["granary", "infirmary", "watchtower"]) }),
+  z.object({
+    type: z.literal("moderation"),
+    action: z.enum(["report", "remove", "block"]),
+    targetPlayerId: z.string().uuid(),
+    reason: z.enum(["harassment", "griefing", "unsafe-name", "cheating"]).optional(),
+  }),
   z.object({ type: z.literal("ping"), clientTime: z.number().finite() }),
 ])
 
@@ -144,7 +150,7 @@ export type ServerMessage =
   | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; players: RoomPlayer[] }
   | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
-  | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED"; message: string }
+  | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string }
 
 export function parseClientMessage(value: unknown): ClientMessage | null {
   const result = ClientMessageSchema.safeParse(value)

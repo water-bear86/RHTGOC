@@ -4,7 +4,7 @@ import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS } from "../shared/protocol"
 import { Room } from "./room"
 
 function fakeSocket(): WebSocket {
-  return { readyState: WebSocket.CLOSED, OPEN: WebSocket.OPEN, send: () => undefined } as unknown as WebSocket
+  return { readyState: WebSocket.CLOSED, OPEN: WebSocket.OPEN, send: () => undefined, close: () => undefined } as unknown as WebSocket
 }
 
 describe("Merry Band room", () => {
@@ -46,6 +46,24 @@ describe("Merry Band room", () => {
     }
     expect(new Set(rooms.flatMap((room) => [...room.players.keys()])).size).toBe(24)
     expect(rooms.every((room) => room.tick === 1 && room.players.size === 2)).toBe(true)
+  })
+
+  it("audits reports and restricts removal to the current room moderator", () => {
+    const room = new Room("ABC234")
+    const leader = room.addPlayer(fakeSocket(), "Leader", "robin")
+    const member = room.addPlayer(fakeSocket(), "Member", "marian")
+    expect(room.moderate(member.id, leader.id, "remove")).toBe(false)
+    expect(room.moderate(member.id, leader.id, "report", "griefing", 1_000)).toBe(true)
+    expect(room.moderationEvents).toEqual([{ at: 1_000, actorId: member.id, targetId: leader.id, action: "report", reason: "griefing" }])
+  })
+
+  it("blocks a removed reconnect token for the rest of the room", () => {
+    const room = new Room("ABC234")
+    const leader = room.addPlayer(fakeSocket(), "Leader", "robin")
+    const member = room.addPlayer(fakeSocket(), "Member", "marian")
+    expect(room.moderate(leader.id, member.id, "block", undefined, 2_000)).toBe(true)
+    expect(room.players.has(member.id)).toBe(false)
+    expect(room.reconnect(fakeSocket(), member.reconnectToken, 2_001)).toBeNull()
   })
 
   it("starts only when at least two connected players are ready", () => {
