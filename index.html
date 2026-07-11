@@ -88,6 +88,21 @@
       <ol class="leaderboard-list" id="leaderboard-list"></ol>
       <small class="board-note">Only server-validated missions will receive a verified mark. Prototype runs remain unverified.</small>
     </div>
+    <div class="panel results-panel hidden" id="results-panel">
+      <button id="close-results" aria-label="Close mission results">×</button>
+      <span class="eyebrow">HEIST COMPLETE</span>
+      <h2>Mastery <b id="result-grade">—</b></h2>
+      <strong class="result-score" id="result-score">0</strong>
+      <dl class="result-breakdown" id="result-breakdown"></dl>
+      <p class="allocation" id="community-allocation">Every coin goes to Sherwood.</p>
+      <span class="eyebrow">CHOOSE THE VILLAGE'S NEXT WORK</span>
+      <div class="vote-choices">
+        <button data-vote="granary">GRANARY <b>0</b></button>
+        <button data-vote="infirmary">INFIRMARY <b>0</b></button>
+        <button data-vote="watchtower">WATCHTOWER <b>0</b></button>
+      </div>
+      <p class="board-state" id="vote-state">The band decides together.</p>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

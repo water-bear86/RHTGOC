@@ -38,6 +38,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     targetPlayerId: z.string().uuid().optional(),
   }),
   z.object({ type: z.literal("world_ping"), kind: z.enum(["danger", "target", "route", "loot", "regroup"]) }),
+  z.object({ type: z.literal("redistribution_vote"), choice: z.enum(["granary", "infirmary", "watchtower"]) }),
   z.object({ type: z.literal("ping"), clientTime: z.number().finite() }),
 ])
 
@@ -67,7 +68,7 @@ export interface MissionGuard {
 export interface MissionEvent {
   sequence: number
   tick: number
-  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "guard_stunned" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed"
+  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "loot_delivered" | "guard_stunned" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
   playerId?: string
   value?: number
   detail?: string
@@ -100,6 +101,42 @@ export interface MissionSnapshot {
   guards: MissionGuard[]
   pings: WorldPing[]
   latestEvent: MissionEvent | null
+  result: MissionResult | null
+  vote: RedistributionVote | null
+  village: VillageState
+}
+
+export type VoteChoice = "granary" | "infirmary" | "watchtower"
+
+export interface MissionResult {
+  score: number
+  grade: "S" | "A" | "B" | "C"
+  breakdown: {
+    speed: number
+    stealth: number
+    precision: number
+    survival: number
+    rescues: number
+    generosity: number
+  }
+  thresholds: { S: 9000; A: 7500; B: 6000; C: 0 }
+  communityCoin: number
+  personalRenown: number
+}
+
+export interface RedistributionVote {
+  deadlineTick: number
+  counts: Record<VoteChoice, number>
+  votes: Record<string, VoteChoice>
+  resolved: boolean
+  winner: VoteChoice | null
+  allocatedCoin: number
+}
+
+export interface VillageState {
+  granary: number
+  infirmary: number
+  watchtower: number
 }
 
 export type ServerMessage =

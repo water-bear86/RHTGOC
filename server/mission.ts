@@ -1,4 +1,4 @@
-import type { CharacterId, MissionEvent, MissionSnapshot, PingKind, WorldPing } from "../shared/protocol"
+import type { CharacterId, MissionEvent, MissionResult, MissionSnapshot, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 
 export interface MissionPlayer {
   id: string
@@ -20,6 +20,7 @@ export interface MissionPlayer {
   rescueCount: number
   transferCount: number
   lastPingTick: number
+  totalTransferred: number
 }
 
 interface MissionGuardState {
@@ -70,6 +71,14 @@ export class Mission {
   cycle = 1
   elapsedSeconds = 0
   ambushStuns = 0
+  peakHeat = 0
+  alertedSeconds = 0
+  shotsFired = 0
+  shotsHit = 0
+  damageTaken = 0
+  result: MissionResult | null = null
+  vote: RedistributionVote | null = null
+  village: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
   heat = 0
   cartCoin = 120
   cartRefill = 0
@@ -130,9 +139,24 @@ export class Mission {
     return true
   }
 
+  castVote(playerId: string, choice: VoteChoice): boolean {
+    const player = this.players.get(playerId)
+    if (!player?.connected || !this.vote || this.vote.resolved || this.tick > this.vote.deadlineTick) return false
+    this.vote.votes[playerId] = choice
+    this.recountVotes()
+    this.record("vote_cast", playerId, undefined, choice)
+    const eligible = [...this.players.values()].filter((candidate) => candidate.connected && !candidate.captured)
+    if (eligible.length > 0 && eligible.every((candidate) => this.vote?.votes[candidate.id])) this.resolveVote()
+    return true
+  }
+
   update(dt: number): void {
-    if (this.status !== "active") return
+    if (this.status === "failed") return
     this.tick += 1
+    if (this.status === "succeeded") {
+      if (this.vote && !this.vote.resolved && this.tick >= this.vote.deadlineTick) this.resolveVote()
+      return
+    }
     this.elapsedSeconds += dt
     for (let index = this.pings.length - 1; index >= 0; index -= 1) {
       if (this.pings[index].expiresAtTick <= this.tick) this.pings.splice(index, 1)
@@ -169,6 +193,8 @@ export class Mission {
     if (this.phase === "pursuit") this.detectRoute(activePlayers.filter((player) => player.loot > 0), ESCAPE_ROUTES, "escape")
     const hidden = activePlayers.every((player) => Math.abs(player.position.x) > 13 || Math.abs(player.position.z) > 13 || player.veilFor > 0)
     this.heat = Math.max(0, this.heat - (hidden ? 7 : 1.2) * dt)
+    this.peakHeat = Math.max(this.peakHeat, this.heat)
+    if (this.heat > 50) this.alertedSeconds += dt
     for (const guard of this.guards) this.updateGuard(guard, activePlayers, dt)
 
     if (this.players.size > 0 && [...this.players.values()].every((player) => player.captured)) {
@@ -195,6 +221,9 @@ export class Mission {
       guards: this.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, stunnedFor: guard.stunnedFor })),
       pings: this.pings.map((ping) => ({ ...ping, position: { ...ping.position } })),
       latestEvent: this.events.at(-1) ?? null,
+      result: this.result,
+      vote: this.vote ? { ...this.vote, counts: { ...this.vote.counts }, votes: { ...this.vote.votes } } : null,
+      village: { ...this.village },
     }
   }
 
@@ -220,6 +249,15 @@ export class Mission {
     this.record("loot_delivered", player.id, delivered)
     if (this.delivered >= DELIVERY_TARGET && this.status === "active") {
       this.status = "succeeded"
+      this.result = this.calculateResult()
+      this.vote = {
+        deadlineTick: this.tick + 300,
+        counts: { granary: 0, infirmary: 0, watchtower: 0 },
+        votes: {},
+        resolved: false,
+        winner: null,
+        allocatedCoin: this.delivered,
+      }
       this.record("mission_succeeded", player.id, this.delivered)
     } else {
       this.cycle += 1
@@ -233,13 +271,15 @@ export class Mission {
 
   private shoot(player: MissionPlayer): boolean {
     if (player.arrows <= 0 || player.bowCooldown > 0) return false
+    this.shotsFired += 1
+    player.arrows -= 1
+    player.bowCooldown = 0.7
     const target = this.guards
       .filter((guard) => guard.stunnedFor <= 0 && distance(guard.position, player.position) < 9)
       .sort((a, b) => distance(a.position, player.position) - distance(b.position, player.position))[0]
     if (!target) return false
     target.stunnedFor = 3.2
-    player.arrows -= 1
-    player.bowCooldown = 0.7
+    this.shotsHit += 1
     this.record("guard_stunned", player.id, target.id)
     if (this.phase === "ambush") {
       this.ambushStuns += 1
@@ -286,6 +326,7 @@ export class Mission {
     player.loot -= amount
     target.loot += amount
     player.transferCount += 1
+    player.totalTransferred += amount
     this.record("loot_transferred", player.id, amount)
     return true
   }
@@ -300,6 +341,7 @@ export class Mission {
       this.moveToward(guard.position, target.position, 3.35 + this.heat * 0.008, dt)
       if (distance(target.position, guard.position) < 1.25 && target.invulnerableFor === 0) {
         target.health = Math.max(0, target.health - 1)
+        this.damageTaken += 1
         target.invulnerableFor = 2
         this.heat = Math.min(100, this.heat + 15)
         this.record("player_hit", target.id, target.health)
@@ -342,6 +384,48 @@ export class Mission {
     if (this.phase === phase) return
     this.phase = phase
     this.record("phase_changed", playerId, undefined, phase)
+  }
+
+  private calculateResult(): MissionResult {
+    const playerCount = Math.max(1, this.players.size)
+    const clamp = (value: number): number => Math.round(Math.max(0, Math.min(100, value)))
+    const speed = clamp(100 - Math.max(0, this.elapsedSeconds - 720) / 4.8)
+    const stealth = clamp(100 - (this.alertedSeconds / Math.max(1, this.elapsedSeconds)) * 100)
+    const precision = clamp(this.shotsFired === 0 ? 100 : (this.shotsHit / this.shotsFired) * 100)
+    const survival = clamp(100 - (this.damageTaken / (playerCount * 3)) * 100)
+    const rescues = clamp([...this.players.values()].reduce((total, player) => total + player.rescueCount, 0) * 25)
+    const transferred = [...this.players.values()].reduce((total, player) => total + player.totalTransferred, 0)
+    const generosity = clamp((transferred / Math.max(1, this.delivered)) * 200)
+    const score = Math.round((speed * 0.2 + stealth * 0.2 + precision * 0.2 + survival * 0.15 + rescues * 0.15 + generosity * 0.1) * 100)
+    const grade = score >= 9000 ? "S" : score >= 7500 ? "A" : score >= 6000 ? "B" : "C"
+    return {
+      score,
+      grade,
+      breakdown: { speed, stealth, precision, survival, rescues, generosity },
+      thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
+      communityCoin: this.delivered,
+      personalRenown: Math.round(score / playerCount),
+    }
+  }
+
+  private recountVotes(): void {
+    if (!this.vote) return
+    this.vote.counts = { granary: 0, infirmary: 0, watchtower: 0 }
+    for (const [playerId, choice] of Object.entries(this.vote.votes)) {
+      if (this.players.get(playerId)?.connected) this.vote.counts[choice] += 1
+    }
+  }
+
+  private resolveVote(): void {
+    if (!this.vote || this.vote.resolved) return
+    this.recountVotes()
+    const highest = Math.max(...Object.values(this.vote.counts))
+    const candidates = (["granary", "infirmary", "watchtower"] as VoteChoice[]).filter((choice) => this.vote?.counts[choice] === highest)
+    const winner = candidates[this.seed % candidates.length]
+    this.vote.resolved = true
+    this.vote.winner = winner
+    this.village[winner] += 1
+    this.record("vote_resolved", undefined, this.vote.allocatedCoin, winner)
   }
 
   private moveToward(position: { x: number; z: number }, target: { x: number; z: number }, speed: number, dt: number): void {

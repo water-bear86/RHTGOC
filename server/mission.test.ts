@@ -23,6 +23,7 @@ function player(id = "robin", characterId: "robin" | "marian" = "robin"): Missio
     rescueCount: 0,
     transferCount: 0,
     lastPingTick: -20,
+    totalTransferred: 0,
   }
 }
 
@@ -52,9 +53,10 @@ describe("authoritative mission", () => {
     expect(mission.action(robin.id, "interact")).toBe(false)
     expect(mission.action(robin.id, "shoot")).toBe(false)
     robin.position = { x: 8, z: -6 }
+    mission.update(0.7)
     expect(mission.action(robin.id, "shoot")).toBe(true)
     expect(mission.action(robin.id, "shoot")).toBe(false)
-    expect(robin.arrows).toBe(5)
+    expect(robin.arrows).toBe(4)
   })
 
   it("records robbery, extraction, and one idempotent completion", () => {
@@ -69,6 +71,8 @@ describe("authoritative mission", () => {
     mission.delivered = 540
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(mission.status).toBe("succeeded")
+    expect(mission.result?.communityCoin).toBe(660)
+    expect(mission.vote?.allocatedCoin).toBe(mission.result?.communityCoin)
     expect(mission.action(robin.id, "interact")).toBe(false)
     expect(mission.events.filter((event) => event.type === "mission_succeeded")).toHaveLength(1)
   })
@@ -157,5 +161,36 @@ describe("authoritative mission", () => {
     mission.update(0.05)
     expect(mission.entryRoute).toBe("river")
     expect(mission.guards).toHaveLength(5)
+  })
+
+  it("resolves redistribution ties deterministically and changes the village", () => {
+    const robin = player("robin", "robin")
+    const marian = player("marian", "marian")
+    const mission = new Mission("ABC234", new Map([[robin.id, robin], [marian.id, marian]]))
+    mission.phase = "robbery"
+    robin.position = { x: 10, z: -8 }
+    mission.action(robin.id, "interact")
+    mission.phase = "escape"
+    mission.delivered = 540
+    robin.position = { x: -11, z: 9 }
+    mission.action(robin.id, "interact")
+    expect(mission.castVote(robin.id, "granary")).toBe(true)
+    expect(mission.castVote(marian.id, "watchtower")).toBe(true)
+    expect(mission.vote?.resolved).toBe(true)
+    expect(mission.vote?.winner).not.toBeNull()
+    expect(Object.values(mission.village).reduce((sum, level) => sum + level, 0)).toBe(1)
+    expect(mission.vote?.allocatedCoin).toBe(660)
+  })
+
+  it("does not wait for a disconnected voter", () => {
+    const robin = player("robin", "robin")
+    const marian = player("marian", "marian")
+    const mission = new Mission("ABC234", new Map([[robin.id, robin], [marian.id, marian]]))
+    mission.status = "succeeded"
+    mission.vote = { deadlineTick: 300, counts: { granary: 0, infirmary: 0, watchtower: 0 }, votes: {}, resolved: false, winner: null, allocatedCoin: 600 }
+    marian.connected = false
+    expect(mission.castVote(robin.id, "infirmary")).toBe(true)
+    expect(mission.vote.resolved).toBe(true)
+    expect(mission.vote.winner).toBe("infirmary")
   })
 })

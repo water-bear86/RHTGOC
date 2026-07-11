@@ -21,6 +21,7 @@ interface ConnectedPlayer extends RoomPlayer {
   rescueCount: number
   transferCount: number
   lastPingTick: number
+  totalTransferred: number
 }
 
 const spawnPoints = [
@@ -75,6 +76,7 @@ export class Room {
       rescueCount: 0,
       transferCount: 0,
       lastPingTick: -20,
+      totalTransferred: 0,
     }
     this.players.set(player.id, player)
     return player
@@ -138,6 +140,10 @@ export class Room {
 
   ping(playerId: string, kind: "danger" | "target" | "route" | "loot" | "regroup"): void {
     this.mission?.ping(playerId, kind)
+  }
+
+  vote(playerId: string, choice: "granary" | "infirmary" | "watchtower"): void {
+    this.mission?.castVote(playerId, choice)
   }
 
   update(dt: number): void {

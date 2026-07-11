@@ -25,5 +25,7 @@ describe("Merry Band protocol", () => {
     })
     expect(parseClientMessage({ type: "world_ping", kind: "danger" })).toEqual({ type: "world_ping", kind: "danger" })
     expect(parseClientMessage({ type: "world_ping", kind: "admin" })).toBeNull()
+    expect(parseClientMessage({ type: "redistribution_vote", choice: "granary" })).toEqual({ type: "redistribution_vote", choice: "granary" })
+    expect(parseClientMessage({ type: "redistribution_vote", choice: "personal_wallet" })).toBeNull()
   })
 })

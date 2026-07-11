@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type CharacterId, type MissionSnapshot, type PingKind, type RoomPlayer, type ServerMessage } from "../shared/protocol"
+import { PROTOCOL_VERSION, type CharacterId, type MissionSnapshot, type PingKind, type RoomPlayer, type ServerMessage, type VoteChoice } from "../shared/protocol"
 import type { Vec2 } from "./simulation"
 
 export interface MultiplayerEvents {
@@ -65,6 +65,10 @@ export class MultiplayerClient {
 
   sendPing(kind: PingKind): void {
     this.send({ type: "world_ping", kind })
+  }
+
+  vote(choice: VoteChoice): void {
+    this.send({ type: "redistribution_vote", choice })
   }
 
   close(): void {

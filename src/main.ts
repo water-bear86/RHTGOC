@@ -19,7 +19,7 @@ import {
 import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard } from "./leaderboard"
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
-import type { MissionEvent, MissionSnapshot, PingKind, RoomPlayer, WorldPing } from "../shared/protocol"
+import type { MissionEvent, MissionSnapshot, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -55,6 +55,14 @@ const readyButton = document.querySelector<HTMLButtonElement>("#ready-button")!
 const partyHud = document.querySelector<HTMLElement>("#party-hud")!
 const missionPartyList = document.querySelector<HTMLUListElement>("#mission-party-list")!
 const missionRoomCode = document.querySelector<HTMLElement>("#mission-room-code")!
+const resultsPanel = document.querySelector<HTMLDivElement>("#results-panel")!
+const closeResults = document.querySelector<HTMLButtonElement>("#close-results")!
+const resultGrade = document.querySelector<HTMLElement>("#result-grade")!
+const resultScore = document.querySelector<HTMLElement>("#result-score")!
+const resultBreakdown = document.querySelector<HTMLDListElement>("#result-breakdown")!
+const communityAllocation = document.querySelector<HTMLElement>("#community-allocation")!
+const voteState = document.querySelector<HTMLElement>("#vote-state")!
+const voteButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-vote]")]
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
 
 const scene = new THREE.Scene()
@@ -113,6 +121,7 @@ interface RemoteView {
 
 const remoteViews = new Map<string, RemoteView>()
 const pingViews = new Map<number, THREE.Group>()
+const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
 const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
 let robinRangerMixer: THREE.AnimationMixer | null = null
@@ -515,6 +524,8 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
     showMissionEvent(mission.latestEvent)
   }
   syncPingViews(mission.pings)
+  applyVillageState(mission.village)
+  renderMissionResolution(mission)
 }
 
 function showMissionEvent(event: MissionEvent): void {
@@ -593,6 +604,64 @@ function createPingView(ping: WorldPing): THREE.Group {
   sprite.scale.setScalar(0.85)
   group.add(ring, sprite)
   return group
+}
+
+function renderMissionResolution(mission: MissionSnapshot): void {
+  if (!mission.result || !mission.vote) return
+  resultsPanel.classList.remove("hidden")
+  resultGrade.textContent = mission.result.grade
+  resultScore.textContent = mission.result.score.toLocaleString()
+  resultBreakdown.replaceChildren()
+  for (const [label, value] of Object.entries(mission.result.breakdown)) {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = label
+    detail.textContent = `${value}/100`
+    resultBreakdown.append(term, detail)
+  }
+  communityAllocation.textContent = `${mission.result.communityCoin} crown coin is locked for the winning village project. Personal renown cannot reduce it.`
+  for (const button of voteButtons) {
+    const choice = button.dataset.vote as VoteChoice
+    const count = button.querySelector("b")!
+    count.textContent = String(mission.vote.counts[choice])
+    button.classList.toggle("selected", mission.vote.votes[multiplayer.playerId ?? ""] === choice)
+    button.disabled = mission.vote.resolved
+  }
+  voteState.textContent = mission.vote.resolved
+    ? `${mission.vote.winner?.toUpperCase()} WINS · ${mission.vote.allocatedCoin} COIN ALLOCATED`
+    : "The band decides together. Ties resolve deterministically."
+}
+
+function applyVillageState(village: VillageState): void {
+  for (const choice of ["granary", "infirmary", "watchtower"] as VoteChoice[]) {
+    if (village[choice] <= 0 || villageUpgradeViews.has(choice)) continue
+    const view = new THREE.Group()
+    if (choice === "granary") {
+      for (let index = 0; index < 4; index += 1) {
+        const crate = mesh(new THREE.BoxGeometry(0.65, 0.55, 0.65), 0xa87a43)
+        crate.position.set((index % 2) * 0.75, 0.28, Math.floor(index / 2) * 0.75)
+        view.add(crate)
+      }
+      view.position.set(VILLAGE_POSITION.x + 2.4, 0, VILLAGE_POSITION.z)
+    } else if (choice === "infirmary") {
+      const tent = mesh(new THREE.ConeGeometry(1.35, 2.1, 4), 0xd8d0ad)
+      tent.position.y = 1.05
+      tent.rotation.y = Math.PI / 4
+      const cross = mesh(new THREE.BoxGeometry(0.5, 0.12, 0.08), 0xa94132)
+      cross.position.set(0, 1.2, 1.04)
+      view.add(tent, cross)
+      view.position.set(VILLAGE_POSITION.x - 2.7, 0, VILLAGE_POSITION.z + 0.5)
+    } else {
+      const tower = mesh(new THREE.CylinderGeometry(0.65, 0.9, 4.2, 6), 0x715239)
+      tower.position.y = 2.1
+      const roof = mesh(new THREE.ConeGeometry(1.1, 1.2, 6), 0x405538)
+      roof.position.y = 4.55
+      view.add(tower, roof)
+      view.position.set(VILLAGE_POSITION.x, 0, VILLAGE_POSITION.z - 3)
+    }
+    villageUpgradeViews.set(choice, view)
+    scene.add(view)
+  }
 }
 
 function renderParty(players: RoomPlayer[]): void {
@@ -751,7 +820,7 @@ function useSignature(): void {
 }
 
 function isModalOpen(): boolean {
-  return !helpPanel.classList.contains("hidden") || !leaderboardPanel.classList.contains("hidden")
+  return !helpPanel.classList.contains("hidden") || !leaderboardPanel.classList.contains("hidden") || !resultsPanel.classList.contains("hidden")
 }
 
 async function openLeaderboard(): Promise<void> {
@@ -938,7 +1007,7 @@ function animate(): void {
       toastTimer -= dt
       if (toastTimer <= 0) toastElement.classList.remove("show")
     }
-    if (state.won || state.lost) showEnding(state.won)
+    if ((state.won || state.lost) && !multiplayerActive) showEnding(state.won)
   }
   syncViews(elapsed, dt)
   renderer.render(scene, camera)
@@ -1037,6 +1106,8 @@ helpButton.addEventListener("click", () => helpPanel.classList.remove("hidden"))
 closeHelp.addEventListener("click", () => helpPanel.classList.add("hidden"))
 leaderboardButton.addEventListener("click", () => void openLeaderboard())
 closeLeaderboard.addEventListener("click", () => leaderboardPanel.classList.add("hidden"))
+closeResults.addEventListener("click", () => resultsPanel.classList.add("hidden"))
+voteButtons.forEach((button) => button.addEventListener("click", () => multiplayer.vote(button.dataset.vote as VoteChoice)))
 
 window.addEventListener("keydown", (event) => {
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) event.preventDefault()
