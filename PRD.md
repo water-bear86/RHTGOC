@@ -1,10 +1,14 @@
 # Sherwood Rebellion — Product Requirements Document
 
-**Status:** Draft v0.1
+**Status:** Working alpha — sprint boundary 2026-07-11
 
 **Product:** 3D cooperative browser game
 
-**Prototype:** Playable locally
+**Production:** M7 is playable on the permanent AWS Lightsail origin. The live service is not yet a persistence-enabled release.
+
+**Active pull request:** [#38 — M8 Storybook Sherwood Art Pass](https://github.com/water-bear86/sherwood-rebellion/pull/38), pushed through the core cel-shading checkpoint and intentionally paused before village integration.
+
+**Local worktree:** A deterministic village candidate and shared collision work are prepared but uncommitted and not visible in production.
 
 **Core technology:** Three.js, TypeScript, Vite
 
@@ -87,19 +91,21 @@ Difficulty may increase through smarter combinations, shorter timing windows, ad
 9. Improve villages, the outlaw camp, equipment, reputation, or future opportunities.
 10. Select the next target as the Sheriff adapts.
 
-## 6. Current vertical slice
+## 6. Current alpha
 
-The existing prototype establishes:
+The permanent M7 playtest establishes:
 
-- A true 3D low-poly Sherwood environment.
-- Perspective follow camera with click and keyboard movement.
-- A guarded tax cart that can be robbed.
-- Guard patrol, pursuit, damage, and archery stun behavior.
-- Health, arrows, loot, Wanted heat, village delivery, and win/fail states.
-- A responsive DOM HUD over the 3D playfield.
-- Renderer-independent simulation state and automated simulation tests.
+- A true 3D Sherwood world with a perspective follow camera, click and keyboard movement, archery, role abilities, Wanted pressure, loot, rescue, redistribution, and mastery scoring.
+- Server-authoritative private Merry Band rooms for two to four players, shared missions, reconnects, role selection, readiness, pings, downing, revives, loot transfer, and redistribution votes.
+- Four playable named heroes: Robin, Maid Marian, Little John, and Much.
+- A campfire mission board and three versioned missions: the People's Purse tax-cart heist, prison-wagon rescue, and royal-storehouse infiltration.
+- An opt-in public campfire, privacy-safe friends and invitations, daily Sheriff targets, rescue follow-ups, asynchronous band preparations, and seasonal village projects.
+- Seasonal leaderboard schemas, privacy-filtered reads, authoritative write paths, quarantine review, and finalization rules.
+- Authored Robin and tree GLBs alongside procedural scenery, with automated mission, simulation, networking, persistence, social, and browser checks.
 
-The current slice is single-player and uses procedural placeholder geometry. It validates the fundamental robbery-and-return loop but not yet the social experience.
+The pushed M8 branch adds the shared four-step toon-material system and its standard/degraded render profiles. It is not the production build. The village candidate, shared cottage collision, and client asset helpers exist only in the paused local worktree; the cottage and wagon are not yet rendered in gameplay.
+
+Production remains deliberately fail-closed without the server-only Supabase credential. Persistent band, rescue, contribution, season, social, and verified-leaderboard writes are inactive until #9, #10, and #14 pass their production proofs. Operator-secret rotation and the explicitly approved temporary-project restore drill are release gates.
 
 ## 7. Social product model
 
@@ -185,17 +191,19 @@ The first social release must support one complete four-player experience:
 - The winning choice produces a visible village or camp change.
 - Personal progression cannot override or secretly reduce the agreed community allocation.
 
-## 9. Persistent social expansion
+## 9. Delivered social alpha and activation boundary
 
-After the social MVP proves successful, expand in this order:
+The M7 codebase includes:
 
-1. Persistent Merry Bands, banners, membership, and shared camp upgrades.
-2. Public campfire hub with opt-in proximity and lightweight discovery.
-3. Daily Sheriff targets, regional bounties, and rotating mission modifiers.
-4. Rescue missions triggered by captured players or failed band missions.
-5. Asynchronous contributions such as supplies, intelligence, traps, and safe houses.
-6. Community villages built through contributions from multiple bands.
-7. Seasonal Sheriff campaigns and regional competition.
+1. Persistent Merry Band, membership, banner, camp, and village projections.
+2. An opt-in public campfire for lightweight discovery.
+3. Privacy-safe friends, presence, recent players, account blocking, and direct invitations.
+4. Daily Sheriff targets, rotating modifiers, and regional bounties.
+5. Private-band rescue follow-ups from captured or failed runs.
+6. Asynchronous supplies, intelligence, traps, and safe-house preparations.
+7. Shared seasonal village projects, Sheriff pressure, finite finales, and archived campaigns.
+
+These capabilities have schema and runtime paths, but the permanent deployment currently runs without the trusted server credential and therefore cannot claim durable social progression or verified ranked writes. Public-alpha activation requires the production proofs in #9, #10, and #14; browser clients must never be given a service credential to bypass that gate.
 
 Competition should emphasize clean escapes, rescues, generosity, tactical execution, and village loyalty—not raw wealth accumulation alone.
 
@@ -294,34 +302,21 @@ The social MVP should be evaluated on:
 
 The primary qualitative test is whether players naturally tell stories about saving one another, escaping together, and deciding what to do with the money.
 
-## 16. Milestones
+## 16. Milestone ledger
 
-### Milestone 0 — Current prototype
+| Milestone | Status | Product outcome |
+| --- | --- | --- |
+| M1 · Playable Rebellion | Closed | True-3D robbery loop, Maid Marian, mastery model, and leaderboard foundation. |
+| M2 · Multiplayer Movement Room | Closed | Private rooms, synchronized players, roles, readiness, and reconnects. |
+| M3 · Cooperative Heist | Closed | Server-authoritative four-player tax-cart heist with shared rescue and extraction. |
+| M4 · Social Resolution | Open | Results and safety are delivered; durable band progression and verified production leaderboards remain gated by #9 and #10. |
+| M5 · Replayable Alpha | Open | Routes, modifiers, assets, accessibility, and telemetry are delivered; production operations remain gated by #14. |
+| M6 · Four Heroes & Mission Kit | Closed | Robin, Marian, Little John, and Much; campfire hub; three versioned missions. |
+| M7 · Living Sherwood Playtest | Closed | Public campfire, friends/invites, rotations, rescue chains, preparations, and seasonal campaigns. |
+| M8 · Storybook Sherwood Art Pass | In progress | Asset gate, restrained cel shading, and curated village integration tracked in #35–#37 and draft PR #38. |
+| M9 · Deeper Sherwood Public Alpha | Planned | Twelve ordered issues (#39–#50) covering release promotion, onboarding, mastery, stealth, planning, authored world composition, Nottingham, matchmaking, replays, accessibility, performance, and public playtesting. |
 
-- Single-player 3D robbery-and-return loop.
-- Procedural placeholder world and characters.
-- Local simulation tests and browser playtest.
-
-### Milestone 1 — Multiplayer movement room
-
-- Room creation and join code.
-- Two to four synchronized players.
-- Names, roles, interpolation, disconnect, and reconnect behavior.
-
-### Milestone 2 — Cooperative heist
-
-- Shared guards, cart, loot, Wanted state, pings, downing, revives, and success/failure.
-- Server-authoritative mission simulation.
-
-### Milestone 3 — Social resolution
-
-- Results screen, redistribution vote, persistent band identity, and first visible village upgrades.
-
-### Milestone 4 — Replayable alpha
-
-- Multiple routes and modifiers.
-- Role differentiation and balance pass.
-- Safety controls, telemetry, persistence hardening, and invite flow polish.
+M9 is a planning milestone, not active implementation. Its entry gate is a traceable mainline production release plus closure of #9, #10, #14, and M8 #35–#37.
 
 ## 17. Non-goals for the social MVP
 
@@ -334,12 +329,20 @@ The primary qualitative test is whether players naturally tell stories about sav
 - Large guild administration systems.
 - Pay-to-win progression.
 
-## 18. Open product questions
+## 18. Product decisions and open questions
 
-- Are Merry Band roles fixed named heroes or customizable outlaw archetypes?
-- Does all stolen wealth enter the redistribution vote, or does a transparent fixed share fund personal progression?
-- Should failed missions create rescue content for the same band or for the broader community?
-- How much of the camp and village state is private to a band versus shared across a server or season?
-- Is the long-term world structured as MMO realms, smaller regional shards, or instanced social hubs connected to missions?
+Decided for the current alpha:
 
-These decisions should be tested through the four-player heist before committing to large-scale persistent-world architecture.
+- The roster uses four named playable heroes: Robin, Maid Marian, Little John, and Much. Will Scarlet is a future-character candidate, not part of the implemented roster.
+- Recovered community coin enters the redistribution vote; personal mastery is scored separately and cannot silently reduce the community allocation.
+- Failed or captured runs may create private-band rescue offers, not public obligations.
+- Band membership, camp, and band village progression are private. Seasonal village projects and Sheriff pressure are shared campaign state.
+- Missions and public hubs are authoritative instances; there is no claim of one seamless MMO world.
+
+Still open:
+
+- Should later regions use long-lived regional shards, short-lived social hubs, or a hybrid?
+- Which progression rewards remain permanent across campaign rollover beyond identity, cosmetics, recognition, and safety state?
+- What concurrency and geographic targets justify moving room state beyond the current single-node alpha service?
+
+These questions should be answered through instrumented public playtests before committing to large-world architecture.

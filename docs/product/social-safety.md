@@ -12,7 +12,7 @@ Enabled:
 - authenticated account blocking across friends, direct invitations, recent players, public-camp discovery, and leaderboard results;
 - consent-based persistent Merry Band membership controlled by fixed accept/decline actions;
 - validated player and band names;
-- server rate limits for movement and contextual pings.
+- server rate limits for room movement and pings, public-hub movement, emotes, pings and reports, plus database-enforced friend-request and direct-invitation limits.
 
 Not enabled:
 

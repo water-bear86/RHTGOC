@@ -60,10 +60,16 @@ Run:
 
 ```bash
 npm run validate:assets
-npx --yes @gltf-transform/cli validate public/assets/characters/robin-ranger-rigged.glb
 npm test
 npm run build
 ```
+
+This is the current checkpoint gate, not the final production claim. Issue #35
+must add a lockfile-pinned Khronos validator to `validate:assets`, bind license
+evidence by hash, account for transparent double-sided renderer submissions,
+and reject adversarial regression fixtures. Until then, use an already installed
+and approved Khronos validator as a supplemental review step; do not fetch and
+execute an unpinned tool during release validation.
 
 Then verify Idle, Walk, Shoot, bow, quiver, silhouette, shadow behavior, and local/remote skeleton cloning in a real browser room. The renderer selects a degraded profile for low texture limits, caps device pixel ratio, disables expensive shadows when needed, responds to resize, and handles WebGL context loss/restoration.
 

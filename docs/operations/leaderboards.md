@@ -1,5 +1,9 @@
 # Seasonal leaderboard operations
 
+## Implementation status
+
+The privacy-filtered read path, authoritative write store, quarantine review, lifecycle finalizer, and database drills exist in the repository. As checked on 2026-07-11, the permanent AWS service reports `verifiedLeaderboardWrites: false`; public verified submissions are not active until the server-only credential and production proof in #10 and #14 are complete.
+
 ## Ranked mission boundary
 
 Only missions beginning while a Sherwood campaign is `active` or in `finale` are eligible for verified rankings. The room captures the season slug and mission start time at launch; a later pause, archive, or successor season cannot move that run. Paused, succeeded, failed, and archived campaigns remain playable but do not start new ranked runs.

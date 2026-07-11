@@ -17,9 +17,17 @@ The supplied Standard pack declares CC0 1.0 Universal in `License_Standard.txt` 
 
 The FBX set is rejected as a runtime source because it contains absolute Windows texture paths. The matching glTF set is the material and hierarchy reference. The complete 176-model library is rejected as a shipping unit: its raw textures would cost roughly 310 MiB uncompressed on the GPU, while most of the geometry is light. Only a curated conversion may enter `public/`.
 
-### Accepted for conversion audition
+### Worktree candidate
 
-These sources have useful silhouettes and are accepted into the offline curation pass, not yet accepted as shipping artifacts:
+The village slice has three deliberately separate decisions:
+
+| Stage | Status | Meaning |
+| --- | --- | --- |
+| Source audition | Accepted for conversion | The selected CC0 modules have useful silhouettes and acceptable repair cost. |
+| Browser artifact | Candidate in the local worktree | A deterministic, embedded GLB passes current metrics and Khronos validation but is not committed. |
+| Runtime integration | Not accepted | The module catalog is not imported by `src/main.ts`; cottage/wagon visuals and client prediction have not passed gameplay QA. |
+
+The following sources make up the offline conversion candidate:
 
 - `Wall_Plaster_WoodGrid.gltf`
 - `Wall_Plaster_Door_Round.gltf`
@@ -34,7 +42,7 @@ These sources have useful silhouettes and are accepted into the offline curation
 - `Prop_WoodenFence_Extension1.gltf`
 - `Prop_Vine2.gltf`
 
-Together these sources are about 370 KB of geometry/JSON, 5,410 triangles, and 21 primitives. Their raw textures are about 42.7 MB and require rework into shared toon families before shipping.
+Together these sources are about 370 KB of geometry/JSON, 5,410 triangles, and 21 stored primitives. Their raw textures are about 42.7 MB. The worktree candidate embeds sixteen resized 512-pixel WebPs and seven material families; the final decision remains open in #37.
 
 ### Rejected from the first slice
 
@@ -42,4 +50,10 @@ Together these sources are about 370 KB of geometry/JSON, 5,410 triangles, and 2
 - The 6-by-8 round-tile roof: oversized for the first compact cottage; use `Roof_RoundTiles_4x4.gltf`.
 - Any source module that depends on a missing texture, uses a broken external path, creates a false traversal affordance, or fails the shared collision/route audit.
 
-The first conversion target is one `sherwood-village-slice.glb` at or below 3 MB, 24 LOD0 draw calls, and seven shared material families. It will replace one cottage and the procedural wagon body before broader village rollout.
+The first conversion target is one `sherwood-village-slice.glb` at or below 3 MB, 24 LOD0 renderer submissions, and seven shared material families. The current file is 677,248 bytes, but two double-sided transparent window primitives may produce 23 Three.js submissions rather than the 21 stored primitives. It must replace one cottage and the procedural wagon body, share authoritative collision with client prediction, and pass both render profiles before acceptance.
+
+## Unlicensed voxel free sample
+
+The supplied `Free Sample` folder is rejected from the runtime. It contains a ten-OBJ MagicaVoxel diorama with no license, author, receipt, source URL, or README; “free sample” is not a redistribution grant. The raw audit conversion is 3,149,468 bytes, 56,000 triangles, 168,000 render vertices, 88,288 upload vertices, ten draws, and ten materials/textures. Deduplication reduces transfer and material duplication but does not repair the geometry budget, scene-level pivots, unknown meter scale, or missing rights evidence.
+
+The cottage silhouette, rack, and logs may be reconsidered only if the exact license is recovered and they are retopologized as nonblocking dressing. Its 4,620-triangle trolley and 2,084-triangle crates are rejected even with a license because the curated MegaKit wagon (1,672 triangles) and crate (230 triangles) are lighter and match the selected village language. Duplicate voxel crates and grass should be instanced rather than retained as baked translated meshes.

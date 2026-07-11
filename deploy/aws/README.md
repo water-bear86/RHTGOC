@@ -28,7 +28,7 @@ Runtime secrets are supplied only to the container deployment, never as Docker b
 - `SUPABASE_SECRET_KEY`
 - `OPS_ADMIN_SECRET`
 
-Keep them in AWS Secrets Manager or the operator's encrypted password manager and inject them into the container environment. Rotate immediately after suspected disclosure. A deployment without these values remains playable but reports `bandPersistence: false` and `verifiedLeaderboardWrites: false` at `/health`.
+Keep them in AWS Secrets Manager or the operator's encrypted password manager and inject them into the container environment. Rotate immediately after suspected disclosure. A deployment without these values remains playable but reports `bandPersistence`, `verifiedLeaderboardWrites`, `rescueOfferPersistence`, `contributionPersistence`, `seasonPersistence`, and `socialPersistence` as `false` at `/health`.
 
 ## Deploy an update
 
@@ -80,12 +80,14 @@ rm -f "$DEPLOY_SPEC"
 unset DEPLOY_SPEC SUPABASE_SECRET_KEY OPS_ADMIN_SECRET
 ```
 
-Confirm `RUNNING` and `ACTIVE` before announcing the release:
+Confirm `RUNNING` and `ACTIVE` before announcing the release. The status query must select only non-secret deployment fields; never dump the complete service object or `currentDeployment.containers.environment` into a terminal transcript:
 
 ```bash
 aws lightsail get-container-services \
   --service-name sherwood-rebellion \
-  --region ca-central-1
+  --region ca-central-1 \
+  --query 'containerServices[0].{serviceState:state,currentDeployment:{version:currentDeployment.version,state:currentDeployment.state,createdAt:currentDeployment.createdAt,image:currentDeployment.containers.app.image}}' \
+  --output json
 ```
 
 Then run the health, reconnect, and bounded load checks against the new origin and inspect `/metrics` for persistence failures. A persistence-enabled release is not accepted until `/health` reports all six persistence flags true and one authenticated production mission proves the band-history and verified-leaderboard write paths.

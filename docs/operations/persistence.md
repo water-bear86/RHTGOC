@@ -1,5 +1,9 @@
 # Merry Band persistence operations
 
+## Implementation status
+
+The schema, server stores, idempotency rules, and recovery drills exist in the repository. As checked on 2026-07-11, the permanent AWS service reports `bandPersistence`, `rescueOfferPersistence`, `contributionPersistence`, `seasonPersistence`, and `socialPersistence` as `false`; durable production writes are not active until the server-only credential and end-to-end proofs in #9 and #14 are complete.
+
 ## Data boundary
 
 Merry Bands, active membership, preset banners, mission history, community grants, camp state, village state, and audit events live in the Supabase project `whkaenfnefhuezkutnxe`. Every public table has RLS enabled. Authenticated clients receive read-only access to their own active band rows; all mutation goes through the authoritative game server using `SUPABASE_SECRET_KEY`.
