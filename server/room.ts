@@ -16,6 +16,11 @@ interface ConnectedPlayer extends RoomPlayer {
   signatureCooldown: number
   invulnerableFor: number
   veilFor: number
+  downedFor: number
+  captured: boolean
+  rescueCount: number
+  transferCount: number
+  lastPingTick: number
 }
 
 const spawnPoints = [
@@ -65,6 +70,11 @@ export class Room {
       signatureCooldown: 0,
       invulnerableFor: 0,
       veilFor: 0,
+      downedFor: 0,
+      captured: false,
+      rescueCount: 0,
+      transferCount: 0,
+      lastPingTick: -20,
     }
     this.players.set(player.id, player)
     return player
@@ -122,8 +132,12 @@ export class Room {
     this.mission?.setInput(playerId, sequence, move)
   }
 
-  action(playerId: string, action: "interact" | "shoot" | "signature"): void {
-    this.mission?.action(playerId, action)
+  action(playerId: string, action: "interact" | "shoot" | "signature" | "revive" | "transfer_loot", targetPlayerId?: string): void {
+    this.mission?.action(playerId, action, targetPlayerId)
+  }
+
+  ping(playerId: string, kind: "danger" | "target" | "route" | "loot" | "regroup"): void {
+    this.mission?.ping(playerId, kind)
   }
 
   update(dt: number): void {
@@ -143,6 +157,7 @@ export class Room {
       health: player.health,
       arrows: player.arrows,
       loot: player.loot,
+      downedFor: player.downedFor,
       position: player.position,
       lastInputSequence: player.lastInputSequence,
     }
@@ -162,7 +177,7 @@ export class Room {
     this.broadcast({
       type: "snapshot",
       tick: this.tick,
-      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot }) => ({ id, position, lastInputSequence, health, arrows, loot })),
+      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor })),
       mission: this.mission.snapshot(),
     })
   }

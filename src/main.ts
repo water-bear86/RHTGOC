@@ -19,7 +19,7 @@ import {
 import { loadLeaderboard, submitLeaderboardEntry, subscribeToLeaderboard } from "./leaderboard"
 import { MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
-import type { MissionEvent, MissionSnapshot, RoomPlayer } from "../shared/protocol"
+import type { MissionEvent, MissionSnapshot, PingKind, RoomPlayer, WorldPing } from "../shared/protocol"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -93,6 +93,7 @@ let multiplayerActive = false
 let localReady = false
 let currentRoomPlayers: RoomPlayer[] = []
 let lastMissionEventSequence = 0
+let localDownedFor = 0
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
@@ -104,9 +105,11 @@ interface RemoteView {
   motion: string
   lastPosition: THREE.Vector3
   characterId: CharacterId
+  downedFor: number
 }
 
 const remoteViews = new Map<string, RemoteView>()
+const pingViews = new Map<number, THREE.Group>()
 const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
 let robinRangerMixer: THREE.AnimationMixer | null = null
@@ -436,9 +439,11 @@ const multiplayer = new MultiplayerClient({
         state.player.health = player.health
         state.player.arrows = player.arrows
         state.player.loot = player.loot
+        localDownedFor = player.downedFor
       } else {
         const remote = remoteViews.get(player.id)
         remote?.snapshots.push(player.position, receivedAt)
+        if (remote) remote.downedFor = player.downedFor
       }
     }
     currentRoomPlayers = currentRoomPlayers.map((roomPlayer) => {
@@ -463,6 +468,19 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   state.delivered = mission.delivered
   state.won = mission.status === "succeeded"
   state.lost = mission.status === "failed"
+  while (guardViews.length < mission.guards.length) {
+    const guardState = mission.guards[guardViews.length]
+    state.guards.push({
+      id: guardState.id,
+      position: { ...guardState.position },
+      home: { ...guardState.position },
+      patrolAngle: 0,
+      stunnedFor: guardState.stunnedFor,
+    })
+    const guardView = createCharacter("guard")
+    guardViews.push(guardView)
+    scene.add(guardView)
+  }
   for (const guard of mission.guards) {
     const local = state.guards[guard.id]
     if (!local) continue
@@ -473,6 +491,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
     lastMissionEventSequence = mission.latestEvent.sequence
     showMissionEvent(mission.latestEvent)
   }
+  syncPingViews(mission.pings)
 }
 
 function showMissionEvent(event: MissionEvent): void {
@@ -481,12 +500,74 @@ function showMissionEvent(event: MissionEvent): void {
     loot_delivered: "COIN RETURNED TO THE PEOPLE",
     guard_stunned: "Guard stunned",
     player_hit: "The Sheriff strikes!",
+    player_downed: "AN OUTLAW IS DOWN",
+    player_revived: "OUTLAW RESCUED",
+    player_captured: "AN OUTLAW WAS CAPTURED",
+    loot_transferred: "COIN HANDED OFF",
+    ping_sent: "SIGNAL PLACED",
     signature_used: "SIGNATURE UNLEASHED",
     mission_succeeded: "SHERWOOD RISES",
     mission_failed: "THE BAND HAS FALLEN",
   }
   const message = messages[event.type]
   if (message) showToast(message)
+}
+
+function syncPingViews(pings: WorldPing[]): void {
+  const activeIds = new Set(pings.map((ping) => ping.id))
+  for (const ping of pings) {
+    let view = pingViews.get(ping.id)
+    if (!view) {
+      view = createPingView(ping)
+      pingViews.set(ping.id, view)
+      scene.add(view)
+    }
+    view.position.set(ping.position.x, 0.08, ping.position.z)
+  }
+  for (const [id, view] of pingViews) {
+    if (activeIds.has(id)) continue
+    scene.remove(view)
+    pingViews.delete(id)
+  }
+}
+
+function createPingView(ping: WorldPing): THREE.Group {
+  const colors: Record<PingKind, number> = {
+    danger: 0xc9513f,
+    target: 0xe4b653,
+    route: 0x70a6c9,
+    loot: 0xe2af43,
+    regroup: 0x86b36b,
+  }
+  const symbols: Record<PingKind, string> = { danger: "!", target: "◎", route: "➜", loot: "$", regroup: "✦" }
+  const group = new THREE.Group()
+  group.userData.createdAt = clock.elapsedTime
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.52, 0.68, 28),
+    new THREE.MeshBasicMaterial({ color: colors[ping.kind], transparent: true, opacity: 0.88, side: THREE.DoubleSide }),
+  )
+  ring.rotation.x = -Math.PI / 2
+  const canvas = document.createElement("canvas")
+  canvas.width = 64
+  canvas.height = 64
+  const context = canvas.getContext("2d")!
+  context.fillStyle = "rgba(16,37,29,.9)"
+  context.beginPath()
+  context.arc(32, 32, 27, 0, Math.PI * 2)
+  context.fill()
+  context.strokeStyle = `#${colors[ping.kind].toString(16).padStart(6, "0")}`
+  context.lineWidth = 4
+  context.stroke()
+  context.fillStyle = "#f7f0d4"
+  context.font = "bold 34px sans-serif"
+  context.textAlign = "center"
+  context.textBaseline = "middle"
+  context.fillText(symbols[ping.kind], 32, 33)
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }))
+  sprite.position.y = 1.6
+  sprite.scale.setScalar(0.85)
+  group.add(ring, sprite)
+  return group
 }
 
 function renderParty(players: RoomPlayer[]): void {
@@ -508,7 +589,7 @@ function renderParty(players: RoomPlayer[]): void {
     identity.textContent = `${player.displayName} · ${player.characterId === "marian" ? "Marian" : "Robin"}`
     const vitality = document.createElement("b")
     vitality.className = "vitality"
-    vitality.textContent = "♥".repeat(Math.max(0, player.health))
+    vitality.textContent = player.downedFor > 0 ? `DOWN ${Math.ceil(player.downedFor)}s` : "♥".repeat(Math.max(0, player.health))
     compact.append(presence, identity, vitality)
     missionPartyList.append(compact)
   }
@@ -530,6 +611,7 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
       motion: "",
       lastPosition: view.position.clone(),
       characterId: player.characterId,
+      downedFor: player.downedFor,
     }
     remote.snapshots.push(player.position, performance.now())
     remoteViews.set(player.id, remote)
@@ -683,7 +765,7 @@ function updateUI(): void {
   heatElement.style.width = `${state.heat}%`
   heatWrap.classList.toggle("visible", state.heat > 3)
   progressElement.style.width = `${Math.min(100, (state.delivered / DELIVERY_TARGET) * 100)}%`
-  promptElement.textContent = getContextPrompt(state)
+  promptElement.textContent = localDownedFor > 0 ? `DOWNED · ${Math.ceil(localDownedFor)}s for a teammate to revive you` : getContextPrompt(state)
   if (state.player.loot > 0) objectiveElement.textContent = "Return the coin to the village"
   else if (state.heat > 10) objectiveElement.textContent = "Disappear into the deep woods"
   else objectiveElement.textContent = state.delivered > 0 ? "Strike the tax cart again" : "Find the Sheriff's tax cart"
@@ -755,6 +837,7 @@ function syncViews(elapsed: number, dt: number): void {
     const remoteDz = remote.view.position.z - remote.lastPosition.z
     const moving = Math.hypot(remoteDx, remoteDz) > 0.0001
     if (moving) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
+    remote.view.rotation.z = remote.downedFor > 0 ? Math.PI / 2.7 : 0
     remote.lastPosition.copy(remote.view.position)
     if (remote.mixer) {
       const motion = moving ? "Robin_Walk" : "Robin_Idle"
@@ -765,6 +848,14 @@ function syncViews(elapsed: number, dt: number): void {
       }
       remote.mixer.update(dt)
     }
+  }
+
+  for (const view of pingViews.values()) {
+    const age = elapsed - Number(view.userData.createdAt ?? elapsed)
+    const pulse = 1 + Math.sin(age * 6) * 0.08
+    view.scale.setScalar(pulse)
+    const sprite = view.children[1]
+    if (sprite) sprite.position.y = 1.55 + Math.sin(age * 4) * 0.12
   }
 
   cartView.children.forEach((child) => {
@@ -822,11 +913,32 @@ function animate(): void {
 
 function predictMultiplayerMovement(move: Vec2, dt: number): void {
   const length = Math.hypot(move.x, move.z)
-  if (length <= 0.001 || state.player.health <= 0) return
+  if (length <= 0.001 || state.player.health <= 0 || localDownedFor > 0) return
   const speed = state.player.characterId === "marian" ? 6.75 : 6.2
   const lootPenalty = Math.max(0.68, 1 - state.player.loot / 600)
   state.player.position.x = Math.max(-22, Math.min(22, state.player.position.x + (move.x / length) * speed * lootPenalty * dt))
   state.player.position.z = Math.max(-22, Math.min(22, state.player.position.z + (move.z / length) * speed * lootPenalty * dt))
+}
+
+function nearbyTeammate(predicate: (player: RoomPlayer) => boolean): RoomPlayer | null {
+  return currentRoomPlayers
+    .filter((player) => player.id !== multiplayer.playerId && predicate(player))
+    .map((player) => ({ player, distance: Math.hypot(player.position.x - state.player.position.x, player.position.z - state.player.position.z) }))
+    .filter(({ distance }) => distance <= 2.8)
+    .sort((a, b) => a.distance - b.distance)[0]?.player ?? null
+}
+
+function sendSupportAction(action: "revive" | "transfer_loot"): void {
+  const target = nearbyTeammate((player) => action === "revive" ? player.downedFor > 0 : player.downedFor <= 0)
+  if (!target) {
+    showToast(action === "revive" ? "No downed outlaw nearby" : "No outlaw nearby")
+    return
+  }
+  if (action === "transfer_loot" && state.player.loot <= 0) {
+    showToast("You have no coin to hand off")
+    return
+  }
+  multiplayer.sendAction(action, target.id)
 }
 
 startButton.addEventListener("click", () => {
@@ -906,6 +1018,19 @@ window.addEventListener("keydown", (event) => {
   if (event.code === "KeyE") handleInteraction()
   if (event.code === "Space") fireArrow()
   if (event.code === "KeyQ") useSignature()
+  if (multiplayerActive && event.code === "KeyR") sendSupportAction("revive")
+  if (multiplayerActive && event.code === "KeyT") sendSupportAction("transfer_loot")
+  if (multiplayerActive) {
+    const pingByKey: Partial<Record<string, PingKind>> = {
+      Digit1: "danger",
+      Digit2: "target",
+      Digit3: "route",
+      Digit4: "loot",
+      Digit5: "regroup",
+    }
+    const ping = pingByKey[event.code]
+    if (ping) multiplayer.sendPing(ping)
+  }
 })
 
 window.addEventListener("keyup", (event) => keys.delete(event.code))

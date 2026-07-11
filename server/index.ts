@@ -123,7 +123,8 @@ sockets.on("connection", (socket) => {
       joinedRoom.broadcastRoomState()
     }
     if (message.type === "input") joinedRoom.setInput(playerId, message.sequence, message.move)
-    if (message.type === "action") joinedRoom.action(playerId, message.action)
+    if (message.type === "action") joinedRoom.action(playerId, message.action, message.targetPlayerId)
+    if (message.type === "world_ping") joinedRoom.ping(playerId, message.kind)
     if (message.type === "ping") send(socket, { type: "pong", clientTime: message.clientTime, serverTime: Date.now() })
   })
 

@@ -1,4 +1,4 @@
-import type { CharacterId, MissionEvent, MissionSnapshot } from "../shared/protocol"
+import type { CharacterId, MissionEvent, MissionSnapshot, PingKind, WorldPing } from "../shared/protocol"
 
 export interface MissionPlayer {
   id: string
@@ -15,6 +15,11 @@ export interface MissionPlayer {
   signatureCooldown: number
   invulnerableFor: number
   veilFor: number
+  downedFor: number
+  captured: boolean
+  rescueCount: number
+  transferCount: number
+  lastPingTick: number
 }
 
 interface MissionGuardState {
@@ -49,6 +54,7 @@ export class Mission {
   readonly seed: number
   readonly events: MissionEvent[] = []
   readonly guards: MissionGuardState[]
+  readonly pings: WorldPing[] = []
   status: "active" | "succeeded" | "failed" = "active"
   heat = 0
   cartCoin = 120
@@ -59,17 +65,20 @@ export class Mission {
   constructor(roomCode: string, private readonly players: Map<string, MissionPlayer>) {
     this.seed = missionSeed(roomCode)
     const random = seededUnit(this.seed)
-    this.guards = [
+    const guardStarts = [
       { id: 0, position: { x: 7, z: -5 }, home: { x: 7, z: -5 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
       { id: 1, position: { x: 13, z: -6 }, home: { x: 13, z: -6 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
       { id: 2, position: { x: 9, z: -11 }, home: { x: 9, z: -11 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
+      { id: 3, position: { x: 5, z: -10 }, home: { x: 5, z: -10 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
+      { id: 4, position: { x: 14, z: -10 }, home: { x: 14, z: -10 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
     ]
+    this.guards = guardStarts.slice(0, 3 + Math.max(0, Math.min(2, players.size - 2)))
     this.record("mission_started")
   }
 
   setInput(playerId: string, sequence: number, move: { x: number; z: number }, now = Date.now()): boolean {
     const player = this.players.get(playerId)
-    if (!player || this.status !== "active" || !player.connected || player.health <= 0) return false
+    if (!player || this.status !== "active" || !player.connected || player.health <= 0 || player.downedFor > 0 || player.captured) return false
     if (sequence <= player.lastInputSequence || now - player.lastInputAt < 20) return false
     const length = Math.hypot(move.x, move.z)
     player.input = length > 1 ? { x: move.x / length, z: move.z / length } : { ...move }
@@ -78,17 +87,41 @@ export class Mission {
     return true
   }
 
-  action(playerId: string, action: "interact" | "shoot" | "signature"): boolean {
+  action(playerId: string, action: "interact" | "shoot" | "signature" | "revive" | "transfer_loot", targetPlayerId?: string): boolean {
     const player = this.players.get(playerId)
-    if (!player || this.status !== "active" || !player.connected || player.health <= 0) return false
+    if (!player || this.status !== "active" || !player.connected || player.health <= 0 || player.downedFor > 0 || player.captured) return false
     if (action === "interact") return this.interact(player)
     if (action === "shoot") return this.shoot(player)
-    return this.signature(player)
+    if (action === "signature") return this.signature(player)
+    if (!targetPlayerId) return false
+    const target = this.players.get(targetPlayerId)
+    if (!target || target.id === player.id || distance(player.position, target.position) > 2.4) return false
+    if (action === "revive") return this.revive(player, target)
+    return this.transferLoot(player, target)
+  }
+
+  ping(playerId: string, kind: PingKind): boolean {
+    const player = this.players.get(playerId)
+    if (!player || !player.connected || player.captured || this.status !== "active" || this.tick - player.lastPingTick < 20) return false
+    player.lastPingTick = this.tick
+    const ping: WorldPing = {
+      id: this.events.length + 1,
+      kind,
+      playerId,
+      position: { ...player.position },
+      expiresAtTick: this.tick + 100,
+    }
+    this.pings.push(ping)
+    this.record("ping_sent", playerId, ping.id)
+    return true
   }
 
   update(dt: number): void {
     if (this.status !== "active") return
     this.tick += 1
+    for (let index = this.pings.length - 1; index >= 0; index -= 1) {
+      if (this.pings[index].expiresAtTick <= this.tick) this.pings.splice(index, 1)
+    }
     this.cartRefill = Math.max(0, this.cartRefill - dt)
     if (this.cartRefill === 0 && this.cartCoin === 0) this.cartCoin = 120
 
@@ -97,7 +130,15 @@ export class Mission {
       player.signatureCooldown = Math.max(0, player.signatureCooldown - dt)
       player.invulnerableFor = Math.max(0, player.invulnerableFor - dt)
       player.veilFor = Math.max(0, player.veilFor - dt)
-      if (!player.connected || player.health <= 0) continue
+      if (player.downedFor > 0) {
+        player.downedFor = Math.max(0, player.downedFor - dt)
+        player.input = { x: 0, z: 0 }
+        if (player.downedFor === 0) {
+          player.captured = true
+          this.record("player_captured", player.id)
+        }
+      }
+      if (!player.connected || player.health <= 0 || player.captured) continue
       const moveLength = Math.hypot(player.input.x, player.input.z)
       if (moveLength > 0.001) {
         const roleSpeed = player.characterId === "marian" ? 6.75 : 6.2
@@ -113,7 +154,7 @@ export class Mission {
     this.heat = Math.max(0, this.heat - (hidden ? 7 : 1.2) * dt)
     for (const guard of this.guards) this.updateGuard(guard, activePlayers, dt)
 
-    if (this.players.size > 0 && [...this.players.values()].every((player) => player.health <= 0)) {
+    if (this.players.size > 0 && [...this.players.values()].every((player) => player.captured)) {
       this.status = "failed"
       this.record("mission_failed")
     }
@@ -127,7 +168,9 @@ export class Mission {
       cartCoin: this.cartCoin,
       delivered: this.delivered,
       target: DELIVERY_TARGET,
+      supportScore: [...this.players.values()].reduce((total, player) => total + player.rescueCount * 350 + player.transferCount * 100, 0),
       guards: this.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, stunnedFor: guard.stunnedFor })),
+      pings: this.pings.map((ping) => ({ ...ping, position: { ...ping.position } })),
       latestEvent: this.events.at(-1) ?? null,
     }
   }
@@ -188,6 +231,26 @@ export class Mission {
     return true
   }
 
+  private revive(player: MissionPlayer, target: MissionPlayer): boolean {
+    if (target.downedFor <= 0 || target.captured) return false
+    target.health = 1
+    target.downedFor = 0
+    target.invulnerableFor = 2.5
+    player.rescueCount += 1
+    this.record("player_revived", player.id, player.rescueCount)
+    return true
+  }
+
+  private transferLoot(player: MissionPlayer, target: MissionPlayer): boolean {
+    if (player.loot <= 0 || target.health <= 0 || target.captured || target.downedFor > 0) return false
+    const amount = Math.min(60, player.loot)
+    player.loot -= amount
+    target.loot += amount
+    player.transferCount += 1
+    this.record("loot_transferred", player.id, amount)
+    return true
+  }
+
   private updateGuard(guard: MissionGuardState, players: MissionPlayer[], dt: number): void {
     guard.stunnedFor = Math.max(0, guard.stunnedFor - dt)
     if (guard.stunnedFor > 0) return
@@ -201,6 +264,11 @@ export class Mission {
         target.invulnerableFor = 2
         this.heat = Math.min(100, this.heat + 15)
         this.record("player_hit", target.id, target.health)
+        if (target.health === 0 && target.downedFor === 0) {
+          target.downedFor = 20
+          target.input = { x: 0, z: 0 }
+          this.record("player_downed", target.id, 20)
+        }
       }
       return
     }

@@ -1,10 +1,10 @@
-import { PROTOCOL_VERSION, type CharacterId, type MissionSnapshot, type RoomPlayer, type ServerMessage } from "../shared/protocol"
+import { PROTOCOL_VERSION, type CharacterId, type MissionSnapshot, type PingKind, type RoomPlayer, type ServerMessage } from "../shared/protocol"
 import type { Vec2 } from "./simulation"
 
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
   onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[]) => void
-  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot">>, mission: MissionSnapshot) => void
+  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor">>, mission: MissionSnapshot) => void
   onError?: (message: string) => void
   onConnection?: (connected: boolean) => void
 }
@@ -57,8 +57,12 @@ export class MultiplayerClient {
     this.send({ type: "input", sequence: this.sequence, move })
   }
 
-  sendAction(action: "interact" | "shoot" | "signature"): void {
-    this.send({ type: "action", action })
+  sendAction(action: "interact" | "shoot" | "signature" | "revive" | "transfer_loot", targetPlayerId?: string): void {
+    this.send({ type: "action", action, targetPlayerId })
+  }
+
+  sendPing(kind: PingKind): void {
+    this.send({ type: "world_ping", kind })
   }
 
   close(): void {

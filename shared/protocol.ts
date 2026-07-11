@@ -32,7 +32,12 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     sequence: z.number().int().nonnegative(),
     move: z.object({ x: z.number().min(-1).max(1), z: z.number().min(-1).max(1) }),
   }),
-  z.object({ type: z.literal("action"), action: z.enum(["interact", "shoot", "signature"]) }),
+  z.object({
+    type: z.literal("action"),
+    action: z.enum(["interact", "shoot", "signature", "revive", "transfer_loot"]),
+    targetPlayerId: z.string().uuid().optional(),
+  }),
+  z.object({ type: z.literal("world_ping"), kind: z.enum(["danger", "target", "route", "loot", "regroup"]) }),
   z.object({ type: z.literal("ping"), clientTime: z.number().finite() }),
 ])
 
@@ -47,6 +52,7 @@ export interface RoomPlayer {
   health: number
   arrows: number
   loot: number
+  downedFor: number
   position: { x: number; z: number }
   lastInputSequence: number
 }
@@ -60,9 +66,19 @@ export interface MissionGuard {
 export interface MissionEvent {
   sequence: number
   tick: number
-  type: "mission_started" | "cart_robbed" | "loot_delivered" | "guard_stunned" | "player_hit" | "signature_used" | "mission_succeeded" | "mission_failed"
+  type: "mission_started" | "cart_robbed" | "loot_delivered" | "guard_stunned" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed"
   playerId?: string
   value?: number
+}
+
+export type PingKind = "danger" | "target" | "route" | "loot" | "regroup"
+
+export interface WorldPing {
+  id: number
+  kind: PingKind
+  playerId: string
+  position: { x: number; z: number }
+  expiresAtTick: number
 }
 
 export interface MissionSnapshot {
@@ -72,14 +88,16 @@ export interface MissionSnapshot {
   cartCoin: number
   delivered: number
   target: number
+  supportScore: number
   guards: MissionGuard[]
+  pings: WorldPing[]
   latestEvent: MissionEvent | null
 }
 
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
   | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; players: RoomPlayer[] }
-  | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot">>; mission: MissionSnapshot }
+  | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED"; message: string }
 
