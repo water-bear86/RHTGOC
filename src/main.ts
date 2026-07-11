@@ -1,4 +1,5 @@
 import * as THREE from "three"
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import "./style.css"
 import {
   activateSignature,
@@ -89,6 +90,11 @@ let localReady = false
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
 const remoteViews = new Map<string, { view: THREE.Group; target: THREE.Vector3 }>()
+const gltfLoader = new GLTFLoader()
+let robinRangerMixer: THREE.AnimationMixer | null = null
+let robinRangerActions = new Map<string, THREE.AnimationAction>()
+let robinRangerMotion = ""
+let robinShotUntil = 0
 
 const palette = {
   grass: 0x506e40,
@@ -285,6 +291,41 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
   return character
 }
 
+function attachRobinRanger(view: THREE.Group): void {
+  gltfLoader.load(
+    "/assets/characters/robin-ranger-rigged.glb",
+    (asset) => {
+      if (playerView !== view || selectedCharacter !== "robin") return
+      view.clear()
+      const ranger = asset.scene
+      ranger.scale.setScalar(2.15)
+      ranger.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return
+        child.castShadow = true
+        child.receiveShadow = true
+        child.frustumCulled = true
+      })
+      view.add(ranger)
+      robinRangerMixer = new THREE.AnimationMixer(ranger)
+      robinRangerActions = new Map(asset.animations.map((clip) => [clip.name, robinRangerMixer!.clipAction(clip)]))
+      robinRangerMotion = ""
+      setRobinRangerMotion("Robin_Idle")
+    },
+    undefined,
+    () => showToast("Robin's ranger model could not be loaded"),
+  )
+}
+
+function setRobinRangerMotion(name: string): void {
+  if (!robinRangerMixer || robinRangerMotion === name) return
+  const next = robinRangerActions.get(name)
+  if (!next) return
+  const previous = robinRangerActions.get(robinRangerMotion)
+  previous?.fadeOut(0.12)
+  next.reset().fadeIn(0.12).play()
+  robinRangerMotion = name
+}
+
 function createCart(): THREE.Group {
   const cart = new THREE.Group()
   cart.position.set(CART_POSITION.x, 0, CART_POSITION.z)
@@ -316,6 +357,7 @@ createWorld()
 
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
+attachRobinRanger(playerView)
 state.guards.forEach(() => {
   const guard = createCharacter("guard")
   guardViews.push(guard)
@@ -456,6 +498,8 @@ function fireArrow(): void {
   const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffe3a0 }))
   scene.add(line)
   arrowEffects.push({ line, age: 0 })
+  robinShotUntil = clock.elapsedTime + 0.8
+  setRobinRangerMotion("Robin_Shoot")
   showToast("Guard stunned")
 }
 
@@ -558,8 +602,14 @@ function syncViews(elapsed: number, dt: number): void {
   })
   const dx = player.x - lastPlayerPosition.x
   const dz = player.z - lastPlayerPosition.z
-  if (Math.hypot(dx, dz) > 0.001) playerView.rotation.y = Math.atan2(dx, dz)
+  const playerMoving = Math.hypot(dx, dz) > 0.001
+  if (playerMoving) playerView.rotation.y = Math.atan2(dx, dz)
   lastPlayerPosition = { ...player }
+  if (robinRangerMixer) {
+    const motion = elapsed < robinShotUntil ? "Robin_Shoot" : playerMoving ? "Robin_Walk" : "Robin_Idle"
+    setRobinRangerMotion(motion)
+    robinRangerMixer.update(dt)
+  }
 
   state.guards.forEach((guard, index) => {
     const view = guardViews[index]
@@ -665,8 +715,12 @@ characterButtons.forEach((button) => {
     state = createInitialState(selectedCharacter)
     lastPlayerPosition = { ...state.player.position }
     scene.remove(playerView)
+    robinRangerMixer = null
+    robinRangerActions = new Map()
+    robinRangerMotion = ""
     playerView = createCharacter(selectedCharacter)
     scene.add(playerView)
+    if (selectedCharacter === "robin") attachRobinRanger(playerView)
     if (multiplayer.playerId) multiplayer.selectCharacter(selectedCharacter)
     updateUI()
   })
