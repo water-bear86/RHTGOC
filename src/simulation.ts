@@ -1,6 +1,6 @@
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import { resolveSherwoodPlayerMovement } from "../shared/world-collisions"
-import { regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionCellIndexAt, regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 
 export interface Vec2 { x: number; z: number }
 
@@ -27,6 +27,7 @@ export interface GuardState {
 
 export interface GameState {
   layout: RegionalMissionLayout
+  exploredCellIndices: number[]
   player: {
     characterId: CharacterId
     position: Vec2
@@ -70,6 +71,7 @@ export function createInitialState(characterId: CharacterId = "robin", seed = st
   const regional = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed)
   return {
     layout: regional.layout,
+    exploredCellIndices: [regional.layout.campfireCell.index],
     player: {
       characterId,
       position: { ...regional.definition.spawns.players[0] },
@@ -120,6 +122,8 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   const events: string[] = []
   const player = state.player
   state.stats.elapsedSeconds += dt
+  const currentCell = regionCellIndexAt(player.position)
+  if (!state.exploredCellIndices.includes(currentCell)) state.exploredCellIndices.push(currentCell)
 
   if (!state.objectiveDiscovered) {
     if (distance(player.position, state.layout.objectivePosition) < 13) {
@@ -358,5 +362,5 @@ export function getContextPrompt(state: GameState): string {
     ? "Carry the coin back to the village fire"
     : state.objectiveDiscovered
       ? "Close on the Sheriff's tax cart"
-      : "Search the nine Sherwood sectors before the Sheriff reinforces"
+      : "Search the 25 Sherwood sectors before the Sheriff reinforces"
 }

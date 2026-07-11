@@ -11,6 +11,14 @@ This ledger records the first retrospective decisions under the browser-ready as
 
 Neither owner-supplied GLB embeds a standard license identifier. Their manifest status is therefore `project-authorized`, not a claim of CC0, an SPDX grant, or permission for unrelated reuse: the project owner supplied each source directly and explicitly instructed this project to integrate it. Independent redistribution or reuse outside Sherwood requires separate license evidence. A missing owner directive, incompatible third-party terms, or an unknown source remains a rejection under the gate.
 
+## July 11 supplied character and prop packs
+
+The CraftPix medieval prop archive is accepted only as a curated conversion source. Ten small set-dressing pieces (barrel, bench, box, bucket, chest, firewood, haystack, pot, signpost, and well) are grounded, meter-scaled, embedded in one catalog, and used as nonblocking regional landmarks. The archive's license file points to the CraftPix Freebie License; the local reference records the relevant game-use and no-source-redistribution terms.
+
+`ga_free_101_stylized_forest_ranger.glb` is rejected from runtime integration. It has no supplied license evidence or animation clips, totals about 95,498 triangles, and carries three 4096-pixel textures with an estimated 268 MB combined GPU cost. It is not a browser guard replacement.
+
+`low-poly-archer.zip` is rejected because its nested archive contains only an OBJ with no license, material package, rig, or animations. A future authored guard pack should provide explicit commercial redistribution rights, a humanoid rig, idle/walk/attack/hit clips, bow or spear variants, roughly 15,000–25,000 triangles per guard, and one or two textures no larger than 1024 pixels.
+
 ## Medieval Village MegaKit Standard
 
 The supplied Standard pack declares CC0 1.0 Universal in `License_Standard.txt` (SHA-256 `ec6fd5004514cb0515a7dc1065f474644d31698861597b32e1745945ffec71de`). Models are by Quaternius. The pack-level license is accepted; each selected model still needs an individual technical decision.

@@ -19,7 +19,7 @@ export function createSherwoodTreeLayout(): readonly SherwoodTreePlacement[] {
   const trees: SherwoodTreePlacement[] = []
   const cells = sherwoodRegionCells()
 
-  for (let i = 0; i < 112; i += 1) {
+  for (let i = 0; i < 180; i += 1) {
     const x = random() * SHERWOOD_REGIONAL_BOUNDS * 2 - SHERWOOD_REGIONAL_BOUNDS
     const z = random() * SHERWOOD_REGIONAL_BOUNDS * 2 - SHERWOOD_REGIONAL_BOUNDS
     const nearCellClearing = cells.some((cell) => Math.hypot(x - cell.center.x, z - cell.center.z) < 10)

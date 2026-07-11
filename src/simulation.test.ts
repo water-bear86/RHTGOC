@@ -33,7 +33,7 @@ describe("Sherwood simulation", () => {
     expect(state.player.position.x).toBeGreaterThan(before)
   })
 
-  it("lets a wrong 3x3 search route strengthen the Sheriff before discovery", () => {
+  it("lets a wrong 5x5 search route strengthen the Sheriff before discovery", () => {
     const state = createInitialState("marian", 42)
     state.player.position = { ...state.layout.campfirePosition }
     const events = updateSimulation(state, { move: { x: 0, z: 0 } }, 66)

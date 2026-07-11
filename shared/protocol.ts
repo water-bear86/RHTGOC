@@ -190,6 +190,7 @@ export interface MissionSnapshot {
   missionKind: MissionKind
   seed: number
   layout: RegionalMissionLayout
+  exploredCellIndices: number[]
   status: "active" | "succeeded" | "failed"
   phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction"
   entryRoute: "forest" | "river" | null

@@ -50,6 +50,7 @@ import {
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
 import { SHERWOOD_CELL_SIZE, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { buildRegionMapCells } from "./region-map"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -94,6 +95,9 @@ const readyButton = document.querySelector<HTMLButtonElement>("#ready-button")!
 const partyHud = document.querySelector<HTMLElement>("#party-hud")!
 const missionPartyList = document.querySelector<HTMLUListElement>("#mission-party-list")!
 const missionRoomCode = document.querySelector<HTMLElement>("#mission-room-code")!
+const regionMap = document.querySelector<HTMLElement>("#region-map")!
+const regionMapGrid = document.querySelector<HTMLElement>("#region-map-grid")!
+const regionMapCount = document.querySelector<HTMLElement>("#region-map-count")!
 const resultsPanel = document.querySelector<HTMLDivElement>("#results-panel")!
 const closeResults = document.querySelector<HTMLButtonElement>("#close-results")!
 const resultGrade = document.querySelector<HTMLElement>("#result-grade")!
@@ -205,9 +209,9 @@ let inputSettings: InputSettings = loadInputSettings(localStorage)
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x91aa83)
-scene.fog = new THREE.FogExp2(0x91aa83, 0.016)
+scene.fog = new THREE.FogExp2(0x91aa83, 0.012)
 
-const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 220)
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 280)
 camera.position.set(6, 14, 20)
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" })
@@ -304,8 +308,10 @@ const lootCacheViews = new Map<string, THREE.Group>()
 const preparationViews = new Map<string, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
 const authoredGroveViews: THREE.Group[] = []
+const regionFogViews: THREE.Mesh[] = []
+const medievalPropViews: THREE.Object3D[] = []
 const cameraOccluders: Array<{ view: THREE.Group; radius: number; maxDistance?: number }> = []
-const water = createSherwoodWater(6, 100)
+const water = createSherwoodWater(7, 138)
 const missionCampfireView = new THREE.Group()
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
@@ -313,6 +319,7 @@ const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
 let treeGroveAssetPromise: Promise<THREE.Group> | null = null
 let villageAssetPromise: Promise<THREE.Group> | null = null
+let medievalPropsPromise: Promise<THREE.Group> | null = null
 let villageCottageFallback: THREE.Group | null = null
 let villageCottageView: THREE.Group | null = null
 let proceduralWagonShellView: THREE.Group | null = null
@@ -373,12 +380,12 @@ function addLighting(): void {
   sun.position.set(-18, 28, 14)
   sun.castShadow = true
   sun.shadow.mapSize.set(2048, 2048)
-  sun.shadow.camera.left = -55
-  sun.shadow.camera.right = 55
-  sun.shadow.camera.top = 55
-  sun.shadow.camera.bottom = -55
+  sun.shadow.camera.left = -75
+  sun.shadow.camera.right = 75
+  sun.shadow.camera.top = 75
+  sun.shadow.camera.bottom = -75
   sun.shadow.camera.near = 1
-  sun.shadow.camera.far = 110
+  sun.shadow.camera.far = 150
   sun.shadow.bias = -0.0004
   sun.shadow.intensity = 0.3
   scene.add(sun)
@@ -421,7 +428,7 @@ function createHut(x: number, z: number, rotation = 0): THREE.Group {
 }
 
 function createWorld(): void {
-  const groundBase = mesh(new THREE.PlaneGeometry(96, 96), palette.grassDark, { receive: true, cast: false })
+  const groundBase = mesh(new THREE.PlaneGeometry(134, 134), palette.grassDark, { receive: true, cast: false })
   groundBase.rotation.x = -Math.PI / 2
   groundBase.position.y = -0.055
   scene.add(groundBase)
@@ -432,6 +439,16 @@ function createWorld(): void {
     ground.position.set(cell.center.x, -0.04, cell.center.z)
     ground.userData.regionCell = cell.index
     scene.add(ground)
+    const fogTile = new THREE.Mesh(
+      new THREE.PlaneGeometry(SHERWOOD_CELL_SIZE - 0.7, SHERWOOD_CELL_SIZE - 0.7),
+      new THREE.MeshBasicMaterial({ color: 0x0d211a, transparent: true, opacity: 0.3, depthWrite: false }),
+    )
+    fogTile.rotation.x = -Math.PI / 2
+    fogTile.position.set(cell.center.x, 0.035, cell.center.z)
+    fogTile.userData.regionCell = cell.index
+    fogTile.renderOrder = 1
+    scene.add(fogTile)
+    regionFogViews.push(fogTile)
   }
 
   water.group.rotation.x = -Math.PI / 2
@@ -439,7 +456,7 @@ function createWorld(): void {
   water.group.position.set(1, 0.01, 0)
   scene.add(water.group)
 
-  const road = mesh(new THREE.PlaneGeometry(5.5, 96), palette.path, { receive: true, cast: false })
+  const road = mesh(new THREE.PlaneGeometry(5.5, 134), palette.path, { receive: true, cast: false })
   road.rotation.x = -Math.PI / 2
   road.rotation.z = Math.PI / 4.15
   road.position.set(-0.2, 0.025, 0.2)
@@ -483,7 +500,7 @@ function createWorld(): void {
   for (let i = 0; i < 18; i += 1) {
     const rock = mesh(new THREE.DodecahedronGeometry(0.25 + random() * 0.45, 0), 0x687060)
     rock.scale.y = 0.55
-    rock.position.set(random() * 88 - 44, 0.2, random() * 88 - 44)
+    rock.position.set(random() * 128 - 64, 0.2, random() * 128 - 64)
     rock.rotation.set(random(), random(), random())
     scene.add(rock)
   }
@@ -571,6 +588,38 @@ function loadVillageCatalog(): Promise<THREE.Group> {
   return villageAssetPromise
 }
 
+function loadMedievalProps(): Promise<THREE.Group> {
+  medievalPropsPromise ??= gltfLoader.loadAsync("/assets/environment/craftpix-medieval-props.glb")
+    .then((asset) => convertObjectToToon(asset.scene))
+  return medievalPropsPromise
+}
+
+function attachMedievalProps(): void {
+  const placements = [
+    ["Prop_Well", -30, -31, 0.2], ["Prop_Signpost", -17, -39, -0.5],
+    ["Prop_Haystack", 31, -31, 0.8], ["Prop_Barrel", 38, -28, -0.2],
+    ["Prop_Chest", 31, 30, 1.1], ["Prop_Box", 35, 33, 0.3],
+    ["Prop_Bench", -32, 31, -0.7], ["Prop_Bucket", -29, 34, 0.1],
+    ["Prop_Firewood", -3, 48, 0.5], ["Prop_Pot", 5, -48, -0.3],
+  ] as const
+  void loadMedievalProps().then((catalog) => {
+    for (const [name, x, z, rotation] of placements) {
+      const source = catalog.getObjectByName(name)
+      if (!source) continue
+      const prop = source.clone(true)
+      prop.position.set(x, 0, z)
+      prop.rotation.y = rotation
+      prop.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return
+        child.castShadow = true
+        child.receiveShadow = true
+      })
+      medievalPropViews.push(prop)
+      scene.add(prop)
+    }
+  }).catch(() => showToast("Regional props could not be loaded; the mission remains playable"))
+}
+
 function prepareVillageRuntimeObject<T extends THREE.Object3D>(root: T): T {
   root.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return
@@ -603,11 +652,11 @@ function attachVillageSlice(cart: THREE.Group): void {
 
 function attachTreeGroves(): void {
   const placements = renderProfile.tier === "degraded"
-    ? [{ x: -39, z: -37, scale: 13, rotation: 0.35 }]
+    ? [{ x: -57, z: -56, scale: 15, rotation: 0.35 }]
     : [
-        { x: -39, z: -37, scale: 13, rotation: 0.35 },
-        { x: 38, z: 38, scale: 12, rotation: -1.1 },
-        { x: 39, z: -38, scale: 11, rotation: 1.7 },
+        { x: -57, z: -56, scale: 15, rotation: 0.35 },
+        { x: 56, z: 57, scale: 14, rotation: -1.1 },
+        { x: 57, z: -56, scale: 13, rotation: 1.7 },
       ]
   void loadTreeGrove().then((source) => {
     for (const placement of placements) {
@@ -813,6 +862,7 @@ function createDisguiseRack(): THREE.Group {
 addLighting()
 createWorld()
 attachTreeGroves()
+attachMedievalProps()
 
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
@@ -1555,6 +1605,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   state.heat = mission.heat
   state.cartCoin = mission.cartCoin
   state.delivered = mission.delivered
+  state.exploredCellIndices = [...mission.exploredCellIndices]
   state.won = mission.status === "succeeded"
   state.lost = mission.status === "failed"
   signalSabotaged = mission.signalSabotaged
@@ -1576,7 +1627,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   } : {
     scout: mission.objectiveDiscovered
       ? `Shipment ${mission.cycle} found · choose the forest or river approach`
-      : `Search the 3×3 region for shipment ${mission.cycle} · Sheriff pressure ${mission.searchPressure}/3`,
+      : `Search the 5×5 region for shipment ${mission.cycle} · Sheriff pressure ${mission.searchPressure}/3`,
     ambush: "Stun the escort guards",
     robbery: "Rob the Sheriff's tax cart",
     pursuit: "Carry the coin to a forest or river escape",
@@ -1590,7 +1641,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   const sabotageState = mission.signalSabotaged ? ` · SIGNAL CUT ${Math.ceil(mission.reinforcementDelaySeconds)}s` : ""
   const rotationState = mission.rotationId ? ` · DAILY ${mission.rotationId.split("-").slice(-2).join(" ").toUpperCase()}` : ""
   const preparationState = mission.preparations.length > 0 ? ` · PREP ${mission.preparations.filter((preparation) => preparation.status === "consumed").length}/${mission.preparations.length}` : ""
-  missionModifiers.textContent = `3×3 SHERWOOD · SEARCH ${mission.searchPressure}/3 · ${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState}${rotationState}${preparationState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
+  missionModifiers.textContent = `5×5 SHERWOOD · SEARCH ${mission.searchPressure}/3 · ${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState}${rotationState}${preparationState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
   if (mission.phase === "robbery") localStorage.setItem("sherwood:tutorial-complete", "true")
   while (guardViews.length < mission.guards.length) {
     const guardState = mission.guards[guardViews.length]
@@ -2601,6 +2652,7 @@ function updateUI(): void {
   heatWrap.setAttribute("aria-valuetext", state.heat > 60 ? "High pursuit" : state.heat > 20 ? "Sheriff searching" : "Hidden")
   heatWrap.classList.toggle("visible", state.heat > 3)
   progressElement.style.width = `${Math.min(100, (state.delivered / missionTarget) * 100)}%`
+  renderRegionMap()
   if (inHub) {
     renderRotationCountdown()
     renderRescueOffer()
@@ -2630,7 +2682,33 @@ function updateUI(): void {
     ? "Strike the tax cart again"
     : state.objectiveDiscovered
       ? "Close on the Sheriff's shipment"
-      : "Search all nine Sherwood sectors"
+      : "Search all 25 Sherwood sectors"
+}
+
+function renderRegionMap(): void {
+  const missionVisible = running && !inHub && !inPublicHub && intro.classList.contains("closed")
+  regionMap.classList.toggle("hidden", !missionVisible)
+  if (!missionVisible) return
+  const explored = latestMissionSnapshot?.exploredCellIndices ?? state.exploredCellIndices
+  const objectiveDiscovered = latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered
+  const cells = buildRegionMapCells(state.layout, explored, state.player.position, objectiveDiscovered)
+  if (regionMapGrid.children.length !== cells.length) {
+    regionMapGrid.replaceChildren(...cells.map(() => {
+      const cell = document.createElement("span")
+      cell.className = "region-map-cell"
+      return cell
+    }))
+  }
+  let exploredCount = 0
+  cells.forEach((cell, index) => {
+    const view = regionMapGrid.children[index] as HTMLElement
+    if (cell.explored) exploredCount += 1
+    view.className = `region-map-cell${cell.explored ? " explored" : " fogged"}${cell.current ? " current" : ""}${cell.camp ? " camp" : ""}${cell.objective ? " objective" : ""}`
+    view.textContent = cell.objective ? "✦" : cell.current ? "▲" : cell.camp ? "●" : ""
+    view.setAttribute("aria-hidden", "true")
+  })
+  regionMapCount.textContent = `${exploredCount}/25`
+  regionMapGrid.setAttribute("aria-label", `${exploredCount} of 25 Sherwood regions explored${objectiveDiscovered ? "; objective marked" : ""}`)
 }
 
 function showEnding(won: boolean): void {
@@ -2689,7 +2767,12 @@ function syncViews(elapsed: number, dt: number): void {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
   }
   const player = state.player.position
-  const groveDistance = renderProfile.tier === "degraded" ? 42 : 55
+  const explored = new Set(latestMissionSnapshot?.exploredCellIndices ?? state.exploredCellIndices)
+  explored.add(state.layout.campfireCell.index)
+  for (const fogTile of regionFogViews) fogTile.visible = !inHub && !explored.has(Number(fogTile.userData.regionCell))
+  const groveDistance = renderProfile.tier === "degraded" ? 48 : 64
+  const propDistance = renderProfile.tier === "degraded" ? 34 : 48
+  for (const prop of medievalPropViews) prop.visible = Math.hypot(prop.position.x - player.x, prop.position.z - player.z) <= propDistance
   syncVillageLods(player)
   const cameraToPlayer = { x: player.x - camera.position.x, z: player.z - camera.position.z }
   const cameraToPlayerLengthSquared = cameraToPlayer.x ** 2 + cameraToPlayer.z ** 2

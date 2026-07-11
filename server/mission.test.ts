@@ -50,7 +50,7 @@ describe("authoritative mission", () => {
     expect(first.snapshot()).toMatchObject({ missionId: "peoples-purse@1.0.0", missionVersion: "1.0.0", contentHash: referencePackage.contentHash })
   })
 
-  it("varies the 3x3 region by run token and reinforces a badly delayed search", () => {
+  it("varies the 5x5 region by run token and reinforces a badly delayed search", () => {
     const scout = player("scout", "marian")
     const first = new Mission("ABC234", new Map([[scout.id, scout]]), undefined, { seedToken: "run-one" })
     const replay = new Mission("ABC234", new Map([["copy", player("copy", "marian")]]), undefined, { seedToken: "run-one" })

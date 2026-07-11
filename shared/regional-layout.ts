@@ -2,13 +2,13 @@ import type { MissionDefinition } from "./mission-definition"
 
 export interface RegionCell {
   index: number
-  row: 0 | 1 | 2
-  column: 0 | 1 | 2
+  row: number
+  column: number
   center: { x: number; z: number }
 }
 
 export interface RegionalMissionLayout {
-  gridSize: 3
+  gridSize: 5
   cellSize: number
   worldBounds: number
   campfireCell: RegionCell
@@ -25,9 +25,9 @@ export interface RegionalizedMission {
   layout: RegionalMissionLayout
 }
 
-export const SHERWOOD_GRID_SIZE = 3 as const
-export const SHERWOOD_CELL_SIZE = 30
-export const SHERWOOD_REGIONAL_BOUNDS = 47
+export const SHERWOOD_GRID_SIZE = 5 as const
+export const SHERWOOD_CELL_SIZE = 26
+export const SHERWOOD_REGIONAL_BOUNDS = 67
 
 export function seededUnit(seed: number): () => number {
   let value = seed || 1
@@ -44,14 +44,15 @@ export function stableSeed(value: string): number {
 }
 
 export function sherwoodRegionCells(): readonly RegionCell[] {
-  return Object.freeze(Array.from({ length: 9 }, (_, index) => {
-    const row = Math.floor(index / 3) as 0 | 1 | 2
-    const column = (index % 3) as 0 | 1 | 2
+  const centerOffset = (SHERWOOD_GRID_SIZE - 1) / 2
+  return Object.freeze(Array.from({ length: SHERWOOD_GRID_SIZE ** 2 }, (_, index) => {
+    const row = Math.floor(index / SHERWOOD_GRID_SIZE)
+    const column = index % SHERWOOD_GRID_SIZE
     return Object.freeze({
       index,
       row,
       column,
-      center: Object.freeze({ x: (column - 1) * SHERWOOD_CELL_SIZE, z: (row - 1) * SHERWOOD_CELL_SIZE }),
+      center: Object.freeze({ x: (column - centerOffset) * SHERWOOD_CELL_SIZE, z: (row - centerOffset) * SHERWOOD_CELL_SIZE }),
     })
   }))
 }
@@ -81,7 +82,7 @@ function cloneCell(cell: RegionCell): RegionCell {
 export function regionalizeMissionDefinition(base: MissionDefinition, seed: number): RegionalizedMission {
   const random = seededUnit(seed)
   const cells = sherwoodRegionCells()
-  const campfireCandidates = cells.filter((cell) => cell.index !== 4)
+  const campfireCandidates = cells.filter((cell) => cell.row === 0 || cell.column === 0 || cell.row === SHERWOOD_GRID_SIZE - 1 || cell.column === SHERWOOD_GRID_SIZE - 1)
   const campfireCell = campfireCandidates[Math.floor(random() * campfireCandidates.length)]
   const distances = cells.map((cell) => ({
     cell,
@@ -132,4 +133,11 @@ export function regionalizeMissionDefinition(base: MissionDefinition, seed: numb
     playerSpawns: definition.spawns.players.map((position) => ({ ...position })),
   }
   return { definition, layout }
+}
+
+export function regionCellIndexAt(position: { x: number; z: number }): number {
+  const span = SHERWOOD_GRID_SIZE * SHERWOOD_CELL_SIZE
+  const column = Math.max(0, Math.min(SHERWOOD_GRID_SIZE - 1, Math.floor((position.x + span / 2) / SHERWOOD_CELL_SIZE)))
+  const row = Math.max(0, Math.min(SHERWOOD_GRID_SIZE - 1, Math.floor((position.z + span / 2) / SHERWOOD_CELL_SIZE)))
+  return row * SHERWOOD_GRID_SIZE + column
 }

@@ -3,7 +3,7 @@ import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import { resolveSherwoodPlayerMovement } from "../shared/world-collisions"
-import { regionalizeMissionDefinition, seededUnit, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionCellIndexAt, regionalizeMissionDefinition, seededUnit, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 
 export interface MissionOptions {
   rotation?: SheriffRotation | null
@@ -70,6 +70,7 @@ export class Mission {
   readonly seed: number
   readonly definition: MissionDefinition
   readonly layout: RegionalMissionLayout
+  readonly exploredCellIndices = new Set<number>()
   readonly events: MissionEvent[] = []
   readonly guards: MissionGuardState[]
   readonly pings: WorldPing[] = []
@@ -140,6 +141,7 @@ export class Mission {
     const regional = regionalizeMissionDefinition(baseDefinition, this.seed)
     this.definition = regional.definition
     this.layout = regional.layout
+    this.exploredCellIndices.add(this.layout.campfireCell.index)
     const definition = this.definition
     const rotation = options.rotation ?? null
     if (rotation && (rotation.missionSlug !== definition.slug || rotation.missionVersion !== definition.missionVersion || rotation.missionContentHash !== definition.contentHash)) throw new Error("INVALID_ROTATION_MISSION")
@@ -331,6 +333,7 @@ export class Mission {
     }
 
     const activePlayers = [...this.players.values()].filter((player) => player.connected && player.health > 0 && !player.captured)
+    for (const player of activePlayers) this.exploredCellIndices.add(regionCellIndexAt(player.position))
     if (this.missionKind === "prison-wagon") this.updatePrisonWagon(activePlayers, dt)
     if (this.missionKind === "storehouse") this.updateStorehouse(activePlayers, dt)
     if (this.phase === "scout") this.detectRoute(activePlayers, routeMap(this.definition.routes.entry), "entry")
@@ -364,6 +367,7 @@ export class Mission {
         disguisePosition: { ...this.layout.disguisePosition },
         playerSpawns: this.layout.playerSpawns.map((position) => ({ ...position })),
       },
+      exploredCellIndices: [...this.exploredCellIndices].sort((left, right) => left - right),
       status: this.status,
       phase: this.phase,
       entryRoute: this.entryRoute,

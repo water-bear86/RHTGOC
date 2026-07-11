@@ -2,16 +2,16 @@ import { describe, expect, it } from "vitest"
 import { PEOPLES_PURSE_MISSION, PRISON_WAGON_MISSION, ROYAL_STOREHOUSE_MISSION } from "./mission-catalog"
 import { SHERWOOD_REGIONAL_BOUNDS, regionalizeMissionDefinition, sherwoodRegionCells, stableSeed } from "./regional-layout"
 
-describe("3x3 regional mission layout", () => {
-  it("publishes nine stable cells and separates campfire from the objective as far as possible", () => {
-    expect(sherwoodRegionCells()).toHaveLength(9)
+describe("5x5 regional mission layout", () => {
+  it("publishes 25 stable cells and separates campfire from the objective as far as possible", () => {
+    expect(sherwoodRegionCells()).toHaveLength(25)
     for (const token of ["first", "second", "third", "fourth"]) {
       const { layout } = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, stableSeed(token))
       const distance = Math.abs(layout.campfireCell.row - layout.objectiveCell.row)
         + Math.abs(layout.campfireCell.column - layout.objectiveCell.column)
-      expect(distance).toBeGreaterThanOrEqual(2)
+      expect(distance).toBeGreaterThanOrEqual(4)
       expect(layout.campfireCell.index).not.toBe(layout.objectiveCell.index)
-      expect(Math.hypot(layout.campfirePosition.x - layout.objectivePosition.x, layout.campfirePosition.z - layout.objectivePosition.z)).toBeGreaterThan(50)
+      expect(Math.hypot(layout.campfirePosition.x - layout.objectivePosition.x, layout.campfirePosition.z - layout.objectivePosition.z)).toBeGreaterThan(90)
     }
   })
 

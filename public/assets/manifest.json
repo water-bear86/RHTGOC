@@ -26,7 +26,7 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "161201d180293b83709145d79a8f4a67a2644d7b19032c22b66a6428138ed429"
+        "evidenceSha256": "e3d57e5e1ef0fd5ef9efdc34218f80d40f6f79d4ca2709266e143c5ba8fb69e9"
       },
       "uri": "assets/characters/robin-ranger-rigged.glb",
       "format": "glTF 2.0 GLB",
@@ -101,7 +101,7 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "161201d180293b83709145d79a8f4a67a2644d7b19032c22b66a6428138ed429"
+        "evidenceSha256": "e3d57e5e1ef0fd5ef9efdc34218f80d40f6f79d4ca2709266e143c5ba8fb69e9"
       },
       "uri": "assets/environment/sherwood-tree-grove.glb",
       "format": "glTF 2.0 GLB",
@@ -138,6 +138,64 @@
         { "level": 0, "maxDistance": 38, "asset": "self" },
         { "level": 1, "maxDistance": 48, "asset": "procedural perimeter trees" },
         { "level": 2, "maxDistance": 120, "asset": "hidden in fog" }
+      ]
+    },
+    {
+      "id": "environment.craftpix.medieval-props",
+      "category": "modular-environment",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-11",
+        "rationale": "Ten licensed low-poly props curated into one grounded, meter-scaled, embedded catalog with shared material, deterministic placement, distance culling, and nonblocking gameplay policy."
+      },
+      "provenance": {
+        "sourceAsset": "free-medieval-props-3d-low-poly-pack.zip curated 10-prop slice",
+        "sourceSha256": "3d09da28a728db18f4c95dbf305cde0d5f6e30d4bfde3de011e9447c85421c54",
+        "sourceBytes": 605366,
+        "sourceGenerator": "FBX source pack",
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/build-craftpix-medieval-props.py",
+        "conversionDoc": "docs/assets/quality-gate-audit.md#july-11-supplied-character-and-prop-packs",
+        "optimizer": "Blender glTF exporter and glTF Transform dedup/prune"
+      },
+      "license": {
+        "status": "project-authorized",
+        "identifier": "LicenseRef-Project-Owner-Authorized",
+        "evidence": "docs/assets/licenses/craftpix-freebie-license-reference.md",
+        "evidenceSha256": "b88e6d1d42e4cc4951b88ec5f24eda71230f231519e3b1d44793950ffd0ab910"
+      },
+      "uri": "assets/environment/craftpix-medieval-props.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "851c3ec8da70675b035b01e2da3d2ac9b373dbf9e87a680b99e6d1914e84f181",
+      "bytesMax": 3000000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 15486,
+        "uploadVertices": 10392,
+        "triangles": 5162,
+        "uniquePrimitives": 10,
+        "sceneDrawCalls": 10
+      },
+      "materials": { "count": 1, "names": ["Material #25.001"] },
+      "texture": { "count": 0, "format": "none", "width": 0, "height": 0, "encodedBytes": 0, "gpuBytesApprox": 0 },
+      "clips": [],
+      "pivot": {
+        "policy": "each prop bottom-centered at origin",
+        "passes": true,
+        "evidence": "All ten direct prop roots are grounded at minY=0"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-1.90448, 0, -0.55898],
+        "boundsMax": [1.90448, 2.2, 0.55897]
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": { "type": "none", "reason": "nonblocking regional dressing; authoritative navigation remains unchanged" },
+      "lod": [
+        { "level": 0, "maxDistance": 34, "asset": "self" },
+        { "level": 1, "maxDistance": 48, "asset": "self on desktop; hidden in degraded mode" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
       ]
     },
     {
@@ -213,7 +271,7 @@
     }
   ],
   "catalog": {
-    "shipped": ["character.robin.ranger", "environment.sherwood.tree-grove", "environment.sherwood.village-slice"],
+    "shipped": ["character.robin.ranger", "environment.sherwood.tree-grove", "environment.craftpix.medieval-props", "environment.sherwood.village-slice"],
     "procedural": [
       "character.marian.scout",
       "character.little-john.vanguard",
