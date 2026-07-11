@@ -126,7 +126,7 @@ describe("Merry Band room", () => {
     })
     expect(snapshot.alarms).toEqual(expect.arrayContaining([expect.objectContaining({ id: "alarm.front-gate", status: "active" })]))
     expect(snapshot.lootCaches).toHaveLength(4)
-    expect(leader.position).toEqual({ x: -12, z: 9 })
+    expect(leader.position).toEqual(room.mission!.definition.spawns.players[leader.spawnIndex])
   })
 
   it("keeps deterministic, collision-free spawns when a slot is pruned", () => {

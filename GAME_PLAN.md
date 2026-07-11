@@ -37,7 +37,7 @@ Verification completed:
 - Resize and deliberate WebGL context loss/restoration preserve the complete 3D scene.
 - The unlicensed `Free Sample` pack is rejected. Raw source packs remain outside the runtime.
 
-No M9 feature implementation starts until #9, #10, #14, and #39 produce a persistence-enabled, traceable mainline release.
+No M9 feature may be promoted to production or treated as milestone-complete until #9, #10, #14, and #39 produce a persistence-enabled, traceable mainline release. User-directed local prototypes may be developed on the stacked branch while authentication is paused, provided their unreleased status and remaining acceptance work stay explicit.
 
 ## Next sprint — M9 Deeper Sherwood Public Alpha
 

@@ -246,12 +246,13 @@ export class Room {
       this.missionSeasonSlug = season && (season.phase === "active" || season.phase === "finale") ? season.slug : null
       this.missionStartedAt = now
       const definition = getMissionDefinition(this.missionSlug)
-      for (const player of this.players.values()) player.position = { ...definition.spawns.players[player.spawnIndex] }
       this.mission ??= new Mission(this.code, this.players, definition, {
+        seedToken: `${this.code}:${this.missionId}`,
         rotation,
         rescueOffer: rescueOffer ? { id: rescueOffer.id, sourceMissionId: rescueOffer.sourceMissionId } : null,
         preparations: preparations.map(({ id, type, contributorLabel }) => ({ id, type, contributorLabel })),
       })
+      for (const player of this.players.values()) player.position = { ...this.mission.definition.spawns.players[player.spawnIndex] }
       this.mission.village = { ...this.village }
       if (rotation) this.rotationAttemptCount += 1
       if (rescueOffer) {

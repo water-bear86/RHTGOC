@@ -1,5 +1,6 @@
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
-import { SHERWOOD_MISSION_WORLD_BOUNDS, resolveSherwoodPlayerMovement } from "../shared/world-collisions"
+import { resolveSherwoodPlayerMovement } from "../shared/world-collisions"
+import { regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 
 export interface Vec2 { x: number; z: number }
 
@@ -25,6 +26,7 @@ export interface GuardState {
 }
 
 export interface GameState {
+  layout: RegionalMissionLayout
   player: {
     characterId: CharacterId
     position: Vec2
@@ -38,6 +40,8 @@ export interface GameState {
   guards: GuardState[]
   traps: Array<{ id: number; position: Vec2; remaining: number }>
   delivered: number
+  objectiveDiscovered: boolean
+  searchPressure: number
   heat: number
   cartCoin: number
   cartRefill: number
@@ -51,8 +55,9 @@ export interface InputState {
   move: Vec2
 }
 
-export const CART_POSITION: Vec2 = { ...PEOPLES_PURSE_MISSION.spawns.cart }
-export const VILLAGE_POSITION: Vec2 = { ...PEOPLES_PURSE_MISSION.spawns.village }
+const DEFAULT_SOLO_MISSION = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, stableSeed("solo-default"))
+export const CART_POSITION: Vec2 = { ...DEFAULT_SOLO_MISSION.layout.objectivePosition }
+export const VILLAGE_POSITION: Vec2 = { ...DEFAULT_SOLO_MISSION.layout.campfirePosition }
 export const DELIVERY_TARGET = PEOPLES_PURSE_MISSION.rewards.deliveryTarget
 
 const distance = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z)
@@ -61,11 +66,13 @@ export function getMaxArrows(characterId: CharacterId): number {
   return characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4
 }
 
-export function createInitialState(characterId: CharacterId = "robin"): GameState {
+export function createInitialState(characterId: CharacterId = "robin", seed = stableSeed("solo-default")): GameState {
+  const regional = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed)
   return {
+    layout: regional.layout,
     player: {
       characterId,
-      position: { ...PEOPLES_PURSE_MISSION.spawns.players[0] },
+      position: { ...regional.definition.spawns.players[0] },
       health: 3,
       arrows: getMaxArrows(characterId),
       loot: 0,
@@ -73,9 +80,11 @@ export function createInitialState(characterId: CharacterId = "robin"): GameStat
       signatureCooldown: 0,
       veilFor: 0,
     },
-    guards: PEOPLES_PURSE_MISSION.spawns.guards.slice(0, 3).map((guard, index) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: index * 2, stunnedFor: 0 })),
+    guards: regional.definition.spawns.guards.slice(0, 3).map((guard, index) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: index * 2, stunnedFor: 0 })),
     traps: [],
     delivered: 0,
+    objectiveDiscovered: false,
+    searchPressure: 0,
     heat: 0,
     cartCoin: 120,
     cartRefill: 0,
@@ -112,6 +121,26 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   const player = state.player
   state.stats.elapsedSeconds += dt
 
+  if (!state.objectiveDiscovered) {
+    if (distance(player.position, state.layout.objectivePosition) < 13) {
+      state.objectiveDiscovered = true
+      events.push("objective-found")
+    } else {
+      const nextPressure = Math.min(3, Math.floor(Math.max(0, state.stats.elapsedSeconds - 45) / 20))
+      while (state.searchPressure < nextPressure) {
+        state.searchPressure += 1
+        state.heat = Math.min(100, state.heat + 18)
+        const angle = state.searchPressure * 2.2
+        const position = {
+          x: state.layout.objectivePosition.x + Math.cos(angle) * (5 + state.searchPressure),
+          z: state.layout.objectivePosition.z + Math.sin(angle) * (5 + state.searchPressure),
+        }
+        state.guards.push({ id: state.guards.length, position: { ...position }, home: { ...position }, patrolAngle: angle, stunnedFor: 0 })
+        events.push("search-reinforced")
+      }
+    }
+  }
+
   const moveLength = Math.hypot(input.move.x, input.move.z)
   let playerDisplacement: Vec2 = { x: 0, z: 0 }
   if (moveLength > 0.001) {
@@ -126,7 +155,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
     }
     state.stats.distanceTravelled += movement
   }
-  const resolvedPlayerPosition = resolveSherwoodPlayerMovement(player.position, playerDisplacement, SHERWOOD_MISSION_WORLD_BOUNDS)
+  const resolvedPlayerPosition = resolveSherwoodPlayerMovement(player.position, playerDisplacement, state.layout.worldBounds)
   player.position.x = resolvedPlayerPosition.x
   player.position.z = resolvedPlayerPosition.z
 
@@ -150,6 +179,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   const veilBonus = player.veilFor > 0 ? 2.4 : 1
   const heatDecay = (hiddenInWoods && nearestGuard > 7 ? 9 : 1.4) * marianBonus * veilBonus
   state.heat = Math.max(0, state.heat - heatDecay * dt)
+  if (!state.objectiveDiscovered && state.searchPressure > 0) state.heat = Math.max(state.heat, state.searchPressure * 18)
   state.stats.peakHeat = Math.max(state.stats.peakHeat, state.heat)
 
   for (const guard of state.guards) {
@@ -183,7 +213,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       const knockback = resolveSherwoodPlayerMovement(player.position, {
         x: -(guard.position.x - player.position.x) * 1.8,
         z: -(guard.position.z - player.position.z) * 1.8,
-      }, SHERWOOD_MISSION_WORLD_BOUNDS)
+      }, state.layout.worldBounds)
       player.position.x = knockback.x
       player.position.z = knockback.z
       events.push("player-hit")
@@ -198,7 +228,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
 
 export function interact(state: GameState): string {
   if (state.won || state.lost) return "none"
-  if (distance(state.player.position, CART_POSITION) < 3) {
+  if (distance(state.player.position, state.layout.objectivePosition) < 3) {
     if (state.cartCoin === 0) return "cart-empty"
     state.player.loot += state.cartCoin
     state.cartCoin = 0
@@ -208,7 +238,7 @@ export function interact(state: GameState): string {
     state.stats.robberies += 1
     return "robbed-cart"
   }
-  if (distance(state.player.position, VILLAGE_POSITION) < 3.2) {
+  if (distance(state.player.position, state.layout.campfirePosition) < 3.2) {
     if (state.player.loot === 0) {
       const maxArrows = getMaxArrows(state.player.characterId)
       if (state.player.arrows < maxArrows) {
@@ -272,11 +302,11 @@ export function activateSignature(state: GameState): { event: string; guardIds: 
   }
 
   if (player.characterId === "much") {
-    const invalidTerrain = Math.abs(player.position.x) > 20
-      || Math.abs(player.position.z) > 20
+    const invalidTerrain = Math.abs(player.position.x) > state.layout.worldBounds - 2
+      || Math.abs(player.position.z) > state.layout.worldBounds - 2
       || (Math.abs(player.position.x) < 3.2 && Math.abs(player.position.z) < 18)
-      || distance(player.position, CART_POSITION) < 3
-      || distance(player.position, VILLAGE_POSITION) < 3
+      || distance(player.position, state.layout.objectivePosition) < 3
+      || distance(player.position, state.layout.campfirePosition) < 3
     if (invalidTerrain || state.traps.length > 0) {
       player.signatureCooldown = 0
       state.stats.signatureUses -= 1
@@ -317,12 +347,16 @@ export function calculateMastery(state: GameState): MasteryResult {
 }
 
 export function getContextPrompt(state: GameState): string {
-  if (distance(state.player.position, CART_POSITION) < 3) {
+  if (distance(state.player.position, state.layout.objectivePosition) < 3) {
     return state.cartCoin > 0 ? "E  ROB THE TAX CART" : `Cart returns in ${Math.ceil(state.cartRefill)}s`
   }
-  if (distance(state.player.position, VILLAGE_POSITION) < 3.2) {
+  if (distance(state.player.position, state.layout.campfirePosition) < 3.2) {
     return state.player.loot > 0 ? "E  GIVE COIN TO THE VILLAGE" : "E  RESTOCK ARROWS"
   }
   if (state.heat > 20) return "Lose the guards in the deep woods"
-  return state.player.loot > 0 ? "Carry the coin back to the village fire" : "Find the Sheriff's tax cart"
+  return state.player.loot > 0
+    ? "Carry the coin back to the village fire"
+    : state.objectiveDiscovered
+      ? "Close on the Sheriff's tax cart"
+      : "Search the nine Sherwood sectors before the Sheriff reinforces"
 }

@@ -20,7 +20,7 @@ describe("Sherwood simulation", () => {
 
   it("fires at and stuns a nearby guard", () => {
     const state = createInitialState()
-    state.player.position = { x: 7, z: -4 }
+    state.player.position = { ...state.guards[0].position }
     expect(shoot(state)).toBe(0)
     expect(state.guards[0].stunnedFor).toBeGreaterThan(3)
     expect(state.player.arrows).toBe(5)
@@ -31,6 +31,18 @@ describe("Sherwood simulation", () => {
     const before = state.player.position.x
     updateSimulation(state, { move: { x: 1, z: 0 } }, 0.5)
     expect(state.player.position.x).toBeGreaterThan(before)
+  })
+
+  it("lets a wrong 3x3 search route strengthen the Sheriff before discovery", () => {
+    const state = createInitialState("marian", 42)
+    state.player.position = { ...state.layout.campfirePosition }
+    const events = updateSimulation(state, { move: { x: 0, z: 0 } }, 66)
+    expect(state.searchPressure).toBe(1)
+    expect(state.heat).toBeGreaterThan(0)
+    expect(events).toContain("search-reinforced")
+    state.player.position = { ...state.layout.objectivePosition }
+    expect(updateSimulation(state, { move: { x: 0, z: 0 } }, 0.05)).toContain("objective-found")
+    expect(state.objectiveDiscovered).toBe(true)
   })
 
   it("makes Maid Marian a faster playable scout with a pursuit-breaking veil", () => {
@@ -47,7 +59,7 @@ describe("Sherwood simulation", () => {
 
   it("gives Robin a twin-shot mastery ability", () => {
     const state = createInitialState("robin")
-    state.player.position = { x: 9, z: -7 }
+    state.player.position = { ...state.guards[0].position }
     const signature = activateSignature(state)
     expect(signature.event).toBe("robin-volley")
     expect(signature.guardIds).toHaveLength(2)
@@ -55,7 +67,8 @@ describe("Sherwood simulation", () => {
 
   it("gives Little John readable crowd control and a heavy-carry advantage", () => {
     const john = createInitialState("little-john")
-    john.player.position = { x: 9, z: -7 }
+    john.player.position = { ...john.guards[0].position }
+    john.guards[1].position = { ...john.guards[0].position }
     expect(john.player.arrows).toBe(3)
     const signature = activateSignature(john)
     expect(signature.event).toBe("little-john-sweep")
@@ -72,7 +85,7 @@ describe("Sherwood simulation", () => {
 
   it("gives Much a bounded visible snare that cleans up after triggering", () => {
     const state = createInitialState("much")
-    state.player.position = { x: 7, z: -5 }
+    state.player.position = { ...state.guards[0].position }
     expect(activateSignature(state).event).toBe("much-snare")
     expect(activateSignature(state).event).toBe("signature-unavailable")
     expect(state.traps).toHaveLength(1)

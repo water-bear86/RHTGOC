@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { MissionPlayer } from "./mission"
-import { Mission, SIGNAL_POSITION, missionSeed } from "./mission"
+import { Mission, missionSeed } from "./mission"
 import type { CharacterId } from "../shared/protocol"
 import referencePackage from "../missions/peoples-purse.v1.json"
 import { missionContentHash, parseMissionDefinition } from "../shared/mission-definition"
@@ -50,6 +50,30 @@ describe("authoritative mission", () => {
     expect(first.snapshot()).toMatchObject({ missionId: "peoples-purse@1.0.0", missionVersion: "1.0.0", contentHash: referencePackage.contentHash })
   })
 
+  it("varies the 3x3 region by run token and reinforces a badly delayed search", () => {
+    const scout = player("scout", "marian")
+    const first = new Mission("ABC234", new Map([[scout.id, scout]]), undefined, { seedToken: "run-one" })
+    const replay = new Mission("ABC234", new Map([["copy", player("copy", "marian")]]), undefined, { seedToken: "run-one" })
+    const next = new Mission("ABC234", new Map([["next", player("next", "marian")]]), undefined, { seedToken: "run-two" })
+    expect(replay.layout).toEqual(first.layout)
+    expect(next.layout).not.toEqual(first.layout)
+
+    scout.connected = false
+    const guardsBefore = first.guards.length
+    first.update(66)
+    expect(first.snapshot().searchPressure).toBe(1)
+    expect(first.heat).toBeGreaterThanOrEqual(18)
+    expect(first.guards.length).toBeGreaterThanOrEqual(guardsBefore)
+    expect(first.events).toContainEqual(expect.objectContaining({ type: "reinforcement_arrived", detail: "search-pressure", value: 1 }))
+    scout.connected = true
+    scout.position = { ...first.layout.objectivePosition }
+    first.update(0.05)
+    expect(first.snapshot().objectiveDiscovered).toBe(true)
+    scout.connected = false
+    first.update(100)
+    expect(first.snapshot().searchPressure).toBe(1)
+  })
+
   it("runs a cloned package variant without changing core mission code", () => {
     const variant = structuredClone(referencePackage) as typeof referencePackage
     variant.id = "peoples-purse-fast@1.1.0"
@@ -65,7 +89,7 @@ describe("authoritative mission", () => {
     const robin = player()
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]), definition)
     mission.phase = "robbery"
-    robin.position = { ...definition.spawns.cart }
+    robin.position = { ...mission.definition.spawns.cart }
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(robin.loot).toBe(99)
     expect(mission.snapshot()).toMatchObject({ missionId: variant.id, missionVersion: "1.1.0", contentHash: variant.contentHash, target: 777 })
@@ -86,7 +110,7 @@ describe("authoritative mission", () => {
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]))
     expect(mission.action(robin.id, "interact")).toBe(false)
     expect(mission.action(robin.id, "shoot")).toBe(false)
-    robin.position = { x: 8, z: -6 }
+    robin.position = { ...mission.guards[0].position }
     mission.update(0.7)
     expect(mission.action(robin.id, "shoot")).toBe(true)
     expect(mission.action(robin.id, "shoot")).toBe(false)
@@ -97,11 +121,11 @@ describe("authoritative mission", () => {
     const robin = player()
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]))
     mission.phase = "robbery"
-    robin.position = { x: 10, z: -8 }
+    robin.position = { ...mission.definition.spawns.cart }
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(robin.loot).toBe(120)
     mission.phase = "escape"
-    robin.position = { x: -11, z: 9 }
+    robin.position = { ...mission.definition.spawns.village }
     mission.delivered = 540
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(mission.status).toBe("succeeded")
@@ -117,8 +141,8 @@ describe("authoritative mission", () => {
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]))
     mission.setInput(robin.id, 1, { x: 1, z: 1 }, 100)
     for (let index = 0; index < 100; index += 1) mission.update(0.05)
-    expect(robin.position.x).toBeLessThanOrEqual(22)
-    expect(robin.position.z).toBeLessThanOrEqual(22)
+    expect(robin.position.x).toBeLessThanOrEqual(mission.definition.rules.worldBounds)
+    expect(robin.position.z).toBeLessThanOrEqual(mission.definition.rules.worldBounds)
   })
 
   it("keeps solo prediction and authoritative movement identical at the rotated cottage", () => {
@@ -201,6 +225,7 @@ describe("authoritative mission", () => {
     ]))
     expect(initial.traps.some((trap) => trap.ownerId === "contribution:d6c08d84-1795-4ac3-98c3-d5da9f02ed42")).toBe(true)
     expect(mission.events.filter((event) => event.type === "contribution_consumed")).toHaveLength(2)
+    robin.position = { ...initial.preparations.find((preparation) => preparation.type === "supplies")!.position }
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(robin.arrows).toBe(6)
     expect(mission.snapshot().preparations.find((preparation) => preparation.type === "supplies")?.status).toBe("consumed")
@@ -210,9 +235,9 @@ describe("authoritative mission", () => {
   it("validates Little John's crowd-control signature and cooldown on the server", () => {
     const john = player("john", "little-john")
     const marian = player("marian", "marian")
-    john.position = { x: 9, z: -7 }
-    marian.position = { ...john.position }
     const mission = new Mission("ABC234", new Map([[john.id, john], [marian.id, marian]]))
+    john.position = { ...mission.guards[0].position }
+    marian.position = { ...john.position }
     expect(mission.action(john.id, "signature")).toBe(true)
     expect(mission.action(john.id, "signature")).toBe(false)
     expect(john.signatureCooldown).toBe(20)
@@ -269,7 +294,9 @@ describe("authoritative mission", () => {
     const much = player("much", "much")
     const robin = player("robin", "robin")
     const mission = new Mission("ABC234", new Map([[much.id, much], [robin.id, robin]]))
-    much.position = { ...mission.guards[0].position }
+    much.position = { x: mission.layout.objectivePosition.x + 8, z: mission.layout.objectivePosition.z + 8 }
+    mission.guards[0].position = { ...much.position }
+    mission.guards[0].home = { ...much.position }
     expect(mission.action(much.id, "signature")).toBe(true)
     mission.update(0.05)
     expect(much.trapHits).toBe(1)
@@ -277,7 +304,7 @@ describe("authoritative mission", () => {
     expect(mission.events.some((event) => event.type === "trap_triggered")).toBe(true)
 
     much.signatureCooldown = 0
-    much.position = { ...SIGNAL_POSITION }
+    much.position = { ...mission.definition.spawns.reinforcementSignal }
     mission.heat = 60
     expect(mission.action(much.id, "interact")).toBe(true)
     expect(mission.action(much.id, "interact")).toBe(false)
@@ -315,21 +342,21 @@ describe("authoritative mission", () => {
     const robin = player("robin", "robin")
     const marian = player("marian", "marian")
     const mission = new Mission("ABC234", new Map([[robin.id, robin], [marian.id, marian]]))
-    marian.position = { x: -16, z: -4 }
+    marian.position = { ...mission.definition.routes.entry.find((route) => route.id === "forest")!.position }
     mission.update(0.05)
     expect([mission.phase, mission.entryRoute]).toEqual(["ambush", "forest"])
-    robin.position = { x: 8, z: -6 }
+    robin.position = { ...mission.guards[0].position }
     expect(mission.action(robin.id, "signature")).toBe(true)
     mission.update(18)
     expect(mission.action(robin.id, "shoot")).toBe(true)
     expect(mission.phase).toBe("robbery")
-    robin.position = { x: 10, z: -8 }
+    robin.position = { ...mission.definition.spawns.cart }
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(mission.phase).toBe("pursuit")
-    robin.position = { x: -18, z: 15 }
+    robin.position = { ...mission.definition.routes.escape.find((route) => route.id === "forest")!.position }
     mission.update(0.05)
     expect([mission.phase, mission.escapeRoute]).toEqual(["escape", "forest"])
-    robin.position = { x: -11, z: 9 }
+    robin.position = { ...mission.definition.spawns.village }
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect([mission.phase, mission.cycle, mission.delivered]).toEqual(["scout", 2, 120])
   })
@@ -342,7 +369,7 @@ describe("authoritative mission", () => {
       ["m2", player("m2", "marian")],
     ])
     const mission = new Mission("ABC234", players)
-    players.get("m1")!.position = { x: 16, z: 2 }
+    players.get("m1")!.position = { ...mission.definition.routes.entry.find((route) => route.id === "river")!.position }
     mission.update(0.05)
     expect(mission.entryRoute).toBe("river")
     expect(mission.guards).toHaveLength(6)
@@ -363,11 +390,11 @@ describe("authoritative mission", () => {
     const marian = player("marian", "marian")
     const mission = new Mission("ABC234", new Map([[robin.id, robin], [marian.id, marian]]))
     mission.phase = "robbery"
-    robin.position = { x: 10, z: -8 }
+    robin.position = { ...mission.definition.spawns.cart }
     mission.action(robin.id, "interact")
     mission.phase = "escape"
     mission.delivered = 540
-    robin.position = { x: -11, z: 9 }
+    robin.position = { ...mission.definition.spawns.village }
     mission.action(robin.id, "interact")
     expect(mission.castVote(robin.id, "granary")).toBe(true)
     expect(mission.castVote(marian.id, "watchtower")).toBe(true)
@@ -424,7 +451,7 @@ describe("authoritative mission", () => {
     much.connected = true
     expect(mission.snapshot().captives.map((captive) => captive.id)).toEqual(identitiesBeforeReconnect)
 
-    const extraction = PRISON_WAGON_MISSION.routes.escape.find((route) => route.id === "river")!.position
+    const extraction = mission.definition.routes.escape.find((route) => route.id === "river")!.position
     john.position = { ...extraction }
     for (const captive of mission.captives) captive.position = { ...extraction }
     mission.update(0.05)
@@ -466,7 +493,7 @@ describe("authoritative mission", () => {
     marian.position = { ...mission.cartPosition }
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(mission.action(marian.id, "interact")).toBe(true)
-    const refuge = PRISON_WAGON_MISSION.routes.escape.find((route) => route.id === "forest")!.position
+    const refuge = mission.definition.routes.escape.find((route) => route.id === "forest")!.position
     marian.position = { ...refuge }
     for (const captive of mission.captives) captive.position = { ...refuge }
     mission.update(0.05)
@@ -481,14 +508,14 @@ describe("authoritative mission", () => {
     const marian = player("marian", "marian")
     const much = player("much", "much")
     const mission = new Mission("LEDGER", new Map([[marian.id, marian], [much.id, much]]), ROYAL_STOREHOUSE_MISSION)
-    const roof = ROYAL_STOREHOUSE_MISSION.routes.entry.find((route) => route.id === "river")!.position
+    const roof = mission.definition.routes.entry.find((route) => route.id === "river")!.position
     much.position = { ...roof }
     mission.update(0.05)
     expect([mission.phase, mission.entryRoute]).toEqual(["ambush", "river"])
     much.position = { ...mission.alarms.find((alarm) => alarm.id === "alarm.canal-roof")!.position }
     expect(mission.action(much.id, "interact")).toBe(true)
     expect(mission.phase).toBe("robbery")
-    marian.position = { ...scenario.disguisePosition }
+    marian.position = { ...mission.layout.disguisePosition }
     expect(mission.action(marian.id, "interact")).toBe(true)
     expect(mission.disguisePlayerId).toBe(marian.id)
 
@@ -506,7 +533,7 @@ describe("authoritative mission", () => {
     expect(mission.phase).toBe("pursuit")
     expect(mission.alarmLevel).toBe(0)
 
-    const extraction = ROYAL_STOREHOUSE_MISSION.routes.escape.find((route) => route.id === "forest")!.position
+    const extraction = mission.definition.routes.escape.find((route) => route.id === "forest")!.position
     marian.position = { ...extraction }
     much.position = { ...extraction }
     mission.update(0.05)
@@ -525,7 +552,7 @@ describe("authoritative mission", () => {
     const john = player("john", "little-john")
     const robin = player("robin", "robin")
     const mission = new Mission("LOUD22", new Map([[john.id, john], [robin.id, robin]]), ROYAL_STOREHOUSE_MISSION)
-    const gate = ROYAL_STOREHOUSE_MISSION.routes.entry.find((route) => route.id === "forest")!.position
+    const gate = mission.definition.routes.entry.find((route) => route.id === "forest")!.position
     john.position = { ...gate }
     mission.update(0.05)
     expect(mission.action(john.id, "interact")).toBe(true)

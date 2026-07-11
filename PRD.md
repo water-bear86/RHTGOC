@@ -6,9 +6,9 @@
 
 **Production:** M7 is playable on the permanent AWS Lightsail origin. The live service is not yet a persistence-enabled release.
 
-**Active pull request:** [#38 — M8 Storybook Sherwood Art Pass](https://github.com/water-bear86/sherwood-rebellion/pull/38), completing the hardened asset gate, shared cel shading, and curated village runtime slice.
+**Active pull request:** [#52 — World pass: solid forest and reflective river](https://github.com/water-bear86/sherwood-rebellion/pull/52), stacked on the production-gate chain and now carrying the first regional-composer prototype.
 
-**Development status:** M8 is complete on its stacked branch but is not the production build. M9 remains gated by production activation and a traceable mainline release.
+**Development status:** M8 is complete on its stacked branch but is not the production build. Production promotion remains gated; user-directed M9 world-composer prototyping may continue locally on the stack but cannot be called released or close the milestone gate.
 
 **Core technology:** Three.js, TypeScript, Vite
 
@@ -233,6 +233,8 @@ The first production region should contain:
 - One royal road and guarded tax-cart encounter.
 - One safe house or alternate extraction point.
 - Patrols, reinforcements, environmental cover, and escape obstacles.
+
+Mission terrain is composed as a deterministic 3×3 grid of 30-metre sectors. Each run places the campfire in one outer sector and the objective in a farthest valid sector, with bounded per-cell jitter. The authoritative run seed translates player, objective, guard, route, signal, rescue, and storehouse positions together so every client sees the same geography and a replay can reproduce it. Searching the wrong sectors raises a three-step Sheriff pressure floor and can add target guards before discovery; exploration is therefore a mastery decision, not empty travel. A fresh run token must produce another valid placement without revealing the target sector in the HUD.
 
 Later regions may include Nottingham, Locksley, royal estates, woodland settlements, and connected wilderness routes.
 

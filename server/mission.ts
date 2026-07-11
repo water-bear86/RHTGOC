@@ -3,11 +3,13 @@ import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import { resolveSherwoodPlayerMovement } from "../shared/world-collisions"
+import { regionalizeMissionDefinition, seededUnit, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 
 export interface MissionOptions {
   rotation?: SheriffRotation | null
   rescueOffer?: { id: string; sourceMissionId: string } | null
   preparations?: Array<Pick<BandContribution, "id" | "type" | "contributorLabel">>
+  seedToken?: string
 }
 
 export interface MissionPlayer {
@@ -60,22 +62,14 @@ export const ESCAPE_ROUTES = routeMap(defaultMission.routes.escape)
 
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }): number => Math.hypot(a.x - b.x, a.z - b.z)
 
-function seededUnit(seed: number): () => number {
-  let value = seed || 1
-  return () => {
-    value = (value * 16807) % 2147483647
-    return (value - 1) / 2147483646
-  }
-}
-
 export function missionSeed(roomCode: string): number {
-  let seed = 2166136261
-  for (const character of roomCode) seed = Math.imul(seed ^ character.charCodeAt(0), 16777619)
-  return seed >>> 0
+  return stableSeed(roomCode)
 }
 
 export class Mission {
   readonly seed: number
+  readonly definition: MissionDefinition
+  readonly layout: RegionalMissionLayout
   readonly events: MissionEvent[] = []
   readonly guards: MissionGuardState[]
   readonly pings: WorldPing[] = []
@@ -96,6 +90,8 @@ export class Mission {
   escapeRoute: "forest" | "river" | null = null
   cycle = 1
   elapsedSeconds = 0
+  objectiveDiscovered = false
+  searchPressure = 0
   ambushStuns = 0
   peakHeat = 0
   alertedSeconds = 0
@@ -137,10 +133,14 @@ export class Mission {
   constructor(
     roomCode: string,
     private readonly players: Map<string, MissionPlayer>,
-    readonly definition: MissionDefinition = getMissionDefinition(),
+    baseDefinition: MissionDefinition = getMissionDefinition(),
     options: MissionOptions = {},
   ) {
-    this.seed = missionSeed(roomCode)
+    this.seed = missionSeed(options.seedToken ?? roomCode)
+    const regional = regionalizeMissionDefinition(baseDefinition, this.seed)
+    this.definition = regional.definition
+    this.layout = regional.layout
+    const definition = this.definition
     const rotation = options.rotation ?? null
     if (rotation && (rotation.missionSlug !== definition.slug || rotation.missionVersion !== definition.missionVersion || rotation.missionContentHash !== definition.contentHash)) throw new Error("INVALID_ROTATION_MISSION")
     this.rotationId = rotation?.id ?? null
@@ -273,6 +273,20 @@ export class Mission {
       return
     }
     this.elapsedSeconds += dt
+    if (this.phase === "scout" && [...this.players.values()].some((player) => player.connected && !player.captured && distance(player.position, this.layout.objectivePosition) < 13)) {
+      this.objectiveDiscovered = true
+    }
+    if (this.phase === "scout" && !this.objectiveDiscovered) {
+      const nextPressure = Math.min(3, Math.floor(Math.max(0, this.elapsedSeconds - 45) / 20))
+      while (this.searchPressure < nextPressure) {
+        this.searchPressure += 1
+        this.heat = Math.min(100, this.heat + 18)
+        const existing = new Set(this.guards.map((guard) => guard.id))
+        const reinforcement = this.definition.spawns.guards.find((guard) => !existing.has(guard.id))
+        if (reinforcement) this.guards.push({ id: reinforcement.id, position: { ...reinforcement.position }, home: { ...reinforcement.position }, patrolAngle: 0, stunnedFor: 0 })
+        this.record("reinforcement_arrived", undefined, this.searchPressure, "search-pressure")
+      }
+    }
     for (let index = this.pings.length - 1; index >= 0; index -= 1) {
       if (this.pings[index].expiresAtTick <= this.tick) this.pings.splice(index, 1)
     }
@@ -323,6 +337,7 @@ export class Mission {
     if (this.phase === "pursuit") this.detectRoute(this.missionKind === "prison-wagon" ? activePlayers : activePlayers.filter((player) => player.loot > 0), routeMap(this.definition.routes.escape), "escape")
     const hidden = activePlayers.every((player) => Math.abs(player.position.x) > 13 || Math.abs(player.position.z) > 13 || player.veilFor > 0)
     this.heat = Math.max(0, this.heat - (hidden ? 7 : 1.2) * dt)
+    if (this.phase === "scout" && !this.objectiveDiscovered && this.searchPressure > 0) this.heat = Math.max(this.heat, this.searchPressure * 18)
     this.peakHeat = Math.max(this.peakHeat, this.heat)
     if (this.heat > 50) this.alertedSeconds += dt
     for (const guard of this.guards) this.updateGuard(guard, activePlayers, dt)
@@ -339,12 +354,24 @@ export class Mission {
       contentHash: this.definition.contentHash,
       missionKind: this.missionKind,
       seed: this.seed,
+      layout: {
+        ...this.layout,
+        campfireCell: { ...this.layout.campfireCell, center: { ...this.layout.campfireCell.center } },
+        objectiveCell: { ...this.layout.objectiveCell, center: { ...this.layout.objectiveCell.center } },
+        campfirePosition: { ...this.layout.campfirePosition },
+        objectivePosition: { ...this.layout.objectivePosition },
+        reinforcementSignalPosition: { ...this.layout.reinforcementSignalPosition },
+        disguisePosition: { ...this.layout.disguisePosition },
+        playerSpawns: this.layout.playerSpawns.map((position) => ({ ...position })),
+      },
       status: this.status,
       phase: this.phase,
       entryRoute: this.entryRoute,
       escapeRoute: this.escapeRoute,
       cycle: this.cycle,
       elapsedSeconds: this.elapsedSeconds,
+      objectiveDiscovered: this.objectiveDiscovered,
+      searchPressure: this.searchPressure,
       parSeconds: this.definition.mastery.parSeconds,
       heat: this.heat,
       cartCoin: this.cartCoin,
@@ -838,7 +865,7 @@ export class Mission {
 
   private placeTrap(player: MissionPlayer): boolean {
     if (this.phase === "extraction") return false
-    if (Math.abs(player.position.x) > 20 || Math.abs(player.position.z) > 20) return false
+    if (Math.abs(player.position.x) > this.definition.rules.worldBounds - 2 || Math.abs(player.position.z) > this.definition.rules.worldBounds - 2) return false
     if (Math.abs(player.position.x) < 3.2 && Math.abs(player.position.z) < 18) return false
     if (distance(player.position, this.definition.spawns.cart) < 3 || distance(player.position, this.definition.spawns.village) < 3) return false
     if (this.traps.some((trap) => trap.ownerId === player.id)) return false

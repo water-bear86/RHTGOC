@@ -5,9 +5,7 @@ import "./style.css"
 import {
   activateSignature,
   calculateMastery,
-  CART_POSITION,
   DELIVERY_TARGET,
-  VILLAGE_POSITION,
   createInitialState,
   getContextPrompt,
   interact,
@@ -47,11 +45,11 @@ import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend
 import { createVillageCottage, createVillageWagonShell } from "./village-assets"
 import {
   PUBLIC_HUB_WORLD_BOUNDS,
-  SHERWOOD_MISSION_WORLD_BOUNDS,
   resolveSherwoodPlayerMovement,
 } from "../shared/world-collisions"
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
+import { SHERWOOD_CELL_SIZE, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -207,9 +205,9 @@ let inputSettings: InputSettings = loadInputSettings(localStorage)
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x91aa83)
-scene.fog = new THREE.FogExp2(0x91aa83, 0.026)
+scene.fog = new THREE.FogExp2(0x91aa83, 0.016)
 
-const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 140)
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 220)
 camera.position.set(6, 14, 20)
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" })
@@ -231,6 +229,7 @@ container.appendChild(renderer.domElement)
 
 let selectedCharacter: CharacterId = "robin"
 let state = createInitialState(selectedCharacter)
+let soloRunSequence = 0
 const clock = new THREE.Clock()
 const keys = new Set<string>()
 const raycaster = new THREE.Raycaster()
@@ -305,8 +304,10 @@ const lootCacheViews = new Map<string, THREE.Group>()
 const preparationViews = new Map<string, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
 const authoredGroveViews: THREE.Group[] = []
-const cameraOccluders: Array<{ view: THREE.Group; radius: number }> = []
-const water = createSherwoodWater()
+const cameraOccluders: Array<{ view: THREE.Group; radius: number; maxDistance?: number }> = []
+const water = createSherwoodWater(6, 100)
+const missionCampfireView = new THREE.Group()
+const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
@@ -336,8 +337,6 @@ const palette = {
   green: 0x315f37,
   water: 0x5c8791,
 }
-
-const SIGNAL_POSITION = { ...PEOPLES_PURSE_MISSION.spawns.reinforcementSignal }
 
 const characterNames: Record<CharacterId, string> = {
   robin: "Robin Hood",
@@ -374,12 +373,12 @@ function addLighting(): void {
   sun.position.set(-18, 28, 14)
   sun.castShadow = true
   sun.shadow.mapSize.set(2048, 2048)
-  sun.shadow.camera.left = -30
-  sun.shadow.camera.right = 30
-  sun.shadow.camera.top = 30
-  sun.shadow.camera.bottom = -30
+  sun.shadow.camera.left = -55
+  sun.shadow.camera.right = 55
+  sun.shadow.camera.top = 55
+  sun.shadow.camera.bottom = -55
   sun.shadow.camera.near = 1
-  sun.shadow.camera.far = 70
+  sun.shadow.camera.far = 110
   sun.shadow.bias = -0.0004
   sun.shadow.intensity = 0.3
   scene.add(sun)
@@ -400,7 +399,7 @@ function createTree(x: number, z: number, scale = 1): THREE.Group {
   crownB.rotation.y = z * 0.12
   tree.add(crownA, crownB)
   scene.add(tree)
-  cameraOccluders.push({ view: tree, radius: 1.2 * scale })
+  cameraOccluders.push({ view: tree, radius: 1.2 * scale, maxDistance: 42 })
   return tree
 }
 
@@ -422,17 +421,25 @@ function createHut(x: number, z: number, rotation = 0): THREE.Group {
 }
 
 function createWorld(): void {
-  const ground = mesh(new THREE.PlaneGeometry(52, 52), palette.grass, { receive: true, cast: false })
-  ground.rotation.x = -Math.PI / 2
-  ground.position.y = -0.04
-  scene.add(ground)
+  const groundBase = mesh(new THREE.PlaneGeometry(96, 96), palette.grassDark, { receive: true, cast: false })
+  groundBase.rotation.x = -Math.PI / 2
+  groundBase.position.y = -0.055
+  scene.add(groundBase)
+  const regionColors = [palette.grass, palette.grassLight, palette.grassDark]
+  for (const cell of sherwoodRegionCells()) {
+    const ground = mesh(new THREE.PlaneGeometry(SHERWOOD_CELL_SIZE - 0.35, SHERWOOD_CELL_SIZE - 0.35), regionColors[(cell.row + cell.column) % regionColors.length], { receive: true, cast: false })
+    ground.rotation.x = -Math.PI / 2
+    ground.position.set(cell.center.x, -0.04, cell.center.z)
+    ground.userData.regionCell = cell.index
+    scene.add(ground)
+  }
 
   water.group.rotation.x = -Math.PI / 2
   water.group.rotation.z = -0.1
   water.group.position.set(1, 0.01, 0)
   scene.add(water.group)
 
-  const road = mesh(new THREE.PlaneGeometry(5.5, 48), palette.path, { receive: true, cast: false })
+  const road = mesh(new THREE.PlaneGeometry(5.5, 96), palette.path, { receive: true, cast: false })
   road.rotation.x = -Math.PI / 2
   road.rotation.z = Math.PI / 4.15
   road.position.set(-0.2, 0.025, 0.2)
@@ -453,16 +460,18 @@ function createWorld(): void {
   villageCottageFallback = createHut(-10, 14, -0.55)
   createHut(-15, 6, 1.1)
   const villageCircle = mesh(new THREE.TorusGeometry(2.35, 0.08, 6, 48), palette.gold, { cast: false })
-  villageCircle.position.set(VILLAGE_POSITION.x, 0.06, VILLAGE_POSITION.z)
+  villageCircle.position.set(0, 0.06, 0)
   villageCircle.rotation.x = Math.PI / 2
-  scene.add(villageCircle)
+  missionCampfireView.add(villageCircle)
 
   const fireLight = new THREE.PointLight(0xf39a43, 4, 14, 2)
-  fireLight.position.set(VILLAGE_POSITION.x, 1.2, VILLAGE_POSITION.z)
-  scene.add(fireLight)
+  fireLight.position.set(0, 1.2, 0)
+  missionCampfireView.add(fireLight)
   const fire = mesh(new THREE.ConeGeometry(0.35, 1, 6), 0xe88032)
-  fire.position.set(VILLAGE_POSITION.x, 0.5, VILLAGE_POSITION.z)
-  scene.add(fire)
+  fire.position.set(0, 0.5, 0)
+  missionCampfireView.add(fire)
+  missionCampfireView.position.set(state.layout.campfirePosition.x, 0, state.layout.campfirePosition.z)
+  scene.add(missionCampfireView)
 
   for (const tree of SHERWOOD_TREE_LAYOUT) createTree(tree.x, tree.z, tree.scale)
 
@@ -474,7 +483,7 @@ function createWorld(): void {
   for (let i = 0; i < 18; i += 1) {
     const rock = mesh(new THREE.DodecahedronGeometry(0.25 + random() * 0.45, 0), 0x687060)
     rock.scale.y = 0.55
-    rock.position.set(random() * 44 - 22, 0.2, random() * 44 - 22)
+    rock.position.set(random() * 88 - 44, 0.2, random() * 88 - 44)
     rock.rotation.set(random(), random(), random())
     scene.add(rock)
   }
@@ -594,11 +603,11 @@ function attachVillageSlice(cart: THREE.Group): void {
 
 function attachTreeGroves(): void {
   const placements = renderProfile.tier === "degraded"
-    ? [{ x: -18, z: -15, scale: 10, rotation: 0.35 }]
+    ? [{ x: -39, z: -37, scale: 13, rotation: 0.35 }]
     : [
-        { x: -18, z: -15, scale: 10, rotation: 0.35 },
-        { x: 17, z: 15, scale: 9, rotation: -1.1 },
-        { x: 18, z: -15, scale: 8, rotation: 1.7 },
+        { x: -39, z: -37, scale: 13, rotation: 0.35 },
+        { x: 38, z: 38, scale: 12, rotation: -1.1 },
+        { x: 39, z: -38, scale: 11, rotation: 1.7 },
       ]
   void loadTreeGrove().then((source) => {
     for (const placement of placements) {
@@ -662,7 +671,7 @@ function setRobinRangerMotion(name: string): void {
 
 function createCart(): THREE.Group {
   const cart = new THREE.Group()
-  cart.position.set(CART_POSITION.x, 0, CART_POSITION.z)
+  cart.position.set(state.layout.objectivePosition.x, 0, state.layout.objectivePosition.z)
   cart.rotation.y = -0.75
   const proceduralShell = new THREE.Group()
   proceduralShell.name = "ProceduralWagonFallback"
@@ -722,7 +731,7 @@ function createSignalPost(): THREE.Group {
   flag.position.set(0.68, 3.04, 0.04)
   flag.userData.signalFlag = true
   signal.add(pole, arm, flag)
-  signal.position.set(SIGNAL_POSITION.x, 0, SIGNAL_POSITION.z)
+  signal.position.set(state.layout.reinforcementSignalPosition.x, 0, state.layout.reinforcementSignalPosition.z)
   scene.add(signal)
   return signal
 }
@@ -739,7 +748,7 @@ function createMissionBoard(): THREE.Group {
   const crest = mesh(new THREE.CircleGeometry(0.24, 18), palette.gold, { cast: false })
   crest.position.set(0, 1.72, 0.1)
   board.add(face, crest)
-  board.position.set(VILLAGE_POSITION.x + 3.4, 0, VILLAGE_POSITION.z - 0.4)
+  board.position.set(HUB_CAMPFIRE_POSITION.x + 3.4, 0, HUB_CAMPFIRE_POSITION.z - 0.4)
   scene.add(board)
   return board
 }
@@ -982,6 +991,24 @@ function setMissionWorldVisible(visible: boolean): void {
     storehouseView.visible = false
     disguiseRackView.visible = false
   }
+}
+
+function applyRegionalLayout(layout: RegionalMissionLayout): void {
+  state.layout = {
+    ...layout,
+    campfireCell: { ...layout.campfireCell, center: { ...layout.campfireCell.center } },
+    objectiveCell: { ...layout.objectiveCell, center: { ...layout.objectiveCell.center } },
+    campfirePosition: { ...layout.campfirePosition },
+    objectivePosition: { ...layout.objectivePosition },
+    reinforcementSignalPosition: { ...layout.reinforcementSignalPosition },
+    disguisePosition: { ...layout.disguisePosition },
+    playerSpawns: layout.playerSpawns.map((position) => ({ ...position })),
+  }
+  missionCampfireView.position.set(layout.campfirePosition.x, 0, layout.campfirePosition.z)
+  signalView.position.set(layout.reinforcementSignalPosition.x, 0, layout.reinforcementSignalPosition.z)
+  storehouseView.position.set(layout.objectivePosition.x, 0, layout.objectivePosition.z)
+  disguiseRackView.position.set(layout.disguisePosition.x, 0, layout.disguisePosition.z)
+  positionVillageUpgrades(layout.campfirePosition)
 }
 
 function renderHub(): void {
@@ -1250,6 +1277,8 @@ function enterHub(online: boolean): void {
   hubPanel.classList.remove("hidden")
   partyHud.classList.toggle("hidden", !online)
   setMissionWorldVisible(false)
+  missionCampfireView.position.set(HUB_CAMPFIRE_POSITION.x, 0, HUB_CAMPFIRE_POSITION.z)
+  positionVillageUpgrades(HUB_CAMPFIRE_POSITION)
   objectiveElement.textContent = "Choose the band's next target"
   missionModifiers.textContent = `${MISSION_CATALOG.size} TRUSTED MISSION${MISSION_CATALOG.size === 1 ? "" : "S"} ON THE BOARD`
   if (!online) state.player.position = { ...PEOPLES_PURSE_MISSION.spawns.players[0] }
@@ -1263,12 +1292,14 @@ function startSoloMission(): void {
   multiplayerActive = false
   hubPanel.classList.add("hidden")
   setMissionWorldVisible(true)
-  state = createInitialState(selectedCharacter)
+  soloRunSequence += 1
+  state = createInitialState(selectedCharacter, stableSeed(`solo:${Date.now()}:${soloRunSequence}`))
+  applyRegionalLayout(state.layout)
   localDownedFor = 0
   ended = false
   resultSubmitted = false
   missionTarget = DELIVERY_TARGET
-  objectiveElement.textContent = "Find the Sheriff's tax cart"
+  objectiveElement.textContent = "Search Sherwood for the Sheriff's shipment"
   missionModifiers.textContent = ""
   clock.getDelta()
 }
@@ -1514,6 +1545,7 @@ function updateMissionDebug(): void {
 
 function applyMissionSnapshot(mission: MissionSnapshot): void {
   latestMissionSnapshot = mission
+  applyRegionalLayout(mission.layout)
   const definition = getMissionDefinition(currentMissionSlug)
   const packageMatches = mission.missionId === definition.id
     && mission.missionVersion === definition.missionVersion
@@ -1542,7 +1574,9 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
     escape: `Extract the levy · alarms ${mission.alarmLevel}/3`,
     extraction: `Infiltration accounted · intel ${mission.intelFound ? "secured" : "missed"} · ledger ${mission.ledgerStolen ? "secured" : "missed"}`,
   } : {
-    scout: `Scout the forest or river approach · shipment ${mission.cycle}`,
+    scout: mission.objectiveDiscovered
+      ? `Shipment ${mission.cycle} found · choose the forest or river approach`
+      : `Search the 3×3 region for shipment ${mission.cycle} · Sheriff pressure ${mission.searchPressure}/3`,
     ambush: "Stun the escort guards",
     robbery: "Rob the Sheriff's tax cart",
     pursuit: "Carry the coin to a forest or river escape",
@@ -1556,7 +1590,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   const sabotageState = mission.signalSabotaged ? ` · SIGNAL CUT ${Math.ceil(mission.reinforcementDelaySeconds)}s` : ""
   const rotationState = mission.rotationId ? ` · DAILY ${mission.rotationId.split("-").slice(-2).join(" ").toUpperCase()}` : ""
   const preparationState = mission.preparations.length > 0 ? ` · PREP ${mission.preparations.filter((preparation) => preparation.status === "consumed").length}/${mission.preparations.length}` : ""
-  missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState}${rotationState}${preparationState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
+  missionModifiers.textContent = `3×3 SHERWOOD · SEARCH ${mission.searchPressure}/3 · ${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState}${rotationState}${preparationState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
   if (mission.phase === "robbery") localStorage.setItem("sherwood:tutorial-complete", "true")
   while (guardViews.length < mission.guards.length) {
     const guardState = mission.guards[guardViews.length]
@@ -1588,15 +1622,15 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   syncLootCacheViews(mission.lootCaches)
   syncPreparationViews(mission.preparations)
   cartView.position.set(mission.cartPosition.x, 0, mission.cartPosition.z)
-  signalView.position.set(definition.spawns.reinforcementSignal.x, 0, definition.spawns.reinforcementSignal.z)
+  signalView.position.set(mission.layout.reinforcementSignalPosition.x, 0, mission.layout.reinforcementSignalPosition.z)
   cartView.children.forEach((child) => {
     if (child.userData.prison) child.visible = mission.missionKind === "prison-wagon"
   })
   cartView.visible = mission.missionKind !== "storehouse"
   storehouseView.visible = mission.missionKind === "storehouse"
-  storehouseView.position.set(definition.spawns.cart.x, 0, definition.spawns.cart.z)
+  storehouseView.position.set(mission.layout.objectivePosition.x, 0, mission.layout.objectivePosition.z)
   disguiseRackView.visible = mission.missionKind === "storehouse" && mission.disguisePlayerId === null
-  if (definition.scenario?.kind === "storehouse") disguiseRackView.position.set(definition.scenario.disguisePosition.x, 0, definition.scenario.disguisePosition.z)
+  if (definition.scenario?.kind === "storehouse") disguiseRackView.position.set(mission.layout.disguisePosition.x, 0, mission.layout.disguisePosition.z)
   signalView.visible = mission.missionKind !== "storehouse"
   signalView.rotation.z = mission.signalSabotaged ? Math.PI / 2.8 : 0
   signalView.traverse((child) => {
@@ -1648,6 +1682,8 @@ function showMissionEvent(event: MissionEvent): void {
     ? "OAK SWEEP — HOLD THE LINE"
     : event.type === "signature_used" && event.detail === "much-snare"
       ? "ROAD SNARE SET — DRAW THEM IN"
+    : event.type === "reinforcement_arrived" && event.detail === "search-pressure"
+      ? `SEARCH DELAY — THE SHERIFF FORTIFIES THE TARGET (${event.value}/3)`
     : messages[event.type]
   if (message) showToast(message)
 }
@@ -2167,6 +2203,7 @@ function renderMissionResolution(mission: MissionSnapshot): void {
 }
 
 function applyVillageState(village: VillageState): void {
+  const campfire = inHub || inPublicHub ? HUB_CAMPFIRE_POSITION : state.layout.campfirePosition
   for (const choice of ["granary", "infirmary", "watchtower"] as VoteChoice[]) {
     if (village[choice] <= 0) continue
     const existing = villageUpgradeViews.get(choice)
@@ -2181,7 +2218,7 @@ function applyVillageState(village: VillageState): void {
         crate.position.set((index % 2) * 0.75, 0.28, Math.floor(index / 2) * 0.75)
         view.add(crate)
       }
-      view.position.set(VILLAGE_POSITION.x + 2.4, 0, VILLAGE_POSITION.z)
+      view.userData.campOffset = { x: 2.4, z: 0 }
     } else if (choice === "infirmary") {
       const tent = mesh(new THREE.ConeGeometry(1.35, 2.1, 4), 0xd8d0ad)
       tent.position.y = 1.05
@@ -2189,18 +2226,27 @@ function applyVillageState(village: VillageState): void {
       const cross = mesh(new THREE.BoxGeometry(0.5, 0.12, 0.08), 0xa94132)
       cross.position.set(0, 1.2, 1.04)
       view.add(tent, cross)
-      view.position.set(VILLAGE_POSITION.x - 2.7, 0, VILLAGE_POSITION.z + 0.5)
+      view.userData.campOffset = { x: -2.7, z: 0.5 }
     } else {
       const tower = mesh(new THREE.CylinderGeometry(0.65, 0.9, 4.2, 6), 0x715239)
       tower.position.y = 2.1
       const roof = mesh(new THREE.ConeGeometry(1.1, 1.2, 6), 0x405538)
       roof.position.y = 4.55
       view.add(tower, roof)
-      view.position.set(VILLAGE_POSITION.x, 0, VILLAGE_POSITION.z - 3)
+      view.userData.campOffset = { x: 0, z: -3 }
     }
     villageUpgradeViews.set(choice, view)
+    const offset = view.userData.campOffset as { x: number; z: number }
+    view.position.set(campfire.x + offset.x, 0, campfire.z + offset.z)
     scene.add(view)
     updateVillageUpgradeTier(view, village[choice])
+  }
+}
+
+function positionVillageUpgrades(campfire: { x: number; z: number }): void {
+  for (const view of villageUpgradeViews.values()) {
+    const offset = view.userData.campOffset as { x: number; z: number } | undefined
+    if (offset) view.position.set(campfire.x + offset.x, 0, campfire.z + offset.z)
   }
 }
 
@@ -2563,7 +2609,7 @@ function updateUI(): void {
     promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} opens the board · move with your mapped controls`
     return
   }
-  const signalPosition = getMissionDefinition(currentMissionSlug).spawns.reinforcementSignal
+  const signalPosition = latestMissionSnapshot?.layout.reinforcementSignalPosition ?? state.layout.reinforcementSignalPosition
   const atSignal = multiplayerActive && latestMissionSnapshot?.missionKind !== "storehouse" && selectedCharacter === "much" && !signalSabotaged && Math.hypot(state.player.position.x - signalPosition.x, state.player.position.z - signalPosition.z) < 3.2
   promptElement.textContent = isMobileSpectator()
     ? "Spectating the Merry Band · disable spectator mode in accessibility settings to play"
@@ -2580,7 +2626,11 @@ function updateUI(): void {
   }
   if (state.player.loot > 0) objectiveElement.textContent = "Return the coin to the village"
   else if (state.heat > 10) objectiveElement.textContent = "Disappear into the deep woods"
-  else objectiveElement.textContent = state.delivered > 0 ? "Strike the tax cart again" : "Find the Sheriff's tax cart"
+  else objectiveElement.textContent = state.delivered > 0
+    ? "Strike the tax cart again"
+    : state.objectiveDiscovered
+      ? "Close on the Sheriff's shipment"
+      : "Search all nine Sherwood sectors"
 }
 
 function showEnding(won: boolean): void {
@@ -2639,7 +2689,7 @@ function syncViews(elapsed: number, dt: number): void {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
   }
   const player = state.player.position
-  const groveDistance = renderProfile.tier === "degraded" ? 30 : 38
+  const groveDistance = renderProfile.tier === "degraded" ? 42 : 55
   syncVillageLods(player)
   const cameraToPlayer = { x: player.x - camera.position.x, z: player.z - camera.position.z }
   const cameraToPlayerLengthSquared = cameraToPlayer.x ** 2 + cameraToPlayer.z ** 2
@@ -2655,6 +2705,7 @@ function syncViews(elapsed: number, dt: number): void {
     }
     occluder.view.visible = occluder.view.userData.lodVisible !== false
       && cameraDistance > occluder.radius * 2.35
+      && (occluder.maxDistance === undefined || Math.hypot(occluder.view.position.x - player.x, occluder.view.position.z - player.z) <= occluder.maxDistance)
       && !(segmentPosition > 0.05 && segmentPosition < 0.95
       && Math.hypot(occluder.view.position.x - sightline.x, occluder.view.position.z - sightline.z) < occluder.radius)
   }
@@ -2805,6 +2856,8 @@ function animate(): void {
     for (const event of events) {
       if (event === "player-hit") showToast("The Sheriff strikes!")
       if (event === "cart-ready") showToast("A new tax cart has entered Sherwood")
+      if (event === "objective-found") showToast("THE SHERIFF'S SHIPMENT — FOUND")
+      if (event === "search-reinforced") showToast(`SEARCH DELAY — SHERIFF PRESSURE ${state.searchPressure}/3`)
     }
     updateUI()
     if (toastTimer > 0) {
@@ -2827,7 +2880,7 @@ function predictMultiplayerMovement(move: Vec2, dt: number): void {
   state.player.position = resolveSherwoodPlayerMovement(state.player.position, {
     x: (move.x / length) * speed * lootPenalty * dt,
     z: (move.z / length) * speed * lootPenalty * dt,
-  }, SHERWOOD_MISSION_WORLD_BOUNDS)
+  }, state.layout.worldBounds)
 }
 
 function nearbyTeammate(predicate: (player: RoomPlayer) => boolean): RoomPlayer | null {

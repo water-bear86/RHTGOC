@@ -1,6 +1,7 @@
 import { z } from "zod"
 import type { SheriffRotation } from "./sheriff-rotation"
 import protocolVersion from "./protocol-version.json"
+import type { RegionalMissionLayout } from "./regional-layout"
 import type { SherwoodSeasonSnapshot } from "./sherwood-season"
 
 export const PROTOCOL_VERSION = protocolVersion.version
@@ -188,12 +189,15 @@ export interface MissionSnapshot {
   contentHash: string
   missionKind: MissionKind
   seed: number
+  layout: RegionalMissionLayout
   status: "active" | "succeeded" | "failed"
   phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction"
   entryRoute: "forest" | "river" | null
   escapeRoute: "forest" | "river" | null
   cycle: number
   elapsedSeconds: number
+  objectiveDiscovered: boolean
+  searchPressure: number
   parSeconds: number
   heat: number
   cartCoin: number
