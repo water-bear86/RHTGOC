@@ -22,6 +22,7 @@ import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
 import type { LastMissionResult, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionSnapshot, MissionTrap, PingKind, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
+import type { SheriffRotation } from "../shared/sheriff-rotation"
 import {
   ACTION_LABELS,
   DEFAULT_INPUT_SETTINGS,
@@ -116,6 +117,8 @@ const rejoinRoomButton = document.querySelector<HTMLButtonElement>("#rejoin-room
 const hubPanel = document.querySelector<HTMLElement>("#hub-panel")!
 const hubRoomCode = document.querySelector<HTMLElement>("#hub-room-code")!
 const hubRecent = document.querySelector<HTMLElement>("#hub-recent")!
+const hubRotations = document.querySelector<HTMLDivElement>("#hub-rotations")!
+const hubRotationState = document.querySelector<HTMLElement>("#hub-rotation-state")!
 const hubMissions = document.querySelector<HTMLDivElement>("#hub-missions")!
 const hubRoles = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-character]")]
 const hubLoadout = document.querySelector<HTMLSelectElement>("#hub-loadout")!
@@ -183,6 +186,10 @@ let currentMissionPhase: MissionSnapshot["phase"] = "scout"
 let currentMissionSlug = PEOPLES_PURSE_MISSION.slug
 let currentVillage: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
 let currentLastResult: LastMissionResult | null = null
+let currentRotations: SheriffRotation[] = []
+let upcomingRotations: SheriffRotation[] = []
+let rotationsPaused = false
+let selectedRotationId: string | null = null
 let signalSabotaged = false
 let latestMissionSnapshot: MissionSnapshot | null = null
 let missionPackageStatus = "client package valid"
@@ -700,11 +707,15 @@ const multiplayer = new MultiplayerClient({
     lobbyStatus.textContent = "Share this code, then ready up together."
     enterHub(true)
   },
-  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult) => {
+  onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations) => {
     currentRoomPlayers = players
     currentMissionSlug = missionSlug
     currentVillage = { ...village }
     currentLastResult = lastResult
+    selectedRotationId = nextSelectedRotationId
+    rotationsPaused = nextRotationsPaused
+    currentRotations = nextRotations
+    upcomingRotations = nextUpcomingRotations
     renderParty(players)
     renderSafetyPanel(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
@@ -793,6 +804,26 @@ function setMissionWorldVisible(visible: boolean): void {
 function renderHub(): void {
   const isLeader = !roomConnected || currentRoomPlayers[0]?.id === multiplayer.playerId
   missionTitle.textContent = getMissionDefinition(currentMissionSlug).name.toUpperCase()
+  hubRotations.replaceChildren()
+  for (const rotation of currentRotations) {
+    const mission = getMissionDefinition(rotation.missionSlug)
+    const button = document.createElement("button")
+    button.classList.toggle("selected", rotation.id === selectedRotationId)
+    button.disabled = !roomConnected || !isLeader || rotationsPaused
+    const name = document.createElement("b")
+    const detail = document.createElement("small")
+    name.textContent = `${rotation.partySize}P · ${mission.name}`
+    detail.textContent = `${rotation.region.replaceAll("-", " ")} · ${rotation.modifierIds.map((id) => id.replaceAll("-", " ")).join(" + ")} · ${rotation.rewardLabel}`
+    button.append(name, detail)
+    button.addEventListener("click", () => multiplayer.selectRotation(rotation.id))
+    hubRotations.append(button)
+  }
+  if (currentRotations.length === 0 && !rotationsPaused) {
+    const empty = document.createElement("small")
+    empty.textContent = roomConnected ? "The Sheriff has posted no valid target." : "Form a band to load today's server-owned targets."
+    hubRotations.append(empty)
+  }
+  renderRotationCountdown()
   hubMissions.replaceChildren()
   for (const mission of MISSION_CATALOG.values()) {
     const button = document.createElement("button")
@@ -820,6 +851,25 @@ function renderHub(): void {
   hubState.textContent = roomConnected
     ? `${isLeader ? "Band leader chooses the target." : "The band leader chooses the target."} Ready together when roles and kits are set.`
     : "Move around the fire or start the selected mission."
+}
+
+function renderRotationCountdown(): void {
+  if (rotationsPaused) {
+    hubRotationState.textContent = "Targets are paused by the operator while a broken rotation is reviewed."
+    return
+  }
+  const expiry = currentRotations[0]?.endsAt
+  if (!expiry) {
+    hubRotationState.textContent = roomConnected ? "Waiting for a valid target schedule." : "Daily targets are server-owned."
+    return
+  }
+  const remaining = Math.max(0, expiry - Date.now())
+  const hours = Math.floor(remaining / 3_600_000)
+  const minutes = Math.floor((remaining % 3_600_000) / 60_000)
+  const nextMissions = upcomingRotations.length > 0
+    ? upcomingRotations.map((rotation) => `${rotation.partySize}P ${getMissionDefinition(rotation.missionSlug).name}`).join(" · ")
+    : "pending"
+  hubRotationState.textContent = `Expires in ${hours}h ${minutes}m UTC · next: ${nextMissions}. Rewards and modifiers are verified by the room server.`
 }
 
 function enterHub(online: boolean): void {
@@ -1088,6 +1138,7 @@ function updateMissionDebug(): void {
     `TRAPS    ${mission?.traps.length ?? 0} · SIGNAL ${mission?.signalSabotaged ? "cut" : "active"}`,
     `RESCUE   ${mission?.captives.filter((captive) => captive.rewarded).length ?? 0}/${mission?.captives.length ?? 0} · LOCK ${mission?.lockProgress ?? 0}/${mission?.lockTarget ?? 0}`,
     `INFILTRATION alarms=${mission?.alarmLevel ?? 0} waves=${mission?.reinforcementWave ?? 0} intel=${mission?.intelFound ? "yes" : "no"} ledger=${mission?.ledgerStolen ? "yes" : "no"}`,
+    `ROTATION ${mission?.rotationId ?? "standard"} · modifiers=${mission?.rotationModifierIds.join(",") || "seeded"}`,
   ].join("\n")
 }
 
@@ -1133,7 +1184,8 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   missionPrompt = missionPromptForPhase(mission.phase)
   const completedOptional = mission.optionalObjectives.filter((objective) => objective.completed).length
   const sabotageState = mission.signalSabotaged ? ` · SIGNAL CUT ${Math.ceil(mission.reinforcementDelaySeconds)}s` : ""
-  missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
+  const rotationState = mission.rotationId ? ` · DAILY ${mission.rotationId.split("-").slice(-2).join(" ").toUpperCase()}` : ""
+  missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState}${rotationState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
   if (mission.phase === "robbery") localStorage.setItem("sherwood:tutorial-complete", "true")
   while (guardViews.length < mission.guards.length) {
     const guardState = mission.guards[guardViews.length]
@@ -1506,6 +1558,13 @@ function renderMissionResolution(mission: MissionSnapshot): void {
   optionalTerm.textContent = "Optional"
   optionalDetail.textContent = mission.optionalObjectives.map((objective) => `${objective.completed ? "✓" : objective.failed ? "×" : "○"} ${objective.label}`).join(" · ")
   resultBreakdown.append(optionalTerm, optionalDetail)
+  if (mission.rotationId) {
+    const term = document.createElement("dt")
+    const detail = document.createElement("dd")
+    term.textContent = "Daily target"
+    detail.textContent = `${mission.rotationId} · ${mission.rotationModifierIds.join(" + ")} · server verified`
+    resultBreakdown.append(term, detail)
+  }
   const voteChoices = resultsPanel.querySelector<HTMLElement>(".vote-choices")!
   const voteEyebrow = voteChoices.previousElementSibling as HTMLElement
   if (!mission.vote) {
@@ -1859,6 +1918,7 @@ function updateUI(): void {
   heatWrap.classList.toggle("visible", state.heat > 3)
   progressElement.style.width = `${Math.min(100, (state.delivered / missionTarget) * 100)}%`
   if (inHub) {
+    renderRotationCountdown()
     objectiveElement.textContent = "Prepare at the campfire mission board"
     progressElement.style.width = "0%"
     promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} opens the board · move with your mapped controls`

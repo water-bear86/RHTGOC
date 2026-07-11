@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { WebSocket } from "ws"
 import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS } from "../shared/protocol"
 import { Room } from "./room"
+import { rotationWindowAt } from "../shared/sheriff-rotation"
 
 function fakeSocket(): WebSocket {
   return { readyState: WebSocket.CLOSED, OPEN: WebSocket.OPEN, send: () => undefined, close: () => undefined } as unknown as WebSocket
@@ -217,5 +218,43 @@ describe("Merry Band room", () => {
     room.update(0.5)
     expect(first.position.x).toBeGreaterThan(before)
     expect(first.lastInputSequence).toBe(1)
+  })
+
+  it("launches only the active server-owned Sheriff target for the exact party bracket", () => {
+    const now = Date.UTC(2026, 6, 10, 12)
+    const window = rotationWindowAt(now)
+    const target = window.current.find((rotation) => rotation.partySize === 2)!
+    const room = new Room("DAILY2", () => window)
+    const leader = room.addPlayer(fakeSocket(), "Robin", "robin")
+    const member = room.addPlayer(fakeSocket(), "Marian", "marian")
+    expect(room.selectRotation(member.id, target.id, now)).toBe(false)
+    expect(room.selectRotation(leader.id, target.id, now)).toBe(true)
+    room.setReady(leader.id, true, now)
+    expect(room.setReady(member.id, true, now)).toBe(true)
+    expect(room.phase).toBe("mission")
+    expect(room.mission?.snapshot()).toMatchObject({
+      rotationId: target.id,
+      rotationModifierIds: target.modifierIds,
+      rotationObjectiveIds: target.optionalObjectiveIds,
+      missionId: `${target.missionSlug}@${target.missionVersion}`,
+    })
+    expect(room.mission?.modifiers.map((modifier) => modifier.id)).toEqual(target.modifierIds)
+    expect(room.rotationAttemptCount).toBe(1)
+  })
+
+  it("rejects stale or wrong-sized daily targets and clears forged readiness", () => {
+    const now = Date.UTC(2026, 6, 10, 12)
+    const window = rotationWindowAt(now)
+    const target = window.current.find((rotation) => rotation.partySize === 3)!
+    const room = new Room("DAILY3", () => window)
+    const leader = room.addPlayer(fakeSocket(), "Robin", "robin")
+    const member = room.addPlayer(fakeSocket(), "Marian", "marian")
+    expect(room.selectRotation(leader.id, target.id, now)).toBe(true)
+    room.setReady(leader.id, true, now)
+    expect(room.setReady(member.id, true, now)).toBe(false)
+    expect(room.phase).toBe("lobby")
+    expect(room.selectedRotationId).toBeNull()
+    expect([...room.players.values()].every((player) => !player.ready)).toBe(true)
+    expect(room.selectRotation(leader.id, target.id, target.endsAt)).toBe(false)
   })
 })

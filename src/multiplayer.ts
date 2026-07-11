@@ -1,9 +1,10 @@
 import { PROTOCOL_VERSION, type CharacterId, type LastMissionResult, type LoadoutId, type MissionSnapshot, type PingKind, type RoomPlayer, type ServerMessage, type VillageState, type VoteChoice } from "../shared/protocol"
 import type { Vec2 } from "./simulation"
+import type { SheriffRotation } from "../shared/sheriff-rotation"
 
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
-  onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[], missionSlug: string, village: VillageState, lastResult: LastMissionResult | null) => void
+  onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[], missionSlug: string, village: VillageState, lastResult: LastMissionResult | null, selectedRotationId: string | null, rotationsPaused: boolean, rotations: SheriffRotation[], upcomingRotations: SheriffRotation[]) => void
   onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>, mission: MissionSnapshot) => void
   onError?: (message: string) => void
   onConnection?: (connected: boolean) => void
@@ -53,6 +54,10 @@ export class MultiplayerClient {
 
   selectMission(missionSlug: string): void {
     this.send({ type: "select_mission", missionSlug })
+  }
+
+  selectRotation(rotationId: string): void {
+    this.send({ type: "select_rotation", rotationId })
   }
 
   selectLoadout(loadoutId: LoadoutId): void {
@@ -147,7 +152,7 @@ export class MultiplayerClient {
       localStorage.setItem(`sherwood:reconnect:${message.roomCode}`, message.reconnectToken)
       this.events.onWelcome?.(message.playerId, message.roomCode)
     }
-    if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players, message.missionSlug, message.village, message.lastResult)
+    if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players, message.missionSlug, message.village, message.lastResult, message.selectedRotationId, message.rotationsPaused, message.rotations, message.upcomingRotations)
     if (message.type === "snapshot") {
       const now = performance.now()
       if (this.playerId && now - this.lastMetricsAt >= 10_000) {

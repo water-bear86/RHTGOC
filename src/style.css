@@ -167,6 +167,14 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .hub-heading h2 { margin: 6px 0 10px; font: 700 23px Cinzel, serif; }
 .hub-heading b { color: var(--gold); font-size: 9px; letter-spacing: .14em; }
 .hub-panel > p { margin: 0 0 13px; color: #f7f0d48a; font-size: 10px; line-height: 1.5; }
+.hub-rotations { display: grid; gap: 7px; margin: 7px 0 5px; }
+.hub-rotations button { padding: 10px; color: var(--cream); text-align: left; background: #563e184f; border: 1px solid #e4b6536b; cursor: pointer; }
+.hub-rotations button.selected { color: var(--ink); background: var(--gold); }
+.hub-rotations button:disabled { opacity: .48; cursor: default; }
+.hub-rotations b, .hub-rotations small { display: block; }
+.hub-rotations b { font: 700 10px Cinzel, serif; }
+.hub-rotations small { margin-top: 4px; color: inherit; font-size: 8px; }
+#hub-rotation-state { margin: 0 0 13px; }
 .hub-missions { display: grid; gap: 7px; margin-bottom: 15px; }
 .hub-missions button { padding: 10px; color: #f7f0d4b5; text-align: left; background: #ffffff08; border: 1px solid #f7f0d427; cursor: pointer; }
 .hub-missions button.selected { color: var(--cream); border-color: var(--gold); background: #294632; }

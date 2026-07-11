@@ -1,6 +1,11 @@
 import type { CharacterId, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionKind, MissionLootCache, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
+import type { SheriffRotation } from "../shared/sheriff-rotation"
+
+export interface MissionOptions {
+  rotation?: SheriffRotation | null
+}
 
 export interface MissionPlayer {
   id: string
@@ -76,6 +81,9 @@ export class Mission {
   readonly captives: MissionCaptive[] = []
   readonly alarms: MissionAlarm[] = []
   readonly lootCaches: MissionLootCache[] = []
+  readonly rotationId: string | null
+  readonly rotationModifierIds: string[]
+  readonly rotationObjectiveIds: string[]
   status: "active" | "succeeded" | "failed" = "active"
   phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction" = "scout"
   entryRoute: "forest" | "river" | null = null
@@ -124,8 +132,14 @@ export class Mission {
     roomCode: string,
     private readonly players: Map<string, MissionPlayer>,
     readonly definition: MissionDefinition = getMissionDefinition(),
+    options: MissionOptions = {},
   ) {
     this.seed = missionSeed(roomCode)
+    const rotation = options.rotation ?? null
+    if (rotation && (rotation.missionSlug !== definition.slug || rotation.missionVersion !== definition.missionVersion || rotation.missionContentHash !== definition.contentHash)) throw new Error("INVALID_ROTATION_MISSION")
+    this.rotationId = rotation?.id ?? null
+    this.rotationModifierIds = [...(rotation?.modifierIds ?? [])]
+    this.rotationObjectiveIds = [...(rotation?.optionalObjectiveIds ?? [])]
     this.missionKind = definition.scenario?.kind ?? "tax-cart"
     this.cartPosition = { ...definition.spawns.cart }
     if (definition.scenario?.kind === "prison-wagon") {
@@ -143,7 +157,9 @@ export class Mission {
     const pool: MissionSnapshot["modifiers"] = definition.modifiers.map((modifier) => ({ ...modifier }))
     const firstModifier = this.seed % pool.length
     const secondModifier = (firstModifier + 1 + (this.seed % (pool.length - 1))) % pool.length
-    this.modifiers = [pool[firstModifier], pool[secondModifier]]
+    const forcedModifiers = this.rotationModifierIds.map((id) => pool.find((modifier) => modifier.id === id)).filter((modifier): modifier is MissionSnapshot["modifiers"][number] => modifier !== undefined)
+    if (rotation && forcedModifiers.length !== this.rotationModifierIds.length) throw new Error("INVALID_ROTATION_MODIFIER")
+    this.modifiers = forcedModifiers.length > 0 ? forcedModifiers : [pool[firstModifier], pool[secondModifier]]
     this.cartValue = this.modifiers.some((modifier) => modifier.id === "double-tithe") ? definition.rewards.doubleTitheCartValue : definition.rewards.baseCartValue
     this.deliveryTarget = this.modifiers.some((modifier) => modifier.id === "double-tithe") ? definition.rewards.doubleTitheTarget : definition.rewards.deliveryTarget
     this.ambushTarget = this.modifiers.some((modifier) => modifier.id === "armored-escort") ? definition.rules.armoredAmbushStuns : definition.rules.baseAmbushStuns
@@ -327,6 +343,9 @@ export class Mission {
       intelFound: this.intelFound,
       ledgerStolen: this.ledgerStolen,
       reinforcementWave: this.reinforcementWave,
+      rotationId: this.rotationId,
+      rotationModifierIds: [...this.rotationModifierIds],
+      rotationObjectiveIds: [...this.rotationObjectiveIds],
     }
   }
 

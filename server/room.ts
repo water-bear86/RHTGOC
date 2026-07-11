@@ -3,6 +3,7 @@ import { WebSocket } from "ws"
 import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type CharacterId, type LastMissionResult, type LoadoutId, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
 import { Mission } from "./mission"
 import { getMissionDefinition } from "../shared/mission-catalog"
+import { isRotationActive, rotationWindowAt, type SheriffRotationWindow } from "../shared/sheriff-rotation"
 
 interface ConnectedPlayer extends RoomPlayer {
   reconnectToken: string
@@ -43,6 +44,8 @@ export class Room {
   tick = 0
   mission: Mission | null = null
   missionSlug = "peoples-purse"
+  selectedRotationId: string | null = null
+  rotationAttemptCount = 0
   village: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
   lastResult: LastMissionResult | null = null
   readonly moderationEvents: Array<{ at: number; actorId: string; targetId: string; action: "report" | "remove" | "block"; reason?: string }> = []
@@ -50,7 +53,7 @@ export class Room {
   private missionId = randomUUID()
   private leaderboardPersistence: "idle" | "pending" | "done" = "idle"
 
-  constructor(code: string) {
+  constructor(code: string, private readonly getRotationWindow: (now: number) => SheriffRotationWindow = rotationWindowAt) {
     this.code = code
   }
 
@@ -126,19 +129,30 @@ export class Room {
     }
   }
 
-  setReady(playerId: string, ready: boolean): void {
+  setReady(playerId: string, ready: boolean, now = Date.now()): boolean {
     const player = this.players.get(playerId)
-    if (!player || this.phase !== "lobby") return
+    if (!player || this.phase !== "lobby") return false
     player.ready = ready
     const connected = [...this.players.values()].filter((candidate) => candidate.connected)
     if (connected.length >= 2 && connected.every((candidate) => candidate.ready)) {
+      const rotation = this.selectedRotationId
+        ? this.getRotationWindow(now).current.find((candidate) => candidate.id === this.selectedRotationId) ?? null
+        : null
+      if (this.selectedRotationId && (!rotation || !isRotationActive(rotation, now) || connected.length !== rotation.partySize)) {
+        for (const candidate of connected) candidate.ready = false
+        this.selectedRotationId = null
+        this.broadcastRoomState(now)
+        return false
+      }
       this.phase = "mission"
       const definition = getMissionDefinition(this.missionSlug)
       for (const player of this.players.values()) player.position = { ...definition.spawns.players[player.spawnIndex] }
-      this.mission ??= new Mission(this.code, this.players, definition)
+      this.mission ??= new Mission(this.code, this.players, definition, { rotation })
       this.mission.village = { ...this.village }
+      if (rotation) this.rotationAttemptCount += 1
     }
-    this.broadcastRoomState()
+    this.broadcastRoomState(now)
+    return true
   }
 
   selectCharacter(playerId: string, characterId: CharacterId): boolean {
@@ -156,8 +170,21 @@ export class Room {
     if (this.phase !== "lobby" || this.moderatorId() !== playerId) return false
     try { getMissionDefinition(missionSlug) } catch { return false }
     this.missionSlug = missionSlug
+    this.selectedRotationId = null
     for (const player of this.players.values()) player.ready = false
     this.broadcastRoomState()
+    return true
+  }
+
+  selectRotation(playerId: string, rotationId: string, now = Date.now()): boolean {
+    if (this.phase !== "lobby" || this.moderatorId() !== playerId) return false
+    const window = this.getRotationWindow(now)
+    const rotation = window.current.find((candidate) => candidate.id === rotationId)
+    if (window.paused || !rotation || !isRotationActive(rotation, now)) return false
+    this.selectedRotationId = rotation.id
+    this.missionSlug = rotation.missionSlug
+    for (const player of this.players.values()) player.ready = false
+    this.broadcastRoomState(now)
     return true
   }
 
@@ -182,6 +209,7 @@ export class Room {
     } : null
     this.phase = "lobby"
     this.mission = null
+    this.selectedRotationId = null
     this.missionId = randomUUID()
     this.leaderboardPersistence = "idle"
     for (const player of this.players.values()) this.resetPlayerForHub(player)
@@ -239,6 +267,8 @@ export class Room {
     missionVersion: string
     missionContentHash: string
     missionSlug: string
+    rotationId: string | null
+    rotationModifierIds: string[]
     result: NonNullable<Mission["result"]>
   }> | null {
     if (!this.mission?.result || this.mission.status !== "succeeded" || this.leaderboardPersistence !== "idle") return null
@@ -256,6 +286,8 @@ export class Room {
       missionVersion: this.mission!.definition.missionVersion,
       missionContentHash: this.mission!.definition.contentHash,
       missionSlug: this.mission!.definition.slug,
+      rotationId: this.mission!.rotationId,
+      rotationModifierIds: [...this.mission!.rotationModifierIds],
       result: this.mission!.result!,
     }))
   }
@@ -305,12 +337,17 @@ export class Room {
       .sort((a, b) => a.spawnIndex - b.spawnIndex)[0]?.id ?? null
   }
 
-  broadcastRoomState(): void {
+  broadcastRoomState(now = Date.now()): void {
+    const rotationWindow = this.getRotationWindow(now)
     this.broadcast({
       type: "room_state",
       roomCode: this.code,
       phase: this.phase,
       missionSlug: this.missionSlug,
+      selectedRotationId: this.selectedRotationId,
+      rotationsPaused: rotationWindow.paused,
+      rotations: rotationWindow.current,
+      upcomingRotations: rotationWindow.upcoming,
       players: [...this.players.values()].map((player) => this.publicPlayer(player)),
       village: { ...this.village },
       lastResult: this.lastResult ? { ...this.lastResult } : null,

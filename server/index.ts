@@ -9,12 +9,16 @@ import { createBandStoreFromEnv } from "./band-store"
 import { createLeaderboardStoreFromEnv } from "./leaderboard-store"
 import { structuredLog, Telemetry } from "./telemetry"
 import { getMissionDefinition } from "../shared/mission-catalog"
+import type { SheriffRotation } from "../shared/sheriff-rotation"
+import { SheriffRotationService } from "./rotation-service"
 
 const port = Number(process.env.PORT ?? 8787)
 const rooms = new Map<string, Room>()
 const bandStore = createBandStoreFromEnv()
 const leaderboardStore = createLeaderboardStoreFromEnv()
 const telemetry = new Telemetry()
+const rotationService = new SheriffRotationService()
+const opsAdminSecret = process.env.OPS_ADMIN_SECRET
 const defaultMission = getMissionDefinition()
 const observedRoomPhases = new Map<string, string>()
 const observedMissionStatus = new Map<string, string>()
@@ -43,7 +47,67 @@ const contentTypes: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
 }
 
+function json(response: import("node:http").ServerResponse, status: number, value: unknown): void {
+  response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" })
+  response.end(JSON.stringify(value))
+}
+
+async function readJsonBody(request: import("node:http").IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = []
+  let bytes = 0
+  for await (const chunk of request) {
+    const buffer = Buffer.from(chunk)
+    bytes += buffer.length
+    if (bytes > 65_536) throw new Error("BODY_TOO_LARGE")
+    chunks.push(buffer)
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as unknown
+}
+
+function operatorAuthorized(request: import("node:http").IncomingMessage): boolean {
+  return Boolean(opsAdminSecret && request.headers.authorization === `Bearer ${opsAdminSecret}`)
+}
+
 const httpServer = createServer(async (request, response) => {
+  const pathname = new URL(request.url ?? "/", "http://localhost").pathname
+  if (pathname === "/rotations" && request.method === "GET") {
+    json(response, 200, rotationService.window())
+    return
+  }
+  if (pathname.startsWith("/admin/rotations/") && request.method === "POST") {
+    if (!opsAdminSecret) {
+      json(response, 503, { error: "Operator controls are not configured" })
+      return
+    }
+    if (!operatorAuthorized(request)) {
+      telemetry.increment("rotation_admin_unauthorized_total")
+      json(response, 401, { error: "Unauthorized" })
+      return
+    }
+    try {
+      if (pathname === "/admin/rotations/pause") {
+        const body = await readJsonBody(request) as { until?: unknown }
+        rotationService.pause(Number(body.until))
+        telemetry.increment("rotation_admin_pause_total")
+      } else if (pathname === "/admin/rotations/replace") {
+        const body = await readJsonBody(request) as { rotations?: unknown }
+        if (!Array.isArray(body.rotations)) throw new Error("ROTATIONS_REQUIRED")
+        rotationService.replace(body.rotations as SheriffRotation[])
+        telemetry.increment("rotation_admin_replace_total")
+      } else if (pathname === "/admin/rotations/rollback") {
+        rotationService.rollback()
+        telemetry.increment("rotation_admin_rollback_total")
+      } else {
+        json(response, 404, { error: "Unknown rotation operation" })
+        return
+      }
+      structuredLog("rotation_admin_changed", { operation: pathname.split("/").at(-1) ?? "unknown" })
+      json(response, 200, rotationService.window())
+    } catch (error) {
+      json(response, 400, { error: error instanceof Error ? error.message : "Invalid rotation operation" })
+    }
+    return
+  }
   if (request.url === "/metrics") {
     response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" })
     response.end(JSON.stringify(telemetry.snapshot()))
@@ -60,6 +124,7 @@ const httpServer = createServer(async (request, response) => {
       missionId: defaultMission.id,
       missionVersion: defaultMission.missionVersion,
       missionContentHash: defaultMission.contentHash,
+      rotations: rotationService.window(),
     }))
     return
   }
@@ -68,7 +133,6 @@ const httpServer = createServer(async (request, response) => {
     response.end(JSON.stringify({ error: "Method not allowed" }))
     return
   }
-  const pathname = new URL(request.url ?? "/", "http://localhost").pathname
   const requested = pathname === "/" ? "index.html" : normalize(pathname).replace(/^(\.\.(\/|\\|$))+/, "")
   const filePath = join(process.cwd(), "dist", requested)
   try {
@@ -118,7 +182,7 @@ sockets.on("connection", (socket) => {
 
     if (message.type === "create_room" || message.type === "join_room") {
       try {
-        const room = message.type === "create_room" ? new Room(roomCode()) : rooms.get(message.roomCode)
+        const room = message.type === "create_room" ? new Room(roomCode(), (now) => rotationService.window(now)) : rooms.get(message.roomCode)
         if (!room) {
           send(socket, { type: "error", code: "ROOM_NOT_FOUND", message: "Merry Band room not found" })
           return
@@ -156,7 +220,9 @@ sockets.on("connection", (socket) => {
       send(socket, { type: "error", code: "NOT_JOINED", message: "Join a room before sending mission actions" })
       return
     }
-    if (message.type === "set_ready") joinedRoom.setReady(playerId, message.ready)
+    if (message.type === "set_ready" && !joinedRoom.setReady(playerId, message.ready) && message.ready) {
+      send(socket, { type: "error", code: "FORBIDDEN", message: "That daily target expired or requires a different party size" })
+    }
     if (message.type === "set_ready" && message.ready) telemetry.increment("players_ready_total")
     if (message.type === "select_character" && !joinedRoom.selectCharacter(playerId, message.characterId)) {
       send(socket, { type: "error", code: "ROLE_FULL", message: "That role is full — choose the other outlaw" })
@@ -164,6 +230,9 @@ sockets.on("connection", (socket) => {
     }
     if (message.type === "select_mission" && !joinedRoom.selectMission(playerId, message.missionSlug)) {
       send(socket, { type: "error", code: "FORBIDDEN", message: "Only the band leader can choose an available mission" })
+    }
+    if (message.type === "select_rotation" && !joinedRoom.selectRotation(playerId, message.rotationId)) {
+      send(socket, { type: "error", code: "FORBIDDEN", message: "That Sheriff target is expired, paused, or unavailable" })
     }
     if (message.type === "select_loadout" && !joinedRoom.selectLoadout(playerId, message.loadoutId)) {
       send(socket, { type: "error", code: "FORBIDDEN", message: "Field kits can only change at the campfire" })
@@ -183,6 +252,7 @@ sockets.on("connection", (socket) => {
       telemetry.increment("redistribution_votes_total")
     }
     if (message.type === "select_mission") telemetry.increment("hub_mission_selections_total")
+    if (message.type === "select_rotation") telemetry.increment("rotation_selections_total")
     if (message.type === "select_loadout") telemetry.increment(`hub_loadout_${message.loadoutId}_total`)
     if (message.type === "return_to_hub") telemetry.increment("hub_returns_total")
     if (message.type === "moderation" && !joinedRoom.moderate(playerId, message.targetPlayerId, message.action, message.reason)) {
@@ -241,12 +311,20 @@ setInterval(() => {
       observedRoomPhases.set(code, phase)
       telemetry.increment(`mission_phase_${phase}_total`)
       structuredLog("mission_phase_changed", { traceId: roomTraces.get(code) ?? null, phase, partySize: room.players.size })
+      if (phase === "scout" && room.mission?.rotationId) {
+        telemetry.increment("rotation_starts_total")
+        if (room.rotationAttemptCount > 1) telemetry.increment("rotation_repeat_attempts_total")
+        telemetry.increment(`rotation_party_${room.players.size}_starts_total`)
+        for (const modifier of room.mission.rotationModifierIds) telemetry.increment(`rotation_modifier_${modifier}_starts_total`)
+        for (const player of room.players.values()) telemetry.increment(`rotation_role_${player.characterId}_starts_total`)
+      }
     }
     const status = room.mission?.status
     if (status && observedMissionStatus.get(code) !== status) {
       observedMissionStatus.set(code, status)
       if (status !== "active") {
         telemetry.increment(`mission_${status}_total`)
+        if (room.mission?.rotationId) telemetry.increment(`rotation_${status}_total`)
         structuredLog("mission_finished", { traceId: roomTraces.get(code) ?? null, status, partySize: room.players.size })
       }
     }

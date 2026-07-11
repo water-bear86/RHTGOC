@@ -35,13 +35,15 @@ describe("verified leaderboard store", () => {
       missionVersion: "1.0.0",
       missionContentHash: "fnv1a32:ec1c4b0c",
       missionSlug: "peoples-purse",
+      rotationId: "sheriff-2026-07-10-p2-v1",
+      rotationModifierIds: ["armored-escort", "scarce-quivers"],
       result,
     })).resolves.toBe("993a8d20-c073-4f55-87ce-8b7e727b19b0")
     expect(rpc).toHaveBeenCalledWith("record_verified_leaderboard_entry", expect.objectContaining({
       p_player_name: "Oakheart",
       p_score: 8100,
       p_precision: 90,
-      p_score_breakdown: expect.objectContaining({ missionVersion: "1.0.0", missionContentHash: "fnv1a32:ec1c4b0c" }),
+      p_score_breakdown: expect.objectContaining({ missionVersion: "1.0.0", missionContentHash: "fnv1a32:ec1c4b0c", rotationId: "sheriff-2026-07-10-p2-v1", rotationModifierIds: ["armored-escort", "scarce-quivers"] }),
     }))
   })
 

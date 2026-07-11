@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { SheriffRotation } from "./sheriff-rotation"
 
 export const PROTOCOL_VERSION = 5 as const
 export const MAX_ROOM_PLAYERS = 4
@@ -30,6 +31,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("set_ready"), ready: z.boolean() }),
   z.object({ type: z.literal("select_character"), characterId: CharacterIdSchema }),
   z.object({ type: z.literal("select_mission"), missionSlug: z.string().regex(/^[a-z0-9-]{1,60}$/) }),
+  z.object({ type: z.literal("select_rotation"), rotationId: z.string().regex(/^sheriff-[a-z0-9-]{8,80}$/) }),
   z.object({ type: z.literal("select_loadout"), loadoutId: LoadoutIdSchema }),
   z.object({ type: z.literal("return_to_hub") }),
   z.object({
@@ -179,6 +181,9 @@ export interface MissionSnapshot {
   intelFound: boolean
   ledgerStolen: boolean
   reinforcementWave: number
+  rotationId: string | null
+  rotationModifierIds: string[]
+  rotationObjectiveIds: string[]
 }
 
 export type VoteChoice = "granary" | "infirmary" | "watchtower"
@@ -222,7 +227,7 @@ export interface LastMissionResult extends Pick<MissionResult, "score" | "grade"
 
 export type ServerMessage =
   | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
-  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
+  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
   | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string }
