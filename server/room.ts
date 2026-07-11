@@ -94,6 +94,8 @@ export class Room {
   private readonly pendingBandMembershipOffers = new Set<string>()
   private bandClaimedForMissionId: string | null = null
   private leaderboardClaimedForMissionId: string | null = null
+  private missionSeasonSlug: string | null = null
+  private missionStartedAt: number | null = null
   private lastRescueOfferSourceMissionId: string | null = null
   private rescueEventSequence = 0
   private contributionEventSequence = 0
@@ -240,6 +242,9 @@ export class Room {
         this.recordContributionTransition(contribution, now)
       }
       this.phase = "mission"
+      const season = this.getSeasonSnapshot(now)
+      this.missionSeasonSlug = season && (season.phase === "active" || season.phase === "finale") ? season.slug : null
+      this.missionStartedAt = now
       const definition = getMissionDefinition(this.missionSlug)
       for (const player of this.players.values()) player.position = { ...definition.spawns.players[player.spawnIndex] }
       this.mission ??= new Mission(this.code, this.players, definition, {
@@ -509,12 +514,14 @@ export class Room {
   claimVerifiedRuns(): VerifiedRun[] | null {
     if (!this.mission?.result || this.mission.status !== "succeeded" || this.leaderboardClaimedForMissionId === this.missionId) return null
     this.leaderboardClaimedForMissionId = this.missionId
-    return [...this.players.values()].map((player) => ({
+    if (!this.missionSeasonSlug || this.missionStartedAt === null) return []
+    const seasonSlug = this.missionSeasonSlug
+    const missionStartedAt = this.missionStartedAt
+    return [...this.players.values()].filter((player) => player.authUserId !== null).map((player) => ({
       missionId: this.missionId,
       playerId: player.id,
-      authUserId: player.authUserId ?? undefined,
+      authUserId: player.authUserId!,
       bandId: this.band?.id,
-      playerName: player.displayName,
       characterId: player.characterId,
       partySize: this.players.size,
       missionSeconds: this.mission!.elapsedSeconds,
@@ -524,6 +531,9 @@ export class Room {
       missionVersion: this.mission!.definition.missionVersion,
       missionContentHash: this.mission!.definition.contentHash,
       missionSlug: this.mission!.definition.slug,
+      seasonSlug,
+      missionStartedAt,
+      cleanEscape: this.mission!.isCleanEscape(),
       rotationId: this.mission!.rotationId,
       rotationModifierIds: [...this.mission!.rotationModifierIds],
       rescueOfferId: this.mission!.rescueOfferId,
@@ -552,6 +562,13 @@ export class Room {
     return [...new Set([...this.players.values()].map((player) => player.authUserId).filter((id): id is string => id !== null))]
   }
 
+  hasRankedMissionInFlight(): boolean {
+    return this.phase === "mission"
+      && this.missionSeasonSlug !== null
+      && this.mission !== null
+      && (this.mission.status === "active" || (this.mission.status === "succeeded" && this.leaderboardClaimedForMissionId !== this.missionId))
+  }
+
   claimSeasonOutcome(now = Date.now()): SeasonalMissionOutcome | null {
     if (!this.mission || this.mission.status === "active" || this.seasonOutcomeClaimedForMissionId === this.missionId) return null
     if (this.mission.status === "succeeded" && !this.mission.vote?.resolved) return null
@@ -563,7 +580,7 @@ export class Room {
       project: this.mission.vote?.winner ?? null,
       communityCoin: this.mission.result?.communityCoin ?? 0,
       rescues: [...this.players.values()].reduce((sum, player) => sum + player.rescueCount, 0),
-      cleanEscape: this.mission.status === "succeeded" && this.mission.damageTaken === 0,
+      cleanEscape: this.mission.status === "succeeded" && this.mission.isCleanEscape(),
       tacticalScore: this.mission.result?.score ?? 0,
       rotationId: this.mission.rotationId,
     }

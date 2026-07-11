@@ -4,6 +4,7 @@ import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS } from "../shared/protocol"
 import { Room } from "./room"
 import { rotationWindowAt } from "../shared/sheriff-rotation"
 import type { PersistentBandRecord } from "./band-store"
+import { SherwoodSeasonService } from "./season-service"
 
 function fakeSocket(): WebSocket {
   return { readyState: WebSocket.CLOSED, OPEN: WebSocket.OPEN, send: () => undefined, close: () => undefined } as unknown as WebSocket
@@ -171,13 +172,18 @@ describe("Merry Band room", () => {
     expect(room.reconnect(fakeSocket(), member.reconnectToken, 2_001)).toBeNull()
   })
 
-  it("claims authenticated authoritative leaderboard runs once for the durable server retry queue", () => {
-    const room = new Room("ABC234", rotationWindowAt, () => null, persistedBand)
+  it("captures the active season when a mission starts and claims its authoritative leaderboard runs once", () => {
+    const activeSeason = new SherwoodSeasonService(Date.now()).snapshot()
+    activeSeason.slug = "green-bough-ii"
+    const room = new Room("ABC234", rotationWindowAt, () => activeSeason, persistedBand)
     const robin = room.addPlayer(fakeSocket(), "Robin", "robin", persistedBand.actorUserId)
     const marian = room.addPlayer(fakeSocket(), "Marian", "marian")
     room.setReady(robin.id, true)
     room.setReady(marian.id, true)
+    expect(room.hasRankedMissionInFlight()).toBe(true)
+    activeSeason.slug = "green-bough-iii"
     room.mission!.status = "succeeded"
+    expect(room.hasRankedMissionInFlight()).toBe(true)
     room.mission!.elapsedSeconds = 900
     room.mission!.delivered = 660
     room.mission!.result = {
@@ -188,10 +194,31 @@ describe("Merry Band room", () => {
       communityCoin: 660,
       personalRenown: 4000,
     }
-    expect(room.claimVerifiedRuns()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ authUserId: persistedBand.actorUserId, bandId: persistedBand.state.id, playerId: robin.id }),
-      expect.objectContaining({ authUserId: undefined, bandId: persistedBand.state.id, playerId: marian.id }),
+    const verifiedRuns = room.claimVerifiedRuns()
+    expect(verifiedRuns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ authUserId: persistedBand.actorUserId, bandId: persistedBand.state.id, playerId: robin.id, seasonSlug: "green-bough-ii", missionStartedAt: expect.any(Number), cleanEscape: true }),
     ]))
+    expect(verifiedRuns).toHaveLength(1)
+    expect(room.hasRankedMissionInFlight()).toBe(false)
+    expect(room.claimVerifiedRuns()).toBeNull()
+  })
+
+  it("keeps paused and archived campaign missions playable but out of verified rankings", () => {
+    const season = new SherwoodSeasonService(Date.now()).snapshot()
+    season.phase = "paused"
+    const room = new Room("UNRANK", rotationWindowAt, () => season, persistedBand)
+    const robin = room.addPlayer(fakeSocket(), "Robin", "robin", persistedBand.actorUserId)
+    const marian = room.addPlayer(fakeSocket(), "Marian", "marian")
+    room.setReady(robin.id, true)
+    room.setReady(marian.id, true)
+    expect(room.hasRankedMissionInFlight()).toBe(false)
+    room.mission!.status = "succeeded"
+    room.mission!.result = {
+      score: 8_000, grade: "A", breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 80, generosity: 80 },
+      thresholds: { S: 9_000, A: 7_500, B: 6_000, C: 0 }, communityCoin: 660, personalRenown: 4_000,
+    }
+    expect(room.claimVerifiedRuns()).toEqual([])
+    season.phase = "archived"
     expect(room.claimVerifiedRuns()).toBeNull()
   })
 

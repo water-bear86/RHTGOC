@@ -39,4 +39,4 @@ These values are archived with the campaign for later cosmetic recognition. They
 
 Authenticated operator routes support start, pause, resume, extend, rollback, and archive. The service checkpoints the last 32 revisions and restores both state and processed-event IDs during rollback, so replayed mission or contribution events still cannot count twice.
 
-Migration `20260711080000_add_sherwood_campaigns.sql` stores immutable campaign events and revisioned snapshots behind service-role-only RLS. The live drill covered active progress, finale success, archival, idempotent replay, rollback to a recognized terminal state, and cleanup. The room service retries failed writes with bounded exponential backoff and exposes persistence activation in `/health`.
+Migration `20260711065530_add_sherwood_campaigns.sql` stores immutable campaign events and revisioned snapshots behind service-role-only RLS. The live drill covered active progress, finale success, archival, idempotent replay, rollback to a recognized terminal state, and cleanup. The room service retries failed writes with bounded exponential backoff and exposes persistence activation in `/health`.

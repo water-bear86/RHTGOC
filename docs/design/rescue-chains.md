@@ -33,7 +33,7 @@ Mission snapshots and verified score breakdowns include the rescue offer identit
 
 ## Persistence
 
-Migration `20260711061500_add_rescue_chain_offers.sql` adds private service-only `rescue_offers` and append-only `rescue_offer_events` tables. The RPC:
+Migration `20260711061439_add_rescue_chain_offers.sql` adds private service-only `rescue_offers` and append-only `rescue_offer_events` tables. The RPC:
 
 - enforces monotonic terminal states;
 - rejects terminal rewrites;

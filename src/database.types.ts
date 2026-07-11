@@ -261,6 +261,7 @@ export type Database = {
           mission_content_hash: string
           mission_seconds: number
           mission_slug: string
+          mission_started_at: string
           mission_version: string
           party_size: number
           player_id: string | null
@@ -287,6 +288,7 @@ export type Database = {
           mission_content_hash?: string
           mission_seconds: number
           mission_slug: string
+          mission_started_at: string
           mission_version?: string
           party_size: number
           player_id?: string | null
@@ -313,6 +315,7 @@ export type Database = {
           mission_content_hash?: string
           mission_seconds?: number
           mission_slug?: string
+          mission_started_at?: string
           mission_version?: string
           party_size?: number
           player_id?: string | null
@@ -351,6 +354,7 @@ export type Database = {
           reason: string
           reviewed_at: string | null
           reviewed_by: string | null
+          reviewer_audit_id: string | null
           status: string
           verification_id: string
         }
@@ -361,6 +365,7 @@ export type Database = {
           reason: string
           reviewed_at?: string | null
           reviewed_by?: string | null
+          reviewer_audit_id?: string | null
           status?: string
           verification_id: string
         }
@@ -371,6 +376,7 @@ export type Database = {
           reason?: string
           reviewed_at?: string | null
           reviewed_by?: string | null
+          reviewer_audit_id?: string | null
           status?: string
           verification_id?: string
         }
@@ -410,33 +416,56 @@ export type Database = {
       }
       leaderboard_seasons: {
         Row: {
+          campaign_id: string | null
+          closed_at: string | null
           created_at: string
           ends_at: string
+          finalize_after: string | null
+          finalized_at: string | null
           id: string
           is_public: boolean
+          lifecycle_state: string
           name: string
           slug: string
           starts_at: string
         }
         Insert: {
+          campaign_id?: string | null
+          closed_at?: string | null
           created_at?: string
           ends_at: string
+          finalize_after?: string | null
+          finalized_at?: string | null
           id?: string
           is_public?: boolean
+          lifecycle_state?: string
           name: string
           slug: string
           starts_at: string
         }
         Update: {
+          campaign_id?: string | null
+          closed_at?: string | null
           created_at?: string
           ends_at?: string
+          finalize_after?: string | null
+          finalized_at?: string | null
           id?: string
           is_public?: boolean
+          lifecycle_state?: string
           name?: string
           slug?: string
           starts_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "leaderboard_seasons_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: true
+            referencedRelation: "sherwood_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       merry_band_members: {
         Row: {
@@ -739,6 +768,7 @@ export type Database = {
         Row: {
           campaign_id: string
           event_id: string
+          event_snapshot: Json
           event_type: string
           id: number
           occurred_at: string
@@ -749,6 +779,7 @@ export type Database = {
         Insert: {
           campaign_id: string
           event_id: string
+          event_snapshot: Json
           event_type: string
           id?: never
           occurred_at: string
@@ -759,6 +790,7 @@ export type Database = {
         Update: {
           campaign_id?: string
           event_id?: string
+          event_snapshot?: Json
           event_type?: string
           id?: never
           occurred_at?: string
@@ -896,6 +928,7 @@ export type Database = {
         }
         Returns: Json
       }
+      finalize_due_leaderboard_seasons: { Args: never; Returns: Json }
       get_accepted_friend_ids: {
         Args: { p_user_id: string }
         Returns: string[]
@@ -906,6 +939,18 @@ export type Database = {
         Returns: string[]
       }
       load_current_sherwood_campaign: { Args: never; Returns: Json }
+      read_leaderboard: {
+        Args: {
+          p_band_id?: string
+          p_character_id?: string
+          p_kind?: string
+          p_mission_slug?: string
+          p_party_size?: number
+          p_player_ids?: string[]
+          p_season_slug?: string
+        }
+        Returns: Json
+      }
       record_band_contribution_transition: {
         Args: {
           p_band_id?: string
@@ -965,12 +1010,14 @@ export type Database = {
         Args: {
           p_band_id: string
           p_character_id: string
+          p_clean_escape: boolean
           p_damage_taken: number
           p_delivered: number
           p_generosity: number
           p_grade: string
           p_mission_seconds: number
           p_mission_slug: string
+          p_mission_started_at: string
           p_party_size: number
           p_player_id: string
           p_player_name: string
@@ -982,14 +1029,6 @@ export type Database = {
           p_verification_id: string
         }
         Returns: string
-      }
-      remove_merry_band_member: {
-        Args: {
-          p_actor_user_id: string
-          p_band_id: string
-          p_member_user_id: string
-        }
-        Returns: Json
       }
       register_social_profile: {
         Args: { p_display_name: string }
@@ -1012,6 +1051,14 @@ export type Database = {
         }
       }
       remove_friend: { Args: { p_other_user_id: string }; Returns: boolean }
+      remove_merry_band_member: {
+        Args: {
+          p_actor_user_id: string
+          p_band_id: string
+          p_member_user_id: string
+        }
+        Returns: Json
+      }
       respond_direct_band_invite: {
         Args: { p_accept: boolean; p_invite_id: string }
         Returns: string
@@ -1019,6 +1066,14 @@ export type Database = {
       respond_friend_request: {
         Args: { p_accept: boolean; p_other_user_id: string }
         Returns: boolean
+      }
+      review_leaderboard_quarantine: {
+        Args: {
+          p_decision: string
+          p_quarantine_id: string
+          p_reviewer_id: string
+        }
+        Returns: Json
       }
       send_direct_band_invite: {
         Args: {
@@ -1037,9 +1092,9 @@ export type Database = {
         Args: { p_season_id: string }
         Returns: number
       }
-      update_social_presence: {
-        Args: { p_enabled: boolean; p_room_code?: string; p_status: string }
-        Returns: boolean
+      sync_leaderboard_season_from_campaign: {
+        Args: { p_occurred_at: string; p_snapshot: Json }
+        Returns: Json
       }
       update_merry_band_identity: {
         Args: {
@@ -1049,6 +1104,10 @@ export type Database = {
           p_name: string
         }
         Returns: Json
+      }
+      update_social_presence: {
+        Args: { p_enabled: boolean; p_room_code?: string; p_status: string }
+        Returns: boolean
       }
     }
     Enums: {

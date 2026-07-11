@@ -59,10 +59,11 @@ export class SherwoodSeasonService {
     return cloneSnapshot(this.state)
   }
 
-  hydrate(snapshot: SherwoodSeasonSnapshot, processedEventIds: string[]): void {
-    if (!snapshot.id || snapshot.revision < 1 || !["active", "paused", "finale", "succeeded", "failed", "archived"].includes(snapshot.phase)) throw new Error("INVALID_SEASON_RECOVERY")
+  hydrate(snapshot: SherwoodSeasonSnapshot, processedEventIds: string[], lastSequence: number): void {
+    if (!snapshot.id || snapshot.revision < 1 || !["active", "paused", "finale", "succeeded", "failed", "archived"].includes(snapshot.phase) || !Number.isSafeInteger(lastSequence) || lastSequence < 0) throw new Error("INVALID_SEASON_RECOVERY")
     this.state = cloneSnapshot(snapshot)
     this.processedEventIds = new Set(processedEventIds)
+    this.sequence = lastSequence
     this.revisionClock = snapshot.revision
     this.history = []
     this.transitions = []
@@ -137,12 +138,16 @@ export class SherwoodSeasonService {
       archivedAt: null,
     }
     this.processedEventIds = new Set()
+    this.sequence = 0
     this.recordTransition(now, `operator:start:${this.state.id}`, "operator", { operation: "start" })
   }
 
   rollback(now = Date.now()): void {
-    const previous = this.history.pop()
+    if (this.state.phase === "archived") throw new Error("ARCHIVED_SEASON_IMMUTABLE")
+    const previous = this.history.at(-1)
     if (!previous) throw new Error("NO_SEASON_ROLLBACK")
+    if (previous.snapshot.id !== this.state.id) throw new Error("CROSS_CAMPAIGN_ROLLBACK_FORBIDDEN")
+    this.history.pop()
     this.state = cloneSnapshot(previous.snapshot)
     this.processedEventIds = new Set(previous.processedEventIds)
     this.state.revision = ++this.revisionClock

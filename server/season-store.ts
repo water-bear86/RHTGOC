@@ -19,14 +19,14 @@ export class SupabaseSeasonStore {
     return data === true
   }
 
-  async loadCurrent(): Promise<{ snapshot: SherwoodSeasonSnapshot; processedEventIds: string[] } | null> {
+  async loadCurrent(): Promise<{ snapshot: SherwoodSeasonSnapshot; processedEventIds: string[]; lastSequence: number } | null> {
     const { data, error } = await this.client.rpc("load_current_sherwood_campaign", {})
     if (error) throw new Error(`SEASON_RECOVERY_FAILED: ${error.message}`)
     if (data === null) return null
     if (typeof data !== "object") throw new Error("SEASON_RECOVERY_FAILED: invalid payload")
-    const value = data as { snapshot?: unknown; processedEventIds?: unknown }
-    if (!value.snapshot || !Array.isArray(value.processedEventIds) || value.processedEventIds.some((id) => typeof id !== "string")) throw new Error("SEASON_RECOVERY_FAILED: invalid payload")
-    return { snapshot: value.snapshot as SherwoodSeasonSnapshot, processedEventIds: value.processedEventIds }
+    const value = data as { snapshot?: unknown; processedEventIds?: unknown; lastSequence?: unknown }
+    if (!value.snapshot || !Array.isArray(value.processedEventIds) || value.processedEventIds.some((id) => typeof id !== "string") || !Number.isSafeInteger(value.lastSequence) || (value.lastSequence as number) < 0) throw new Error("SEASON_RECOVERY_FAILED: invalid payload")
+    return { snapshot: value.snapshot as SherwoodSeasonSnapshot, processedEventIds: value.processedEventIds, lastSequence: value.lastSequence as number }
   }
 }
 

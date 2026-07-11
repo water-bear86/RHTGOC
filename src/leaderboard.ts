@@ -19,6 +19,11 @@ export interface LeaderboardEntry {
   precision?: number
   generosity?: number
   cleanEscape?: boolean
+  verificationId?: string | null
+  missionVersion?: string
+  missionContentHash?: string
+  missionStartedAt?: string
+  suspicious?: boolean
 }
 
 export type LeaderboardKind = "master-outlaws" | "peoples-champions" | "clean-escapes" | "rescuers" | "swift-arrows"
@@ -57,57 +62,84 @@ function saveLocal(entries: LeaderboardEntry[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, 50)))
 }
 
+function mapLeaderboardRow(entry: Record<string, unknown>): LeaderboardEntry | null {
+  if (
+    typeof entry.id !== "string"
+    || typeof entry.player_name !== "string"
+    || typeof entry.character_id !== "string"
+    || typeof entry.score !== "number"
+    || typeof entry.grade !== "string"
+    || typeof entry.mission_seconds !== "number"
+    || typeof entry.delivered !== "number"
+  ) return null
+  return {
+    id: entry.id,
+    playerId: typeof entry.player_id === "string" ? entry.player_id : undefined,
+    playerName: entry.player_name,
+    characterId: entry.character_id as CharacterId,
+    score: entry.score,
+    grade: entry.grade as MasteryResult["grade"],
+    missionSeconds: entry.mission_seconds,
+    delivered: entry.delivered,
+    verified: entry.verified === true,
+    createdAt: typeof entry.created_at === "string" ? entry.created_at : "",
+    partySize: typeof entry.party_size === "number" ? entry.party_size : undefined,
+    missionSlug: typeof entry.mission_slug === "string" ? entry.mission_slug : undefined,
+    bandId: typeof entry.band_id === "string" ? entry.band_id : null,
+    rescues: typeof entry.rescues === "number" ? entry.rescues : undefined,
+    precision: typeof entry.precision === "number" ? entry.precision : undefined,
+    generosity: typeof entry.generosity === "number" ? entry.generosity : undefined,
+    cleanEscape: entry.clean_escape === true,
+    verificationId: typeof entry.verification_id === "string" ? entry.verification_id : null,
+    missionVersion: typeof entry.mission_version === "string" ? entry.mission_version : undefined,
+    missionContentHash: typeof entry.mission_content_hash === "string" ? entry.mission_content_hash : undefined,
+    missionStartedAt: typeof entry.mission_started_at === "string" ? entry.mission_started_at : undefined,
+    suspicious: entry.suspicious === true,
+  }
+}
+
+export function filterAndSortLeaderboardEntries(entries: LeaderboardEntry[], filters: LeaderboardFilters = {}): LeaderboardEntry[] {
+  const excluded = new Set(filters.excludedPlayerIds ?? [])
+  const included = filters.playerIds ? new Set(filters.playerIds) : null
+  return sortEntries(entries.filter((entry) => {
+    if (entry.playerId && excluded.has(entry.playerId)) return false
+    if (included && (!entry.playerId || !included.has(entry.playerId))) return false
+    if (filters.characterId && entry.characterId !== filters.characterId) return false
+    if (filters.partySize && entry.partySize !== filters.partySize) return false
+    if (filters.missionSlug && entry.missionSlug !== filters.missionSlug) return false
+    if (filters.bandId && entry.bandId !== filters.bandId) return false
+    if ((filters.kind ?? "master-outlaws") === "clean-escapes" && !entry.cleanEscape) return false
+    return true
+  }), filters.kind ?? "master-outlaws")
+}
+
 export async function loadLeaderboard(filters: LeaderboardFilters = {}): Promise<{ entries: LeaderboardEntry[]; global: boolean }> {
   const supabase = getSupabase()
   const kind = filters.kind ?? "master-outlaws"
   if (filters.playerIds && filters.playerIds.length === 0) return { entries: [], global: true }
   if (!supabase) return { entries: sortEntries(localEntries(), kind), global: false }
   try {
-    const { data: season, error: seasonError } = await supabase
-      .from("leaderboard_seasons")
-      .select("id")
-      .eq("slug", filters.seasonSlug ?? "season-zero")
-      .eq("is_public", true)
-      .single()
-    if (seasonError) throw seasonError
-    let query = supabase
-      .from("leaderboard_entries")
-      .select("id, player_id, player_name, character_id, score, grade, mission_seconds, delivered, verified, created_at, party_size, mission_slug, band_id, rescues, precision, generosity, clean_escape")
-      .eq("season_id", season.id)
-      .eq("verified", true)
-    if (filters.characterId) query = query.eq("character_id", filters.characterId)
-    if (filters.partySize) query = query.eq("party_size", filters.partySize)
-    if (filters.missionSlug) query = query.eq("mission_slug", filters.missionSlug)
-    if (filters.bandId) query = query.eq("band_id", filters.bandId)
-    if (filters.playerIds?.length) query = query.in("player_id", filters.playerIds)
-    if (kind === "clean-escapes") query = query.eq("clean_escape", true).order("mission_seconds", { ascending: true })
-    else if (kind === "peoples-champions") query = query.order("generosity", { ascending: false })
-    else if (kind === "rescuers") query = query.order("rescues", { ascending: false })
-    else if (kind === "swift-arrows") query = query.order("precision", { ascending: false })
-    else query = query.order("score", { ascending: false })
-    const { data, error } = await query.order("score", { ascending: false }).limit(50)
-    if (error) throw error
-    const entries: LeaderboardEntry[] = data.map((entry) => ({
-      id: entry.id,
-      playerId: entry.player_id ?? undefined,
-      playerName: entry.player_name,
-      characterId: entry.character_id as CharacterId,
-      score: entry.score,
-      grade: entry.grade as MasteryResult["grade"],
-      missionSeconds: entry.mission_seconds,
-      delivered: entry.delivered,
-      verified: entry.verified,
-      createdAt: entry.created_at,
-      partySize: entry.party_size,
-      missionSlug: entry.mission_slug,
-      bandId: entry.band_id,
-      rescues: entry.rescues,
-      precision: entry.precision,
-      generosity: entry.generosity,
-      cleanEscape: entry.clean_escape,
-    }))
-    const excluded = new Set(filters.excludedPlayerIds ?? [])
-    return { entries: entries.filter((entry) => !entry.playerId || !excluded.has(entry.playerId)), global: true }
+    const { data, error } = await supabase.rpc("read_leaderboard", {
+      p_kind: kind,
+      p_season_slug: filters.seasonSlug ?? "season-zero",
+      ...(filters.characterId ? { p_character_id: filters.characterId } : {}),
+      ...(filters.partySize ? { p_party_size: filters.partySize } : {}),
+      ...(filters.missionSlug ? { p_mission_slug: filters.missionSlug } : {}),
+      ...(filters.bandId ? { p_band_id: filters.bandId } : {}),
+      ...(filters.playerIds ? { p_player_ids: filters.playerIds } : {}),
+    })
+    if (error || !Array.isArray(data)) throw error ?? new Error("INVALID_LEADERBOARD_RESPONSE")
+    const entries = data.flatMap((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return []
+      const mapped = mapLeaderboardRow(entry as unknown as Record<string, unknown>)
+      return mapped ? [mapped] : []
+    })
+    return { entries: filterAndSortLeaderboardEntries(entries, {
+      kind,
+      characterId: filters.characterId,
+      partySize: filters.partySize,
+      missionSlug: filters.missionSlug,
+    }).slice(0, 50), global: true }
   } catch {
     return { entries: sortEntries(localEntries(), kind), global: false }
   }
@@ -128,11 +160,11 @@ export async function loadLeaderboardSeasons(): Promise<LeaderboardSeason[]> {
 
 function sortEntries(entries: LeaderboardEntry[], kind: LeaderboardKind): LeaderboardEntry[] {
   return [...entries].sort((a, b) => {
-    if (kind === "peoples-champions") return (b.generosity ?? 0) - (a.generosity ?? 0) || b.score - a.score
-    if (kind === "clean-escapes") return a.missionSeconds - b.missionSeconds || b.score - a.score
-    if (kind === "rescuers") return (b.rescues ?? 0) - (a.rescues ?? 0) || b.score - a.score
-    if (kind === "swift-arrows") return (b.precision ?? 0) - (a.precision ?? 0) || a.missionSeconds - b.missionSeconds
-    return b.score - a.score
+    if (kind === "peoples-champions") return b.delivered - a.delivered || b.score - a.score || a.id.localeCompare(b.id)
+    if (kind === "clean-escapes") return b.delivered - a.delivered || b.score - a.score || a.missionSeconds - b.missionSeconds || a.id.localeCompare(b.id)
+    if (kind === "rescuers") return (b.rescues ?? 0) - (a.rescues ?? 0) || b.score - a.score || a.id.localeCompare(b.id)
+    if (kind === "swift-arrows") return a.missionSeconds - b.missionSeconds || b.score - a.score || (b.precision ?? 0) - (a.precision ?? 0) || a.id.localeCompare(b.id)
+    return b.score - a.score || a.missionSeconds - b.missionSeconds || a.id.localeCompare(b.id)
   })
 }
 
@@ -166,9 +198,6 @@ export async function submitLeaderboardEntry(input: {
 export function subscribeToLeaderboard(onChange: () => void): () => void {
   const supabase = getSupabase()
   if (!supabase) return () => undefined
-  const channel = supabase
-    .channel("leaderboard-season-zero")
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "leaderboard_entries" }, onChange)
-    .subscribe()
-  return () => { void supabase.removeChannel(channel) }
+  const interval = window.setInterval(onChange, 15_000)
+  return () => window.clearInterval(interval)
 }

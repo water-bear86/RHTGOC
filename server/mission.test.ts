@@ -275,8 +275,10 @@ describe("authoritative mission", () => {
     robin.downedFor = 0.05
     marian.downedFor = 0.05
     const mission = new Mission("ABC234", new Map([[robin.id, robin], [marian.id, marian]]))
+    expect(mission.isCleanEscape()).toBe(true)
     mission.update(0.05)
     expect(mission.status).toBe("failed")
+    expect(mission.isCleanEscape()).toBe(false)
     expect(mission.events.filter((event) => event.type === "mission_failed")).toHaveLength(1)
   })
 

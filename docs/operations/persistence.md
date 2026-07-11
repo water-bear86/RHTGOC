@@ -4,7 +4,7 @@
 
 Merry Bands, active membership, preset banners, mission history, community grants, camp state, village state, and audit events live in the Supabase project `whkaenfnefhuezkutnxe`. Every public table has RLS enabled. Authenticated clients receive read-only access to their own active band rows; all mutation goes through the authoritative game server using `SUPABASE_SECRET_KEY`.
 
-Seasonal campaign snapshots and immutable mission/contribution/operator events live in `sherwood_campaigns` and `sherwood_campaign_events`. They are service-role-only: clients receive the current projection through the room server and cannot author totals. On startup, a configured room service loads the newest non-archived snapshot and its processed-event ledger before accepting connections; recovery failure fails closed rather than silently starting a competing season.
+Seasonal campaign snapshots and immutable mission/contribution/operator events live in `sherwood_campaigns` and `sherwood_campaign_events`. They are service-role-only: clients receive the current projection through the room server and cannot author totals. On startup, a configured room service prefers the newest non-archived snapshot and processed-event ledger, then falls back to the newest archived campaign so its successor can be started after a restart. Recovery failure fails closed rather than silently starting a competing season.
 
 The secret key is a runtime secret. It must never use a `VITE_` prefix, enter the browser bundle, appear in screenshots, or be committed. If it is absent, the server must leave persistent-band features unavailable rather than opening anonymous writes.
 
@@ -27,6 +27,8 @@ Every terminal mission is copied into an in-process backoff queue before the roo
 3. Run Supabase security and performance advisors.
 4. Generate TypeScript database types and run the server test suite.
 5. Deploy the game server only after the migration is visible in the remote migration list.
+
+The timestamp and name in every checked-in migration filename must exactly match the remote migration ledger. When the connected migration tool assigns the timestamp, rename the local file to that returned version before committing. A release is blocked until the ordered local filename list and the remote `(version, name)` list are identical; never repair drift by replaying an already-applied schema change.
 
 ## Backup and recovery
 

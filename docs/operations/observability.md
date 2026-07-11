@@ -19,6 +19,9 @@ Key counters:
 - `season_<mission|contribution|operator>_events_total`, `season_pressure`, `season_persistence_queue`, `season_persistence_<success|retry>_total`
 - `recent_players_persistence_queue`, `recent_players_persistence_<success|retry>_total`; Supabase `social_rate_events` is the source for friend-request and direct-invite abuse review.
 - `band_membership_<offers|accepts|declines|removals>_total`, `band_membership_<accept|remove>_failure_total`, `band_identity_<updates|update_failure>_total`, and `band_hero_role_update_<total|failure_total>`.
+- `leaderboard_review_<approved|rejected|failure|conflict|unauthorized|forbidden>_total`; review logs contain the decision and promotion result, never quarantine, reviewer, or player identifiers.
+- `leaderboard_<seasons_finalized|snapshots_created|finalization_failure|dead_letter>_total` and `leaderboard_persistence_<success|retry>_total`; dead-letter logs use a fixed reason code and mission trace, never player identity.
+- `season_admin_persistence_<barrier|pending>_total` identifies operator transitions held behind or awaiting durable campaign storage.
 - `public_hub_instances`, `public_hub_players`, `hub_opt_ins_total`, `hub_private_bands_formed_total`, `hub_<emote|ping>_*`, `hub_*_rate_limited_total`, `hub_reports_total`, and `hub_blocks_total`.
 
 Key gauges: `active_connections`, `active_rooms`, and `active_players`.

@@ -34,7 +34,7 @@ describe("Sherwood seasonal campaign", () => {
     expect(service.snapshot(6_001)).toMatchObject({ slug: "season-one", phase: "active", archivedAt: null, recognition: archived.recognition })
   })
 
-  it("resolves finale failure, then rolls the operator mutation back without replay duplication", () => {
+  it("resolves finale failure and makes archival an immutable campaign boundary", () => {
     const service = new SherwoodSeasonService(1_000)
     const end = service.snapshot(1_000).endsAt
     expect(service.snapshot(end).phase).toBe("finale")
@@ -42,8 +42,8 @@ describe("Sherwood seasonal campaign", () => {
     expect(service.snapshot(end + 1).phase).toBe("failed")
     service.archive(end + 2)
     expect(service.snapshot(end + 2).phase).toBe("archived")
-    service.rollback(end + 3)
-    expect(service.snapshot(end + 3).phase).toBe("failed")
+    expect(() => service.rollback(end + 3)).toThrow("ARCHIVED_SEASON_IMMUTABLE")
+    expect(service.snapshot(end + 3).phase).toBe("archived")
     expect(service.recordMission({ ...mission("failed-4"), status: "failed", project: null, communityCoin: 0, rotationId: null })).toBe(false)
   })
 
@@ -82,9 +82,21 @@ describe("Sherwood seasonal campaign", () => {
     const first = new SherwoodSeasonService(1_000)
     first.recordMission(mission("persisted-mission"))
     const recovered = new SherwoodSeasonService(2_000)
-    recovered.hydrate(first.snapshot(2_000), ["persisted-mission"])
+    recovered.hydrate(first.snapshot(2_000), ["persisted-mission"], 2)
     expect(recovered.recordMission(mission("persisted-mission"))).toBe(false)
     expect(recovered.recordMission(mission("new-mission"))).toBe(true)
     expect(recovered.snapshot(3_000)).toMatchObject({ revision: 3, projects: { granary: { total: 1_200, tier: 1 } } })
+    expect(recovered.drainTransitions()).toEqual([expect.objectContaining({ sequence: 3, eventId: "new-mission" })])
+  })
+
+  it("recovers an archived campaign and starts the successor at its own first sequence", () => {
+    const first = new SherwoodSeasonService(1_000)
+    const archived = { ...first.snapshot(2_000), phase: "archived" as const, archivedAt: 2_000 }
+    const recovered = new SherwoodSeasonService(3_000)
+    recovered.hydrate(archived, [], 17)
+    recovered.start({ slug: "season-one", name: "Season One", startsAt: 4_000, endsAt: 8_000 }, 4_000)
+    expect(recovered.snapshot(4_001)).toMatchObject({ slug: "season-one", phase: "active", archivedAt: null })
+    expect(recovered.drainTransitions()).toEqual([expect.objectContaining({ sequence: 1, eventType: "operator", payload: { operation: "start" } })])
+    expect(() => recovered.rollback(4_100)).toThrow("CROSS_CAMPAIGN_ROLLBACK_FORBIDDEN")
   })
 })

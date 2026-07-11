@@ -6,7 +6,7 @@ import { WebSocket, WebSocketServer } from "ws"
 import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "../shared/protocol"
 import { Room, type ContributionTransition, type RescueOfferTransition } from "./room"
 import { createBandStoreFromEnv, type CompletedBandMission, type PersistentBandRecord } from "./band-store"
-import { createLeaderboardStoreFromEnv, type VerifiedRun } from "./leaderboard-store"
+import { createLeaderboardStoreFromEnv, terminalLeaderboardFailure, type VerifiedRun } from "./leaderboard-store"
 import { structuredLog, Telemetry } from "./telemetry"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
@@ -54,6 +54,7 @@ const pendingBandMissions = new Map<string, { outcome: CompletedBandMission; roo
 let bandPersistenceFlushing = false
 const pendingLeaderboardRuns = new Map<string, { run: VerifiedRun; traceId: string | null; attempts: number; nextAttemptAt: number }>()
 let leaderboardPersistenceFlushing = false
+let leaderboardFinalizationRunning = false
 
 function roomCode(): string {
   let code = ""
@@ -97,7 +98,12 @@ function operatorAuthorized(request: import("node:http").IncomingMessage): boole
   return Boolean(opsAdminSecret && request.headers.authorization === `Bearer ${opsAdminSecret}`)
 }
 
-async function verifySupabaseUser(accessToken: string | undefined): Promise<string | null> {
+interface SupabaseIdentity {
+  id: string
+  sherwoodOperator: boolean
+}
+
+async function verifySupabaseIdentity(accessToken: string | undefined): Promise<SupabaseIdentity | null> {
   if (!accessToken || !supabaseUrl || !supabasePublishableKey) return null
   try {
     const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
@@ -105,11 +111,17 @@ async function verifySupabaseUser(accessToken: string | undefined): Promise<stri
       signal: AbortSignal.timeout(5_000),
     })
     if (!response.ok) return null
-    const value = await response.json() as { id?: unknown }
-    return typeof value.id === "string" && value.id.match(/^[0-9a-f-]{36}$/) ? value.id : null
+    const value = await response.json() as { id?: unknown; app_metadata?: unknown }
+    if (typeof value.id !== "string" || !value.id.match(/^[0-9a-f-]{36}$/)) return null
+    const appMetadata = value.app_metadata && typeof value.app_metadata === "object" ? value.app_metadata as Record<string, unknown> : {}
+    return { id: value.id, sherwoodOperator: appMetadata.sherwood_operator === true }
   } catch {
     return null
   }
+}
+
+async function verifySupabaseUser(accessToken: string | undefined): Promise<string | null> {
+  return (await verifySupabaseIdentity(accessToken))?.id ?? null
 }
 
 function enqueueRescueTransition(transition: RescueOfferTransition): void {
@@ -186,6 +198,15 @@ function enqueueSeasonTransition(transition: SeasonTransition): void {
   if (!seasonStore) return
   pendingSeasonTransitions.set(transition.eventId, { transition, attempts: 0, nextAttemptAt: Date.now() })
   telemetry.gauge("season_persistence_queue", pendingSeasonTransitions.size)
+}
+
+function captureSeasonTransitions(): void {
+  for (const transition of seasonService.drainTransitions()) {
+    enqueueSeasonTransition(transition)
+    telemetry.increment(`season_${transition.eventType}_events_total`)
+    telemetry.gauge("season_pressure", transition.snapshot.pressure)
+    structuredLog("season_transition", { eventId: transition.eventId, eventType: transition.eventType, phase: transition.snapshot.phase, revision: transition.snapshot.revision, sequence: transition.sequence })
+  }
 }
 
 async function flushSeasonTransitions(now = Date.now()): Promise<void> {
@@ -284,15 +305,41 @@ async function flushVerifiedRuns(now = Date.now()): Promise<void> {
         pendingLeaderboardRuns.delete(key)
         telemetry.increment(entryId ? "leaderboard_persistence_success_total" : "leaderboard_quarantine_total")
       } catch (error) {
-        pending.attempts += 1
-        pending.nextAttemptAt = now + Math.min(60_000, 1_000 * 2 ** Math.min(6, pending.attempts))
-        telemetry.increment("leaderboard_persistence_retry_total")
-        structuredLog("leaderboard_persistence_retry", { traceId: pending.traceId, missionId: pending.run.missionId, attempts: pending.attempts, reason: error instanceof Error ? error.message : "unknown" }, "error")
+        const terminalReason = terminalLeaderboardFailure(error)
+        if (terminalReason) {
+          pendingLeaderboardRuns.delete(key)
+          telemetry.increment("leaderboard_dead_letter_total")
+          structuredLog("leaderboard_dead_lettered", { traceId: pending.traceId, missionId: pending.run.missionId, reason: terminalReason }, "error")
+        } else {
+          pending.attempts += 1
+          pending.nextAttemptAt = now + Math.min(60_000, 1_000 * 2 ** Math.min(6, pending.attempts))
+          telemetry.increment("leaderboard_persistence_retry_total")
+          structuredLog("leaderboard_persistence_retry", { traceId: pending.traceId, missionId: pending.run.missionId, attempts: pending.attempts, reason: error instanceof Error ? error.message : "unknown" }, "error")
+        }
       }
     }
   } finally {
     leaderboardPersistenceFlushing = false
     telemetry.gauge("leaderboard_persistence_queue", pendingLeaderboardRuns.size)
+  }
+}
+
+async function finalizeLeaderboardSeasons(): Promise<void> {
+  if (!leaderboardStore || leaderboardFinalizationRunning || leaderboardPersistenceFlushing || pendingLeaderboardRuns.size > 0) return
+  if ([...rooms.values()].some((room) => room.hasRankedMissionInFlight())) return
+  leaderboardFinalizationRunning = true
+  try {
+    const result = await leaderboardStore.finalizeDueSeasons()
+    if (result.seasonsFinalized > 0) {
+      telemetry.increment("leaderboard_seasons_finalized_total", result.seasonsFinalized)
+      telemetry.increment("leaderboard_snapshots_created_total", result.snapshotsCreated)
+      structuredLog("leaderboard_seasons_finalized", { seasonsFinalized: result.seasonsFinalized, snapshotsCreated: result.snapshotsCreated })
+    }
+  } catch (error) {
+    telemetry.increment("leaderboard_finalization_failure_total")
+    structuredLog("leaderboard_finalization_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+  } finally {
+    leaderboardFinalizationRunning = false
   }
 }
 
@@ -350,6 +397,12 @@ const httpServer = createServer(async (request, response) => {
       json(response, 401, { error: "Unauthorized" })
       return
     }
+    captureSeasonTransitions()
+    if (seasonStore && (seasonPersistenceFlushing || pendingSeasonTransitions.size > 0)) {
+      telemetry.increment("season_admin_persistence_barrier_total")
+      json(response, 503, { error: "A previous campaign transition is still awaiting durable storage" })
+      return
+    }
     try {
       const operation = pathname.split("/").at(-1) ?? "unknown"
       if (operation === "pause") seasonService.pause()
@@ -366,13 +419,65 @@ const httpServer = createServer(async (request, response) => {
         json(response, 404, { error: "Unknown season operation" })
         return
       }
+      const snapshot = seasonService.snapshot()
+      captureSeasonTransitions()
+      if (seasonStore) {
+        await flushSeasonTransitions()
+        if (pendingSeasonTransitions.size > 0) {
+          telemetry.increment("season_admin_persistence_pending_total")
+          structuredLog("season_admin_persistence_pending", { operation }, "error")
+          json(response, 503, { error: "Campaign transition is active in memory but still awaiting durable storage", season: snapshot })
+          return
+        }
+      }
       telemetry.increment(`season_admin_${operation}_total`)
       structuredLog("season_admin_changed", { operation })
-      const snapshot = seasonService.snapshot()
       for (const room of rooms.values()) room.broadcastRoomState()
       json(response, 200, snapshot)
     } catch (error) {
       json(response, 400, { error: error instanceof Error ? error.message : "Invalid season operation" })
+    }
+    return
+  }
+  if (pathname === "/admin/leaderboard/quarantine/review" && request.method === "POST") {
+    if (!opsAdminSecret || !leaderboardStore) {
+      json(response, 503, { error: "Leaderboard operator controls are not configured" })
+      return
+    }
+    if (!operatorAuthorized(request)) {
+      telemetry.increment("leaderboard_review_unauthorized_total")
+      json(response, 401, { error: "Unauthorized" })
+      return
+    }
+    const operatorToken = request.headers["x-sherwood-operator-token"]
+    const operatorIdentity = await verifySupabaseIdentity(typeof operatorToken === "string" ? operatorToken : undefined)
+    if (!operatorIdentity) {
+      telemetry.increment("leaderboard_review_unauthorized_total")
+      json(response, 401, { error: "Valid operator identity required" })
+      return
+    }
+    if (!operatorIdentity.sherwoodOperator) {
+      telemetry.increment("leaderboard_review_forbidden_total")
+      json(response, 403, { error: "Sherwood operator role required" })
+      return
+    }
+    try {
+      const body = await readJsonBody(request) as { quarantineId?: unknown; decision?: unknown }
+      const quarantineId = String(body.quarantineId ?? "")
+      const decision = String(body.decision ?? "")
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      if (!uuidPattern.test(quarantineId) || (decision !== "approved" && decision !== "rejected")) throw new Error("INVALID_LEADERBOARD_REVIEW")
+      const result = await leaderboardStore.reviewQuarantine(quarantineId, operatorIdentity.id, decision)
+      telemetry.increment(`leaderboard_review_${result.status}_total`)
+      structuredLog("leaderboard_quarantine_reviewed", { decision: result.status, promoted: result.entryId !== null })
+      json(response, 200, result)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid leaderboard review"
+      const conflict = message.includes("REVIEW_DECISION_CONFLICT") || message.includes("SEASON_FINALIZED") || message.includes("VERIFICATION_CONFLICT")
+      const missing = message.includes("QUARANTINE_NOT_FOUND")
+      const unavailable = message.startsWith("LEADERBOARD_REVIEW_FAILED") && !conflict && !missing
+      telemetry.increment(conflict ? "leaderboard_review_conflict_total" : "leaderboard_review_failure_total")
+      json(response, conflict ? 409 : missing ? 404 : unavailable ? 503 : 400, { error: message })
     }
     return
   }
@@ -427,6 +532,24 @@ const httpServer = createServer(async (request, response) => {
     }
   }
 })
+
+function settleRoomOutcomes(code: string, room: Room): boolean {
+  let seasonChanged = false
+  const seasonOutcome = room.claimSeasonOutcome()
+  if (seasonOutcome) {
+    seasonChanged = seasonService.recordMission(seasonOutcome)
+    const authenticatedUserIds = room.authenticatedUserIds()
+    if (socialStore && authenticatedUserIds.length >= 2) {
+      pendingRecentPlayers.set(seasonOutcome.eventId, { userIds: authenticatedUserIds, attempts: 0, nextAttemptAt: Date.now() })
+      telemetry.gauge("recent_players_persistence_queue", pendingRecentPlayers.size)
+    }
+  }
+  const bandOutcome = room.claimBandMission()
+  if (bandOutcome && bandStore) enqueueBandMission(room, bandOutcome, roomTraces.get(code) ?? null)
+  const verifiedRuns = room.claimVerifiedRuns()
+  if (verifiedRuns && leaderboardStore) for (const run of verifiedRuns) enqueueVerifiedRun(run, roomTraces.get(code) ?? null)
+  return seasonChanged
+}
 
 const sockets = new WebSocketServer({ server: httpServer, path: "/rooms" })
 sockets.on("connection", (socket) => {
@@ -679,8 +802,10 @@ sockets.on("connection", (socket) => {
     if (message.type === "select_loadout" && !joinedRoom.selectLoadout(playerId, message.loadoutId)) {
       send(socket, { type: "error", code: "FORBIDDEN", message: "Field kits can only change at the campfire" })
     }
-    if (message.type === "return_to_hub" && !joinedRoom.returnToHub(playerId)) {
-      send(socket, { type: "error", code: "FORBIDDEN", message: "Resolve the village vote before the leader returns the band to camp" })
+    if (message.type === "return_to_hub") {
+      joinedRoom.update(0)
+      settleRoomOutcomes(joinedRoom.code, joinedRoom)
+      if (!joinedRoom.returnToHub(playerId)) send(socket, { type: "error", code: "FORBIDDEN", message: "Resolve the village vote before the leader returns the band to camp" })
     }
     if (message.type === "accept_rescue" && !joinedRoom.acceptRescue(playerId, message.offerId)) {
       send(socket, { type: "error", code: "FORBIDDEN", message: "That rescue offer expired, was already handled, or requires the band leader" })
@@ -768,19 +893,7 @@ setInterval(() => {
         missionId: transition.contribution.missionId,
       })
     }
-    const seasonOutcome = room.claimSeasonOutcome()
-    if (seasonOutcome) {
-      seasonChanged = seasonService.recordMission(seasonOutcome) || seasonChanged
-      const authenticatedUserIds = room.authenticatedUserIds()
-      if (socialStore && authenticatedUserIds.length >= 2) {
-        pendingRecentPlayers.set(seasonOutcome.eventId, { userIds: authenticatedUserIds, attempts: 0, nextAttemptAt: Date.now() })
-        telemetry.gauge("recent_players_persistence_queue", pendingRecentPlayers.size)
-      }
-    }
-    const bandOutcome = bandStore ? room.claimBandMission() : null
-    if (bandOutcome) enqueueBandMission(room, bandOutcome, roomTraces.get(code) ?? null)
-    const verifiedRuns = leaderboardStore ? room.claimVerifiedRuns() : null
-    if (verifiedRuns) for (const run of verifiedRuns) enqueueVerifiedRun(run, roomTraces.get(code) ?? null)
+    seasonChanged = settleRoomOutcomes(code, room) || seasonChanged
     if (room.players.size === 0 && (reservedRoomsUntil.get(code) ?? 0) <= Date.now()) {
       rooms.delete(code)
       reservedRoomsUntil.delete(code)
@@ -818,12 +931,7 @@ setInterval(() => {
   telemetry.gauge("active_rooms", rooms.size)
   telemetry.gauge("active_players", activePlayers)
   if (seasonReady) {
-    for (const transition of seasonService.drainTransitions()) {
-      enqueueSeasonTransition(transition)
-      telemetry.increment(`season_${transition.eventType}_events_total`)
-      telemetry.gauge("season_pressure", transition.snapshot.pressure)
-      structuredLog("season_transition", { eventId: transition.eventId, eventType: transition.eventType, phase: transition.snapshot.phase, revision: transition.snapshot.revision })
-    }
+    captureSeasonTransitions()
   }
   if (seasonChanged) for (const room of rooms.values()) room.broadcastRoomState()
 }, 50)
@@ -834,6 +942,7 @@ setInterval(() => void flushSeasonTransitions(), 1_000)
 setInterval(() => void flushRecentPlayers(), 1_000)
 setInterval(() => void flushBandMissions(), 1_000)
 setInterval(() => void flushVerifiedRuns(), 1_000)
+setInterval(() => void finalizeLeaderboardSeasons(), 30_000)
 
 setInterval(() => {
   for (const room of rooms.values()) room.broadcastSnapshot()
@@ -850,8 +959,8 @@ async function startServer(): Promise<void> {
   if (seasonStore) {
     const recovered = await seasonStore.loadCurrent()
     if (recovered) {
-      seasonService.hydrate(recovered.snapshot, recovered.processedEventIds)
-      structuredLog("season_recovered", { seasonSlug: recovered.snapshot.slug, phase: recovered.snapshot.phase, revision: recovered.snapshot.revision, replayIds: recovered.processedEventIds.length })
+      seasonService.hydrate(recovered.snapshot, recovered.processedEventIds, recovered.lastSequence)
+      structuredLog("season_recovered", { seasonSlug: recovered.snapshot.slug, phase: recovered.snapshot.phase, revision: recovered.snapshot.revision, replayIds: recovered.processedEventIds.length, lastSequence: recovered.lastSequence })
     }
     seasonReady = true
   }

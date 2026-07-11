@@ -35,7 +35,7 @@ Player-to-player trading, currency exchange, purchased consumables, and public c
 
 ## Persistence and operations
 
-Migration `20260711070000_add_band_contributions.sql` creates private, service-role-only contribution and event tables plus an idempotent transition RPC. It rejects missing initial deposits, illegal lifecycle changes, and mutations after a terminal state. The server queues every transition and retries failed Supabase writes with bounded exponential backoff.
+Migration `20260711063230_add_band_contributions.sql` creates private, service-role-only contribution and event tables plus an idempotent transition RPC. It rejects missing initial deposits, illegal lifecycle changes, and mutations after a terminal state. The server queues every transition and retries failed Supabase writes with bounded exponential backoff.
 
 The production schema was drilled through `available -> locked -> consumed`: exactly three audit events were written, replaying the consumed event was idempotent, and the drill record was removed afterward. RLS intentionally has no public policies because neither table is a client-readable surface.
 

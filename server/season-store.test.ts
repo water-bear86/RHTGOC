@@ -28,9 +28,26 @@ describe("season persistence", () => {
   it("recovers the latest snapshot and replay ledger", async () => {
     const service = new SherwoodSeasonService(1_000)
     const snapshot = service.snapshot(1_000)
-    const rpc = vi.fn().mockResolvedValue({ data: { snapshot, processedEventIds: ["mission-1"] }, error: null })
+    const rpc = vi.fn().mockResolvedValue({ data: { snapshot, processedEventIds: ["mission-1"], lastSequence: 7 }, error: null })
     const store = new SupabaseSeasonStore({ rpc } as RpcClient)
-    await expect(store.loadCurrent()).resolves.toEqual({ snapshot, processedEventIds: ["mission-1"] })
+    await expect(store.loadCurrent()).resolves.toEqual({ snapshot, processedEventIds: ["mission-1"], lastSequence: 7 })
     expect(rpc).toHaveBeenCalledWith("load_current_sherwood_campaign", {})
+  })
+
+  it("returns an archived snapshot for successor-season recovery", async () => {
+    const service = new SherwoodSeasonService(1_000)
+    const snapshot = { ...service.snapshot(1_000), phase: "archived" as const, archivedAt: 2_000 }
+    const store = new SupabaseSeasonStore({
+      rpc: vi.fn().mockResolvedValue({ data: { snapshot, processedEventIds: [], lastSequence: 12 }, error: null }),
+    } as RpcClient)
+    await expect(store.loadCurrent()).resolves.toEqual({ snapshot, processedEventIds: [], lastSequence: 12 })
+  })
+
+  it("rejects a recovery payload without a safe sequence watermark", async () => {
+    const snapshot = new SherwoodSeasonService(1_000).snapshot(1_000)
+    const store = new SupabaseSeasonStore({
+      rpc: vi.fn().mockResolvedValue({ data: { snapshot, processedEventIds: [] }, error: null }),
+    } as RpcClient)
+    await expect(store.loadCurrent()).rejects.toThrow("SEASON_RECOVERY_FAILED: invalid payload")
   })
 })

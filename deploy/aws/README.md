@@ -26,6 +26,7 @@ Runtime secrets are supplied only to the container deployment, never as Docker b
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`
+- `OPS_ADMIN_SECRET`
 
 Keep them in AWS Secrets Manager or the operator's encrypted password manager and inject them into the container environment. Rotate immediately after suspected disclosure. A deployment without these values remains playable but reports `bandPersistence: false` and `verifiedLeaderboardWrites: false` at `/health`.
 
@@ -65,7 +66,8 @@ jq -n \
   --arg url "$SUPABASE_URL" \
   --arg publishable "$SUPABASE_PUBLISHABLE_KEY" \
   --arg secret "$SUPABASE_SECRET_KEY" \
-  '{app:{image:$image,environment:{SUPABASE_URL:$url,SUPABASE_PUBLISHABLE_KEY:$publishable,SUPABASE_SECRET_KEY:$secret},ports:{"8080":"HTTP"}}}' \
+  --arg ops "$OPS_ADMIN_SECRET" \
+  '{app:{image:$image,environment:{SUPABASE_URL:$url,SUPABASE_PUBLISHABLE_KEY:$publishable,SUPABASE_SECRET_KEY:$secret,OPS_ADMIN_SECRET:$ops},ports:{"8080":"HTTP"}}}' \
   > "$DEPLOY_SPEC"
 
 aws lightsail create-container-service-deployment \
@@ -75,7 +77,7 @@ aws lightsail create-container-service-deployment \
   --public-endpoint '{"containerName":"app","containerPort":8080,"healthCheck":{"path":"/health","intervalSeconds":10,"timeoutSeconds":5,"healthyThreshold":2,"unhealthyThreshold":2,"successCodes":"200-399"}}'
 
 rm -f "$DEPLOY_SPEC"
-unset DEPLOY_SPEC SUPABASE_SECRET_KEY
+unset DEPLOY_SPEC SUPABASE_SECRET_KEY OPS_ADMIN_SECRET
 ```
 
 Confirm `RUNNING` and `ACTIVE` before announcing the release:

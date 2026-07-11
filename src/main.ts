@@ -2448,7 +2448,7 @@ async function openLeaderboard(): Promise<void> {
   }
   leaderboardPanel.querySelector("h2")!.textContent = titles[kind]
   leaderboardState.textContent = board.global
-    ? "Global alpha board · verified results rank first"
+    ? "Global alpha board · authoritative verified results"
     : "Offline preview · connect the leaderboard database for global results"
   for (const entry of board.entries.slice(0, 10)) {
     const item = document.createElement("li")
@@ -2459,13 +2459,13 @@ async function openLeaderboard(): Promise<void> {
     name.textContent = `${entry.verified ? "◆ " : ""}${entry.playerName}`
     detail.textContent = `${characterName(entry.characterId)} · ${entry.grade} · ${entry.missionSeconds}s`
     score.textContent = kind === "peoples-champions"
-      ? `${entry.generosity ?? 0}%`
+      ? `${entry.delivered.toLocaleString()} coin`
       : kind === "clean-escapes"
-        ? `${entry.missionSeconds}s`
+        ? `${entry.delivered.toLocaleString()} coin`
         : kind === "rescuers"
           ? `${entry.rescues ?? 0} R`
           : kind === "swift-arrows"
-            ? `${entry.precision ?? 0}%`
+            ? `${entry.missionSeconds}s`
             : entry.score.toLocaleString()
     identity.append(name, detail)
     item.append(identity, score)

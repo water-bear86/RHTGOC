@@ -379,6 +379,10 @@ export class Mission {
     }
   }
 
+  isCleanEscape(): boolean {
+    return this.damageTaken === 0 && !this.capturedOccurred
+  }
+
   private interact(player: MissionPlayer): boolean {
     if (this.interactPreparation(player)) return true
     if (this.missionKind === "prison-wagon") return this.interactPrisonWagon(player)
