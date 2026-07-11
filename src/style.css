@@ -28,6 +28,7 @@ button { font: inherit; }
 .objective { position: absolute; top: 24px; left: 50%; transform: translateX(-50%); width: min(360px, 42vw); padding: 12px 18px 14px; text-align: center; background: linear-gradient(180deg, #10251dea, #10251db8); border: 1px solid #f7f0d42b; border-radius: 4px; box-shadow: 0 10px 35px #06100b55; backdrop-filter: blur(8px); }
 .objective > span { display: block; color: var(--gold); font-size: 9px; font-weight: 700; letter-spacing: .2em; }
 .objective strong { display: block; margin: 4px 0 9px; font: 600 14px Cinzel, serif; }
+.objective small { display: block; min-height: 12px; margin: -4px 0 8px; color: #f7f0d477; font-size: 8px; letter-spacing: .06em; }
 .progress { height: 3px; overflow: hidden; background: #ffffff18; }
 .progress i { display: block; width: 0; height: 100%; background: var(--gold); box-shadow: 0 0 12px #e4b653; transition: width .4s ease; }
 
@@ -154,6 +155,7 @@ h1 em { color: #b7cd8b; font-style: normal; }
   .brand > span:last-child { display: none; }
   .objective { top: 14px; width: min(290px, 62vw); padding: 9px 12px 10px; }
   .objective strong { font-size: 11px; }
+  .objective small { display: none; }
   .status { top: auto; right: 14px; bottom: 76px; flex-direction: column; }
   .status span { min-width: 48px; height: 36px; }
   .status .signature-status { min-width: 72px; }

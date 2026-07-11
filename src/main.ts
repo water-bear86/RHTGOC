@@ -28,6 +28,7 @@ const promptElement = document.querySelector<HTMLDivElement>("#prompt")!
 const toastElement = document.querySelector<HTMLDivElement>("#toast")!
 const objectiveElement = document.querySelector<HTMLElement>("#objective-text")!
 const progressElement = document.querySelector<HTMLElement>("#progress-fill")!
+const missionModifiers = document.querySelector<HTMLElement>("#mission-modifiers")!
 const healthElement = document.querySelector<HTMLElement>("#health")!
 const arrowsElement = document.querySelector<HTMLElement>("#arrows")!
 const lootElement = document.querySelector<HTMLElement>("#loot")!
@@ -497,7 +498,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   missionTarget = mission.target
   const objectives: Record<MissionSnapshot["phase"], string> = {
     scout: `Scout the forest or river approach · shipment ${mission.cycle}`,
-    ambush: "Stun two escort guards",
+    ambush: "Stun the escort guards",
     robbery: "Rob the Sheriff's tax cart",
     pursuit: "Carry the coin to a forest or river escape",
     escape: "Break pursuit and reach the village fire",
@@ -513,6 +514,9 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
     extraction: "Press E at the village fire",
   }
   missionPrompt = prompts[mission.phase]
+  const completedOptional = mission.optionalObjectives.filter((objective) => objective.completed).length
+  missionModifiers.textContent = `${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
+  if (mission.phase === "robbery") localStorage.setItem("sherwood:tutorial-complete", "true")
   while (guardViews.length < mission.guards.length) {
     const guardState = mission.guards[guardViews.length]
     state.guards.push({

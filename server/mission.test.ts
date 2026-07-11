@@ -137,6 +137,8 @@ describe("authoritative mission", () => {
     expect([mission.phase, mission.entryRoute]).toEqual(["ambush", "forest"])
     robin.position = { x: 8, z: -6 }
     expect(mission.action(robin.id, "signature")).toBe(true)
+    mission.update(18)
+    expect(mission.action(robin.id, "shoot")).toBe(true)
     expect(mission.phase).toBe("robbery")
     robin.position = { x: 10, z: -8 }
     expect(mission.action(robin.id, "interact")).toBe(true)
@@ -160,7 +162,17 @@ describe("authoritative mission", () => {
     players.get("m1")!.position = { x: 16, z: 2 }
     mission.update(0.05)
     expect(mission.entryRoute).toBe("river")
-    expect(mission.guards).toHaveLength(5)
+    expect(mission.guards).toHaveLength(6)
+  })
+
+  it("rotates readable modifiers deterministically and exposes optional mastery", () => {
+    const robin = player()
+    const first = new Mission("ABC234", new Map([[robin.id, robin]]))
+    const second = new Mission("ABC234", new Map([["copy", player("copy")]]))
+    expect(first.modifiers).toEqual(second.modifiers)
+    expect(first.modifiers).toHaveLength(2)
+    expect(first.snapshot().optionalObjectives.map((objective) => objective.id)).toEqual(["no-captures", "share-the-wealth", "two-roads"])
+    expect(["patrol", "pursuit", "reinforcement"]).toContain(first.snapshot().sheriffPlan)
   })
 
   it("resolves redistribution ties deterministically and changes the village", () => {

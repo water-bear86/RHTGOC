@@ -79,6 +79,13 @@ export class Mission {
   result: MissionResult | null = null
   vote: RedistributionVote | null = null
   village: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
+  readonly modifiers: MissionSnapshot["modifiers"]
+  readonly deliveryTarget: number
+  private readonly cartValue: number
+  private readonly ambushTarget: number
+  private readonly entryRoutesUsed = new Set<"forest" | "river">()
+  private readonly escapeRoutesUsed = new Set<"forest" | "river">()
+  private capturedOccurred = false
   heat = 0
   cartCoin = 120
   cartRefill = 0
@@ -88,14 +95,32 @@ export class Mission {
   constructor(roomCode: string, private readonly players: Map<string, MissionPlayer>) {
     this.seed = missionSeed(roomCode)
     const random = seededUnit(this.seed)
+    const pool: MissionSnapshot["modifiers"] = [
+      { id: "armored-escort", label: "Armored Escort", effect: "Stun three guards before robbery" },
+      { id: "scarce-quivers", label: "Scarce Quivers", effect: "Each outlaw starts with one fewer arrow" },
+      { id: "double-tithe", label: "Double Tithe", effect: "Larger carts raise the village target" },
+      { id: "watchful-sheriff", label: "Watchful Sheriff", effect: "One extra guard joins the escort" },
+    ]
+    const firstModifier = this.seed % pool.length
+    const secondModifier = (firstModifier + 1 + (this.seed % (pool.length - 1))) % pool.length
+    this.modifiers = [pool[firstModifier], pool[secondModifier]]
+    this.cartValue = this.modifiers.some((modifier) => modifier.id === "double-tithe") ? 150 : 120
+    this.deliveryTarget = this.modifiers.some((modifier) => modifier.id === "double-tithe") ? 750 : DELIVERY_TARGET
+    this.ambushTarget = this.modifiers.some((modifier) => modifier.id === "armored-escort") ? 3 : 2
+    this.cartCoin = this.cartValue
+    if (this.modifiers.some((modifier) => modifier.id === "scarce-quivers")) {
+      for (const player of players.values()) player.arrows = Math.max(1, player.arrows - 1)
+    }
     const guardStarts = [
       { id: 0, position: { x: 7, z: -5 }, home: { x: 7, z: -5 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
       { id: 1, position: { x: 13, z: -6 }, home: { x: 13, z: -6 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
       { id: 2, position: { x: 9, z: -11 }, home: { x: 9, z: -11 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
       { id: 3, position: { x: 5, z: -10 }, home: { x: 5, z: -10 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
       { id: 4, position: { x: 14, z: -10 }, home: { x: 14, z: -10 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
+      { id: 5, position: { x: 11, z: -14 }, home: { x: 11, z: -14 }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 },
     ]
-    this.guards = guardStarts.slice(0, 3 + Math.max(0, Math.min(2, players.size - 2)))
+    const modifierGuard = this.modifiers.some((modifier) => modifier.id === "watchful-sheriff") ? 1 : 0
+    this.guards = guardStarts.slice(0, 3 + Math.max(0, Math.min(2, players.size - 2)) + modifierGuard)
     this.record("mission_started")
   }
 
@@ -162,7 +187,7 @@ export class Mission {
       if (this.pings[index].expiresAtTick <= this.tick) this.pings.splice(index, 1)
     }
     this.cartRefill = Math.max(0, this.cartRefill - dt)
-    if (this.cartRefill === 0 && this.cartCoin === 0) this.cartCoin = 120
+    if (this.cartRefill === 0 && this.cartCoin === 0) this.cartCoin = this.cartValue
 
     for (const player of this.players.values()) {
       player.bowCooldown = Math.max(0, player.bowCooldown - dt)
@@ -174,6 +199,7 @@ export class Mission {
         player.input = { x: 0, z: 0 }
         if (player.downedFor === 0) {
           player.captured = true
+          this.capturedOccurred = true
           this.record("player_captured", player.id)
         }
       }
@@ -216,7 +242,7 @@ export class Mission {
       heat: this.heat,
       cartCoin: this.cartCoin,
       delivered: this.delivered,
-      target: DELIVERY_TARGET,
+      target: this.deliveryTarget,
       supportScore: [...this.players.values()].reduce((total, player) => total + player.rescueCount * 350 + player.transferCount * 100, 0),
       guards: this.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, stunnedFor: guard.stunnedFor })),
       pings: this.pings.map((ping) => ({ ...ping, position: { ...ping.position } })),
@@ -224,6 +250,13 @@ export class Mission {
       result: this.result,
       vote: this.vote ? { ...this.vote, counts: { ...this.vote.counts }, votes: { ...this.vote.votes } } : null,
       village: { ...this.village },
+      modifiers: this.modifiers,
+      sheriffPlan: this.cycle >= 4 || this.players.size >= 4 ? "reinforcement" : this.cycle >= 2 ? "pursuit" : "patrol",
+      optionalObjectives: [
+        { id: "no-captures", label: "Leave no outlaw behind", completed: this.status === "succeeded" && !this.capturedOccurred, failed: this.capturedOccurred },
+        { id: "share-the-wealth", label: "Transfer 120 coin between outlaws", completed: [...this.players.values()].reduce((sum, player) => sum + player.totalTransferred, 0) >= 120, failed: false },
+        { id: "two-roads", label: "Use both forest and river routes", completed: this.entryRoutesUsed.size === 2 || this.escapeRoutesUsed.size === 2, failed: false },
+      ],
     }
   }
 
@@ -247,7 +280,7 @@ export class Mission {
     this.delivered += delivered
     this.heat = Math.max(0, this.heat - 45)
     this.record("loot_delivered", player.id, delivered)
-    if (this.delivered >= DELIVERY_TARGET && this.status === "active") {
+    if (this.delivered >= this.deliveryTarget && this.status === "active") {
       this.status = "succeeded"
       this.result = this.calculateResult()
       this.vote = {
@@ -283,7 +316,7 @@ export class Mission {
     this.record("guard_stunned", player.id, target.id)
     if (this.phase === "ambush") {
       this.ambushStuns += 1
-      if (this.ambushStuns >= 2) this.setPhase("robbery", player.id)
+      if (this.ambushStuns >= this.ambushTarget) this.setPhase("robbery", player.id)
     }
     return true
   }
@@ -302,7 +335,7 @@ export class Mission {
       for (const target of targets) target.stunnedFor = 3.2
       if (this.phase === "ambush") {
         this.ambushStuns += targets.length
-        if (this.ambushStuns >= 2) this.setPhase("robbery", player.id)
+        if (this.ambushStuns >= this.ambushTarget) this.setPhase("robbery", player.id)
       }
     }
     player.signatureCooldown = 18
@@ -370,9 +403,11 @@ export class Mission {
       if (!scout) continue
       if (kind === "entry") {
         this.entryRoute = route
+        this.entryRoutesUsed.add(route)
         this.setPhase("ambush", scout.id)
       } else {
         this.escapeRoute = route
+        this.escapeRoutesUsed.add(route)
         this.setPhase("escape", scout.id)
       }
       this.record("route_selected", scout.id, undefined, `${kind}:${route}`)

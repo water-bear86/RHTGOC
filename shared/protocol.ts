@@ -110,6 +110,9 @@ export interface MissionSnapshot {
   result: MissionResult | null
   vote: RedistributionVote | null
   village: VillageState
+  modifiers: Array<{ id: "armored-escort" | "scarce-quivers" | "double-tithe" | "watchful-sheriff"; label: string; effect: string }>
+  sheriffPlan: "patrol" | "pursuit" | "reinforcement"
+  optionalObjectives: Array<{ id: "no-captures" | "share-the-wealth" | "two-roads"; label: string; completed: boolean; failed: boolean }>
 }
 
 export type VoteChoice = "granary" | "infirmary" | "watchtower"
