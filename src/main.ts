@@ -49,6 +49,7 @@ import {
 } from "../shared/world-collisions"
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
+import { createArcheryEquipment, type BowVariant } from "./archery-equipment"
 import { SHERWOOD_CELL_SIZE, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells } from "./region-map"
 
@@ -529,11 +530,22 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
   hat.position.y = 2.23
   hat.rotation.z = isHero ? -0.35 : 0
   character.add(tunic, belt, head, legLeft, legRight, hat)
+  if (isHero) {
+    const bowVariant: BowVariant = isRobin ? "longbow" : isMarian ? "recurve" : "shortbow"
+    const kitScale = isLittleJohn ? 1.05 : isMarian ? 0.88 : role === "much" ? 0.78 : 0.95
+    const { group: archeryKit, bow, quiver } = createArcheryEquipment(bowVariant, kitScale)
+    if (isLittleJohn) {
+      bow.position.set(-0.28, 1.35, 0.34)
+      bow.rotation.set(0.12, 0.2, -0.18)
+    } else {
+      bow.position.set(-0.52, 1.18, 0)
+      bow.rotation.set(0, 0, 0.08)
+    }
+    quiver.position.set(0.28, 1.38, 0.28)
+    quiver.rotation.set(-0.14, 0, -0.16)
+    character.add(archeryKit)
+  }
   if (isHero && !isLittleJohn) {
-    const bow = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 5, 18, Math.PI * 1.45), material(0x7e512f))
-    bow.position.set(-0.5, 1.15, 0)
-    bow.rotation.set(Math.PI / 2, 0, Math.PI / 2)
-    character.add(bow)
     if (isMarian) {
       const mantle = mesh(new THREE.ConeGeometry(0.6, 1.45, 8, 1, true), 0x39465d)
       mantle.position.set(0, 1.1, 0.17)
