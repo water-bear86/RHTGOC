@@ -7,6 +7,8 @@ import {
   isSherwoodPlayerPositionBlocked,
   resolveSherwoodPlayerMovement,
 } from "./world-collisions"
+import { PEOPLES_PURSE_MISSION } from "./mission-catalog"
+import { regionalizeMissionDefinition, riverPointAt } from "./regional-layout"
 
 function localPoint(x: number, z: number): { x: number; z: number } {
   const collider = VILLAGE_COTTAGE_COLLIDER
@@ -103,5 +105,18 @@ describe("shared Sherwood world collision contract", () => {
     expect(depenetrated.x).toBeLessThanOrEqual(PUBLIC_HUB_WORLD_BOUNDS.maxX)
     expect(depenetrated.z).toBeGreaterThanOrEqual(PUBLIC_HUB_WORLD_BOUNDS.minZ)
     expect(depenetrated.z).toBeLessThanOrEqual(PUBLIC_HUB_WORLD_BOUNDS.maxZ)
+  })
+
+  it("blocks the river everywhere except the two seeded crossings", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 1937).layout
+    expect(isSherwoodPlayerPositionBlocked(riverPointAt(0), SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
+    for (const crossing of layout.crossingPositions) {
+      expect(isSherwoodPlayerPositionBlocked(crossing, SHERWOOD_PLAYER_RADIUS, layout)).toBe(false)
+      const start = { x: crossing.x + 6, z: crossing.z + 0.6 }
+      const crossed = resolveSherwoodPlayerMovement(start, { x: -12, z: -1.2 }, layout.worldBounds, SHERWOOD_PLAYER_RADIUS, layout)
+      expect(crossed.x + 0.1 * crossed.z - 1).toBeLessThan(0)
+    }
+    const blocked = resolveSherwoodPlayerMovement({ x: 7, z: 0.6 }, { x: -12, z: -1.2 }, layout.worldBounds, SHERWOOD_PLAYER_RADIUS, layout)
+    expect(blocked.x + 0.1 * blocked.z - 1).toBeGreaterThan(0)
   })
 })

@@ -12,6 +12,10 @@ describe("5x5 regional mission layout", () => {
       expect(distance).toBeGreaterThanOrEqual(4)
       expect(layout.campfireCell.index).not.toBe(layout.objectiveCell.index)
       expect(Math.hypot(layout.campfirePosition.x - layout.objectivePosition.x, layout.campfirePosition.z - layout.objectivePosition.z)).toBeGreaterThan(90)
+      expect(layout.crossingPositions).toHaveLength(2)
+      expect(Math.abs(layout.crossingPositions[0].z - layout.crossingPositions[1].z)).toBeGreaterThan(15)
+      expect(layout.guardPositions).toHaveLength(12)
+      expect(layout.bowCachePositions).toHaveLength(4)
     }
   })
 
@@ -28,7 +32,12 @@ describe("5x5 regional mission layout", () => {
       expect(regional.definition.contentHash).toBe(mission.contentHash)
       expect(regional.definition.rules.worldBounds).toBe(SHERWOOD_REGIONAL_BOUNDS)
       expect(regional.definition.spawns.players.every((spawn) => Math.hypot(spawn.x - regional.layout.campfirePosition.x, spawn.z - regional.layout.campfirePosition.z) < 11)).toBe(true)
-      expect(regional.definition.spawns.guards.every((guard) => Math.hypot(guard.position.x - regional.layout.objectivePosition.x, guard.position.z - regional.layout.objectivePosition.z) < 19)).toBe(true)
+      expect(regional.definition.spawns.guards).toHaveLength(12)
+      for (let post = 0; post < 4; post += 1) {
+        const guards = regional.definition.spawns.guards.slice(post * 3, post * 3 + 3)
+        expect(guards).toHaveLength(3)
+        expect(Math.max(...guards.map((guard) => Math.hypot(guard.position.x - guards[0].position.x, guard.position.z - guards[0].position.z)))).toBeLessThan(4)
+      }
     }
   })
 })

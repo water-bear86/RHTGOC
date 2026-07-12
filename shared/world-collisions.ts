@@ -1,4 +1,5 @@
 import { SHERWOOD_TREE_LAYOUT } from "./world-layout"
+import { SHERWOOD_REGIONAL_BOUNDS, type RegionalMissionLayout, riverPointAt } from "./regional-layout"
 
 export interface XzPoint {
   x: number
@@ -47,6 +48,26 @@ export const SHERWOOD_STATIC_COLLIDERS: readonly OrientedRectangleCollider[] = O
   VILLAGE_COTTAGE_COLLIDER,
   ...SHERWOOD_TREE_COLLIDERS,
 ])
+
+export const SHERWOOD_RIVER_HALF_WIDTH = 3.5
+export const SHERWOOD_CROSSING_HALF_LENGTH = 3.4
+
+/** Builds solid river-bank spans while leaving exactly two seeded bridge gaps. */
+export function createSherwoodRiverColliders(layout: Pick<RegionalMissionLayout, "crossingPositions">): OrientedRectangleCollider[] {
+  const crossingZs = layout.crossingPositions.map(({ z }) => z).sort((left, right) => left - right)
+  const boundaries = [-SHERWOOD_REGIONAL_BOUNDS, crossingZs[0] - SHERWOOD_CROSSING_HALF_LENGTH, crossingZs[0] + SHERWOOD_CROSSING_HALF_LENGTH, crossingZs[1] - SHERWOOD_CROSSING_HALF_LENGTH, crossingZs[1] + SHERWOOD_CROSSING_HALF_LENGTH, SHERWOOD_REGIONAL_BOUNDS]
+  const spans = [[boundaries[0], boundaries[1]], [boundaries[2], boundaries[3]], [boundaries[4], boundaries[5]]]
+  return spans.flatMap(([start, end], index) => {
+    if (end - start < 0.1) return []
+    const centerZ = (start + end) / 2
+    return [{
+      id: `sherwood-river-${index}`,
+      center: riverPointAt(centerZ),
+      halfExtents: { x: SHERWOOD_RIVER_HALF_WIDTH, z: (end - start) / 2 },
+      rotation: -0.1,
+    }]
+  })
+}
 
 export const SHERWOOD_MISSION_WORLD_BOUNDS = 22
 export const PUBLIC_HUB_WORLD_BOUNDS: XzWorldBounds = Object.freeze({ minX: -18, maxX: -4, minZ: 2, maxZ: 16 })
@@ -225,14 +246,16 @@ export function resolveSherwoodPlayerMovement(
   displacement: XzPoint,
   worldBounds: number | XzWorldBounds = SHERWOOD_MISSION_WORLD_BOUNDS,
   playerRadius = SHERWOOD_PLAYER_RADIUS,
+  layout?: Pick<RegionalMissionLayout, "crossingPositions">,
 ): XzPoint {
   const bounds = normalizeBounds(worldBounds)
   const radius = Number.isFinite(playerRadius) && playerRadius >= 0 ? playerRadius : SHERWOOD_PLAYER_RADIUS
   const midpoint = { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 }
+  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
   let position = depenetrate({
     x: finiteOr(start.x, midpoint.x),
     z: finiteOr(start.z, midpoint.z),
-  }, SHERWOOD_STATIC_COLLIDERS, radius, bounds)
+  }, colliders, radius, bounds)
   const requested = {
     x: finiteOr(displacement.x, 0),
     z: finiteOr(displacement.z, 0),
@@ -240,9 +263,9 @@ export function resolveSherwoodPlayerMovement(
   const boundedTarget = clampPoint({ x: position.x + requested.x, z: position.z + requested.z }, bounds)
   let remaining = { x: boundedTarget.x - position.x, z: boundedTarget.z - position.z }
 
-  for (let pass = 0; pass < SHERWOOD_STATIC_COLLIDERS.length + 2; pass += 1) {
+  for (let pass = 0; pass < colliders.length + 2; pass += 1) {
     if (Math.hypot(remaining.x, remaining.z) < DIRECTION_EPSILON) break
-    const hit = SHERWOOD_STATIC_COLLIDERS
+    const hit = colliders
       .map((collider) => sweepAgainstCollider(position, remaining, collider, radius))
       .filter((candidate): candidate is SweepHit => candidate !== null)
       .sort((left, right) => left.time - right.time || left.colliderId.localeCompare(right.colliderId))[0]
@@ -267,14 +290,16 @@ export function resolveSherwoodPlayerMovement(
       : unspent
   }
 
-  return depenetrate(clampPoint(position, bounds), SHERWOOD_STATIC_COLLIDERS, radius, bounds)
+  return depenetrate(clampPoint(position, bounds), colliders, radius, bounds)
 }
 
 export function isSherwoodPlayerPositionBlocked(
   position: XzPoint,
   playerRadius = SHERWOOD_PLAYER_RADIUS,
+  layout?: Pick<RegionalMissionLayout, "crossingPositions">,
 ): boolean {
   const radius = Number.isFinite(playerRadius) && playerRadius >= 0 ? playerRadius : SHERWOOD_PLAYER_RADIUS
   if (!Number.isFinite(position.x) || !Number.isFinite(position.z)) return true
-  return SHERWOOD_STATIC_COLLIDERS.some((collider) => isInsideCollider(position, collider, radius))
+  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
+  return colliders.some((collider) => isInsideCollider(position, collider, radius))
 }

@@ -313,6 +313,8 @@ const regionFogViews: THREE.Mesh[] = []
 const medievalPropViews: THREE.Object3D[] = []
 const cameraOccluders: Array<{ view: THREE.Group; radius: number; maxDistance?: number }> = []
 const water = createSherwoodWater(7, 138)
+const crossingInfrastructure = new THREE.Group()
+const bowCacheInfrastructure = new THREE.Group()
 const missionCampfireView = new THREE.Group()
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
@@ -456,23 +458,10 @@ function createWorld(): void {
   water.group.rotation.z = -0.1
   water.group.position.set(1, 0.01, 0)
   scene.add(water.group)
-
-  const road = mesh(new THREE.PlaneGeometry(5.5, 134), palette.path, { receive: true, cast: false })
-  road.rotation.x = -Math.PI / 2
-  road.rotation.z = Math.PI / 4.15
-  road.position.set(-0.2, 0.025, 0.2)
-  scene.add(road)
-
-  const bridge = mesh(new THREE.BoxGeometry(7.2, 0.32, 3.3), 0x8b653d)
-  bridge.position.set(0.9, 0.18, -0.2)
-  bridge.rotation.y = -0.1
-  scene.add(bridge)
-  for (let i = -3; i <= 3; i += 1) {
-    const plank = mesh(new THREE.BoxGeometry(0.12, 0.11, 3.5), 0x4b382a)
-    plank.position.set(0.9 + i, 0.39, -0.2 - i * 0.1)
-    plank.rotation.y = -0.1
-    scene.add(plank)
-  }
+  scene.add(crossingInfrastructure)
+  scene.add(bowCacheInfrastructure)
+  rebuildCrossingInfrastructure(state.layout)
+  rebuildBowCaches(state.layout)
 
   createHut(-14, 11, 0.35)
   villageCottageFallback = createHut(-10, 14, -0.55)
@@ -504,6 +493,58 @@ function createWorld(): void {
     rock.position.set(random() * 128 - 64, 0.2, random() * 128 - 64)
     rock.rotation.set(random(), random(), random())
     scene.add(rock)
+  }
+}
+
+function addRoadSegment(start: { x: number; z: number }, end: { x: number; z: number }): void {
+  const dx = end.x - start.x
+  const dz = end.z - start.z
+  const length = Math.hypot(dx, dz)
+  if (length < 0.5) return
+  const road = mesh(new THREE.BoxGeometry(3.8, 0.05, length), palette.path, { receive: true, cast: false })
+  road.position.set((start.x + end.x) / 2, 0.005, (start.z + end.z) / 2)
+  road.rotation.y = Math.atan2(dx, dz)
+  crossingInfrastructure.add(road)
+}
+
+function rebuildCrossingInfrastructure(layout: RegionalMissionLayout): void {
+  crossingInfrastructure.clear()
+  const riverNormal = { x: Math.cos(0.1), z: Math.sin(0.1) }
+  for (const crossing of layout.crossingPositions) {
+    const bridge = mesh(new THREE.BoxGeometry(8.4, 0.3, 3.2), 0x8b653d)
+    bridge.position.set(crossing.x, 0.18, crossing.z)
+    bridge.rotation.y = -0.1
+    crossingInfrastructure.add(bridge)
+    for (let index = -3; index <= 3; index += 1) {
+      const plank = mesh(new THREE.BoxGeometry(0.12, 0.1, 3.45), 0x4b382a)
+      plank.position.set(crossing.x + index, 0.38, crossing.z - index * 0.1)
+      plank.rotation.y = -0.1
+      crossingInfrastructure.add(plank)
+    }
+  }
+  for (const origin of [layout.campfirePosition, layout.objectivePosition]) {
+    const nearest = [...layout.crossingPositions].sort((left, right) => Math.hypot(origin.x - left.x, origin.z - left.z) - Math.hypot(origin.x - right.x, origin.z - right.z))[0]
+    const side = origin.x + 0.1 * origin.z - 1 >= 0 ? 1 : -1
+    const bankApproach = { x: nearest.x + riverNormal.x * side * 4.6, z: nearest.z + riverNormal.z * side * 4.6 }
+    addRoadSegment(origin, bankApproach)
+  }
+}
+
+function rebuildBowCaches(layout: RegionalMissionLayout): void {
+  bowCacheInfrastructure.clear()
+  for (const [index, position] of layout.bowCachePositions.entries()) {
+    const cache = new THREE.Group()
+    const crate = mesh(new THREE.BoxGeometry(1.4, 0.62, 0.85), 0x6d4b2c)
+    crate.position.y = 0.32
+    const band = mesh(new THREE.BoxGeometry(1.48, 0.1, 0.92), 0xd1a94b)
+    band.position.y = 0.5
+    const { bow } = createArcheryEquipment(index % 2 === 0 ? "longbow" : "shortbow", 0.72)
+    bow.position.set(0, 0.9, 0)
+    bow.rotation.set(Math.PI / 2, 0, Math.PI / 2)
+    cache.add(crate, band, bow)
+    cache.position.set(position.x, 0, position.z)
+    cache.rotation.y = index * 1.3
+    bowCacheInfrastructure.add(cache)
   }
 }
 
@@ -708,8 +749,13 @@ function attachTreeGroves(): void {
 function prepareRangerInstance(source: THREE.Group): THREE.Group {
   const ranger = cloneSkeleton(source) as THREE.Group
   cloneObjectMaterialsForInstance(ranger)
-  ranger.scale.setScalar(1.08)
-  ranger.position.y = 1.15
+  ranger.updateMatrixWorld(true)
+  const sourceBounds = new THREE.Box3().setFromObject(ranger)
+  const sourceHeight = Math.max(0.001, sourceBounds.max.y - sourceBounds.min.y)
+  ranger.scale.setScalar(2.35 / sourceHeight)
+  ranger.updateMatrixWorld(true)
+  const groundedBounds = new THREE.Box3().setFromObject(ranger)
+  ranger.position.y = -groundedBounds.min.y
   ranger.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return
     child.castShadow = true
@@ -1075,6 +1121,9 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
     objectiveCell: { ...layout.objectiveCell, center: { ...layout.objectiveCell.center } },
     campfirePosition: { ...layout.campfirePosition },
     objectivePosition: { ...layout.objectivePosition },
+    crossingPositions: layout.crossingPositions.map((position) => ({ ...position })) as RegionalMissionLayout["crossingPositions"],
+    guardPositions: layout.guardPositions.map((position) => ({ ...position })),
+    bowCachePositions: layout.bowCachePositions.map((position) => ({ ...position })),
     reinforcementSignalPosition: { ...layout.reinforcementSignalPosition },
     disguisePosition: { ...layout.disguisePosition },
     playerSpawns: layout.playerSpawns.map((position) => ({ ...position })),
@@ -1083,6 +1132,8 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
   signalView.position.set(layout.reinforcementSignalPosition.x, 0, layout.reinforcementSignalPosition.z)
   storehouseView.position.set(layout.objectivePosition.x, 0, layout.objectivePosition.z)
   disguiseRackView.position.set(layout.disguisePosition.x, 0, layout.disguisePosition.z)
+  rebuildCrossingInfrastructure(layout)
+  rebuildBowCaches(layout)
   positionVillageUpgrades(layout.campfirePosition)
 }
 
@@ -2728,12 +2779,12 @@ function renderRegionMap(): void {
   cells.forEach((cell, index) => {
     const view = regionMapGrid.children[index] as HTMLElement
     if (cell.explored) exploredCount += 1
-    view.className = `region-map-cell${cell.explored ? " explored" : " fogged"}${cell.current ? " current" : ""}${cell.camp ? " camp" : ""}${cell.objective ? " objective" : ""}`
-    view.textContent = cell.objective ? "✦" : cell.current ? "▲" : cell.camp ? "●" : ""
+    view.className = `region-map-cell${cell.explored ? " explored" : " fogged"}${cell.current ? " current" : ""}`
+    view.textContent = cell.current ? "▲" : ""
     view.setAttribute("aria-hidden", "true")
   })
   regionMapCount.textContent = `${exploredCount}/25`
-  regionMapGrid.setAttribute("aria-label", `${exploredCount} of 25 Sherwood regions explored${objectiveDiscovered ? "; objective marked" : ""}`)
+  regionMapGrid.setAttribute("aria-label", `${exploredCount} of 25 Sherwood regions explored`)
 }
 
 function showEnding(won: boolean): void {
@@ -2988,7 +3039,7 @@ function predictMultiplayerMovement(move: Vec2, dt: number): void {
   state.player.position = resolveSherwoodPlayerMovement(state.player.position, {
     x: (move.x / length) * speed * lootPenalty * dt,
     z: (move.z / length) * speed * lootPenalty * dt,
-  }, state.layout.worldBounds)
+  }, state.layout.worldBounds, undefined, state.layout)
 }
 
 function nearbyTeammate(predicate: (player: RoomPlayer) => boolean): RoomPlayer | null {

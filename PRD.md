@@ -1,4 +1,4 @@
-# Robin Hood: The Game (Onchain) · RHTGOC — Product Requirements Document
+# Robin Hood: The Game (On Chain) · RHTGOC — Product Requirements Document
 
 **Status:** Working alpha — sprint boundary 2026-07-11
 
@@ -14,7 +14,7 @@
 
 ## 1. Product vision
 
-Robin Hood: The Game (Onchain), shortened to RHTGOC, is a social 3D browser adventure in which players form outlaw bands, rob the Sheriff, escape through a living Sherwood, and return stolen wealth to communities that visibly change because of their choices.
+Robin Hood: The Game (On Chain), shortened to RHTGOC, is a social 3D browser adventure in which players form outlaw bands, rob the Sheriff, escape through a living Sherwood, and return stolen wealth to communities that visibly change because of their choices.
 
 The product should capture the accessibility and shared-world energy of an isometric browser MMO while building its identity around the Robin Hood fantasy: cooperation, pursuit, resistance, generosity, and the tension between personal reward and collective good.
 

@@ -57,6 +57,10 @@ function routeMap(routes: MissionDefinition["routes"]["entry"]): Record<"forest"
   return Object.fromEntries(routes.map((route) => [route.id, { ...route.position }])) as Record<"forest" | "river", { x: number; z: number }>
 }
 
+function maxArrows(characterId: CharacterId): number {
+  return characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4
+}
+
 export const ENTRY_ROUTES = routeMap(defaultMission.routes.entry)
 export const ESCAPE_ROUTES = routeMap(defaultMission.routes.escape)
 
@@ -210,8 +214,7 @@ export class Mission {
     }
     for (const player of players.values()) if (player.loadoutId === "smoke") player.veilFor = Math.max(player.veilFor, 2)
     const guardStarts = definition.spawns.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 }))
-    const modifierGuard = this.modifiers.some((modifier) => modifier.id === "watchful-sheriff") ? 1 : 0
-    this.guards = guardStarts.slice(0, 3 + Math.max(0, Math.min(2, players.size - 2)) + modifierGuard)
+    this.guards = guardStarts
     this.record("mission_started")
     for (const preparation of this.preparations.filter((candidate) => candidate.status === "consumed")) this.record("contribution_consumed", undefined, undefined, `${preparation.type}:${preparation.id}`)
   }
@@ -327,7 +330,7 @@ export class Mission {
           z: (player.input.z / moveLength) * movement,
         }
       }
-      const resolved = resolveSherwoodPlayerMovement(player.position, displacement, this.definition.rules.worldBounds)
+      const resolved = resolveSherwoodPlayerMovement(player.position, displacement, this.definition.rules.worldBounds, undefined, this.layout)
       player.position.x = resolved.x
       player.position.z = resolved.z
     }
@@ -363,6 +366,9 @@ export class Mission {
         objectiveCell: { ...this.layout.objectiveCell, center: { ...this.layout.objectiveCell.center } },
         campfirePosition: { ...this.layout.campfirePosition },
         objectivePosition: { ...this.layout.objectivePosition },
+        crossingPositions: this.layout.crossingPositions.map((position) => ({ ...position })) as RegionalMissionLayout["crossingPositions"],
+        guardPositions: this.layout.guardPositions.map((position) => ({ ...position })),
+        bowCachePositions: this.layout.bowCachePositions.map((position) => ({ ...position })),
         reinforcementSignalPosition: { ...this.layout.reinforcementSignalPosition },
         disguisePosition: { ...this.layout.disguisePosition },
         playerSpawns: this.layout.playerSpawns.map((position) => ({ ...position })),
@@ -422,6 +428,12 @@ export class Mission {
 
   private interact(player: MissionPlayer): boolean {
     if (this.interactPreparation(player)) return true
+    const bowCache = this.layout.bowCachePositions.find((position) => distance(position, player.position) < 2.8)
+    if (bowCache && player.arrows < maxArrows(player.characterId)) {
+      player.arrows = maxArrows(player.characterId)
+      this.record("cache_looted", player.id, undefined, "bow-cache")
+      return true
+    }
     if (this.missionKind === "prison-wagon") return this.interactPrisonWagon(player)
     if (this.missionKind === "storehouse") return this.interactStorehouse(player)
     if (player.characterId === "much" && !this.signalSabotaged && this.phase !== "extraction" && distance(player.position, this.definition.spawns.reinforcementSignal) < 3.2) {
@@ -845,7 +857,7 @@ export class Mission {
       .sort((a, b) => distance(a.position, guard.position) - distance(b.position, guard.position))[0]
     if (target && this.heat > 8 && distance(target.position, guard.position) < 22) {
       const disruption = this.reinforcementDelaySeconds > 0 ? 0.7 : 0
-      this.moveToward(guard.position, target.position, 3.35 + this.heat * 0.008 - disruption, dt)
+      this.moveGuardToward(guard, target.position, 3.35 + this.heat * 0.008 - disruption, dt)
       if (distance(target.position, guard.position) < 1.25 && target.invulnerableFor === 0) {
         target.health = Math.max(0, target.health - 1)
         this.damageTaken += 1
@@ -861,10 +873,19 @@ export class Mission {
       return
     }
     guard.patrolAngle += dt * (0.45 + guard.id * 0.05)
-    this.moveToward(guard.position, {
+    this.moveGuardToward(guard, {
       x: guard.home.x + Math.cos(guard.patrolAngle) * 2.2,
       z: guard.home.z + Math.sin(guard.patrolAngle) * 2.2,
     }, 1.5, dt)
+  }
+
+  private moveGuardToward(guard: MissionGuardState, target: { x: number; z: number }, speed: number, dt: number): void {
+    const origin = { ...guard.position }
+    this.moveToward(guard.position, target, speed, dt)
+    guard.position = resolveSherwoodPlayerMovement(origin, {
+      x: guard.position.x - origin.x,
+      z: guard.position.z - origin.z,
+    }, this.definition.rules.worldBounds, 0.35, this.layout)
   }
 
   private placeTrap(player: MissionPlayer): boolean {

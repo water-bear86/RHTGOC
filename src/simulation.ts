@@ -159,7 +159,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
     }
     state.stats.distanceTravelled += movement
   }
-  const resolvedPlayerPosition = resolveSherwoodPlayerMovement(player.position, playerDisplacement, state.layout.worldBounds)
+  const resolvedPlayerPosition = resolveSherwoodPlayerMovement(player.position, playerDisplacement, state.layout.worldBounds, undefined, state.layout)
   player.position.x = resolvedPlayerPosition.x
   player.position.z = resolvedPlayerPosition.z
 
@@ -197,6 +197,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       continue
     }
 
+    const guardOrigin = { ...guard.position }
     const detectionRange = player.veilFor > 0 ? 2.4 : 22
     if (state.heat > 8 && distance(guard.position, player.position) < detectionRange) {
       moveToward(guard.position, player.position, 3.35 + state.heat * 0.008, dt)
@@ -208,6 +209,11 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       }
       moveToward(guard.position, patrolTarget, 1.5, dt)
     }
+    const guardResolved = resolveSherwoodPlayerMovement(guardOrigin, {
+      x: guard.position.x - guardOrigin.x,
+      z: guard.position.z - guardOrigin.z,
+    }, state.layout.worldBounds, 0.35, state.layout)
+    guard.position = guardResolved
 
     if (distance(guard.position, player.position) < 1.25 && player.invulnerableFor === 0) {
       player.health -= 1
@@ -217,7 +223,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       const knockback = resolveSherwoodPlayerMovement(player.position, {
         x: -(guard.position.x - player.position.x) * 1.8,
         z: -(guard.position.z - player.position.z) * 1.8,
-      }, state.layout.worldBounds)
+      }, state.layout.worldBounds, undefined, state.layout)
       player.position.x = knockback.x
       player.position.z = knockback.z
       events.push("player-hit")
@@ -232,6 +238,13 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
 
 export function interact(state: GameState): string {
   if (state.won || state.lost) return "none"
+  const bowCache = state.layout.bowCachePositions.find((position) => distance(state.player.position, position) < 2.8)
+  if (bowCache) {
+    const maxArrows = getMaxArrows(state.player.characterId)
+    if (state.player.arrows >= maxArrows) return "quiver-full"
+    state.player.arrows = maxArrows
+    return "bow-cache"
+  }
   if (distance(state.player.position, state.layout.objectivePosition) < 3) {
     if (state.cartCoin === 0) return "cart-empty"
     state.player.loot += state.cartCoin

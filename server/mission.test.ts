@@ -117,6 +117,23 @@ describe("authoritative mission", () => {
     expect(robin.arrows).toBe(4)
   })
 
+  it("refills an empty quiver only at an authoritative bow cache", () => {
+    const robin = player()
+    robin.arrows = 0
+    const mission = new Mission("CACHE", new Map([[robin.id, robin]]))
+
+    expect(mission.action(robin.id, "interact")).toBe(false)
+    robin.position = { ...mission.layout.bowCachePositions[0] }
+    expect(mission.action(robin.id, "interact")).toBe(true)
+    expect(robin.arrows).toBe(6)
+    expect(mission.events).toContainEqual(expect.objectContaining({
+      type: "cache_looted",
+      playerId: robin.id,
+      detail: "bow-cache",
+    }))
+    expect(mission.action(robin.id, "interact")).toBe(false)
+  })
+
   it("records robbery, extraction, and one idempotent completion", () => {
     const robin = player()
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]))
@@ -372,7 +389,7 @@ describe("authoritative mission", () => {
     players.get("m1")!.position = { ...mission.definition.routes.entry.find((route) => route.id === "river")!.position }
     mission.update(0.05)
     expect(mission.entryRoute).toBe("river")
-    expect(mission.guards).toHaveLength(6)
+    expect(mission.guards).toHaveLength(12)
   })
 
   it("rotates readable modifiers deterministically and exposes optional mastery", () => {

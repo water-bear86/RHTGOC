@@ -4,15 +4,13 @@ export interface RegionMapCellState {
   index: number
   explored: boolean
   current: boolean
-  camp: boolean
-  objective: boolean
 }
 
 export function buildRegionMapCells(
   layout: RegionalMissionLayout,
   exploredCellIndices: readonly number[],
   playerPosition: { x: number; z: number },
-  objectiveDiscovered: boolean,
+  _objectiveDiscovered: boolean,
 ): RegionMapCellState[] {
   const explored = new Set(exploredCellIndices)
   explored.add(layout.campfireCell.index)
@@ -22,7 +20,5 @@ export function buildRegionMapCells(
     index: cell.index,
     explored: explored.has(cell.index),
     current: cell.index === current,
-    camp: cell.index === layout.campfireCell.index,
-    objective: objectiveDiscovered && cell.index === layout.objectiveCell.index,
   }))
 }
