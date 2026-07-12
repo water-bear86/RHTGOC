@@ -127,8 +127,10 @@ def action(name, end_frame, poses, aimed_poses=None):
     clip.frame_start, clip.frame_end = 1, end_frame
     return clip
 
-relaxed_left = [((0, 1, 0), math.radians(82)), ((1, 0, 0), math.radians(-5))]
-relaxed_right = [((0, 1, 0), math.radians(-78)), ((1, 0, 0), math.radians(7))]
+# The source mesh is authored in a T-pose. Its glTF-converted bind axes require
+# rotating past horizontal to drop the shoulders into a relaxed bow-carry pose.
+relaxed_left = [((0, 1, 0), math.radians(126)), ((1, 0, 0), math.radians(-7))]
+relaxed_right = [((0, 1, 0), math.radians(-124)), ((1, 0, 0), math.radians(9))]
 
 idle = action("Ranger_Idle", 48, {
     1: {"chest": (0, 0, -.025), "head": (0, 0, .015)},
@@ -137,8 +139,8 @@ idle = action("Ranger_Idle", 48, {
 }, {
     1: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right,
         "forearm.L": [((0, 1, 0), math.radians(8))], "forearm.R": [((0, 1, 0), math.radians(-18))]},
-    24: {"upper_arm.L": [((0, 1, 0), math.radians(80)), ((1, 0, 0), math.radians(-3))],
-         "upper_arm.R": [((0, 1, 0), math.radians(-76)), ((1, 0, 0), math.radians(5))],
+    24: {"upper_arm.L": [((0, 1, 0), math.radians(124)), ((1, 0, 0), math.radians(-5))],
+         "upper_arm.R": [((0, 1, 0), math.radians(-122)), ((1, 0, 0), math.radians(7))],
          "forearm.L": [((0, 1, 0), math.radians(10))], "forearm.R": [((0, 1, 0), math.radians(-20))]},
     48: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right,
          "forearm.L": [((0, 1, 0), math.radians(8))], "forearm.R": [((0, 1, 0), math.radians(-18))]},
@@ -150,14 +152,14 @@ walk = action("Ranger_Walk", 24, {
     19: {"thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
     24: {"thigh.L": (.55, 0, 0), "thigh.R": (-.55, 0, 0)},
 }, {
-    1: {"upper_arm.L": [((0, 1, 0), math.radians(74)), ((1, 0, 0), -.28)],
-        "upper_arm.R": [((0, 1, 0), math.radians(-84)), ((1, 0, 0), .28)]},
+    1: {"upper_arm.L": [((0, 1, 0), math.radians(118)), ((1, 0, 0), -.22)],
+        "upper_arm.R": [((0, 1, 0), math.radians(-130)), ((1, 0, 0), .22)]},
     7: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right},
-    13: {"upper_arm.L": [((0, 1, 0), math.radians(88)), ((1, 0, 0), .28)],
-         "upper_arm.R": [((0, 1, 0), math.radians(-70)), ((1, 0, 0), -.28)]},
+    13: {"upper_arm.L": [((0, 1, 0), math.radians(130)), ((1, 0, 0), .22)],
+         "upper_arm.R": [((0, 1, 0), math.radians(-116)), ((1, 0, 0), -.22)]},
     19: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right},
-    24: {"upper_arm.L": [((0, 1, 0), math.radians(74)), ((1, 0, 0), -.28)],
-         "upper_arm.R": [((0, 1, 0), math.radians(-84)), ((1, 0, 0), .28)]},
+    24: {"upper_arm.L": [((0, 1, 0), math.radians(118)), ((1, 0, 0), -.22)],
+         "upper_arm.R": [((0, 1, 0), math.radians(-130)), ((1, 0, 0), .22)]},
 })
 attack = action("Ranger_Attack", 30, {
     1: {"chest": (0, 0, 0)},

@@ -323,6 +323,9 @@ let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.Animatio
 let treeGroveAssetPromise: Promise<THREE.Group> | null = null
 let villageAssetPromise: Promise<THREE.Group> | null = null
 let medievalPropsPromise: Promise<THREE.Group> | null = null
+let treasureChestPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
+let bowCacheLoadGeneration = 0
+const bowCacheAnimations: Array<{ view: THREE.Group; mixer: THREE.AnimationMixer; open: THREE.AnimationAction }> = []
 let villageCottageFallback: THREE.Group | null = null
 let villageCottageView: THREE.Group | null = null
 let proceduralWagonShellView: THREE.Group | null = null
@@ -531,7 +534,9 @@ function rebuildCrossingInfrastructure(layout: RegionalMissionLayout): void {
 }
 
 function rebuildBowCaches(layout: RegionalMissionLayout): void {
+  const generation = ++bowCacheLoadGeneration
   bowCacheInfrastructure.clear()
+  bowCacheAnimations.length = 0
   for (const [index, position] of layout.bowCachePositions.entries()) {
     const cache = new THREE.Group()
     const crate = mesh(new THREE.BoxGeometry(1.4, 0.62, 0.85), 0x6d4b2c)
@@ -546,6 +551,51 @@ function rebuildBowCaches(layout: RegionalMissionLayout): void {
     cache.rotation.y = index * 1.3
     bowCacheInfrastructure.add(cache)
   }
+
+  treasureChestPromise ??= gltfLoader.loadAsync("/assets/props/treasure-chest.glb")
+    .then((asset) => ({ scene: convertObjectToToon(asset.scene), animations: asset.animations }))
+  void treasureChestPromise.then((asset) => {
+    if (generation !== bowCacheLoadGeneration) return
+    bowCacheInfrastructure.clear()
+    bowCacheAnimations.length = 0
+    const openClip = asset.animations.find((clip) => clip.name.includes("burst_open"))
+      ?? asset.animations.find((clip) => clip.name.includes("open_anim"))
+    for (const [index, position] of layout.bowCachePositions.entries()) {
+      const chest = cloneSkeleton(asset.scene) as THREE.Group
+      cloneObjectMaterialsForInstance(chest)
+      chest.updateMatrixWorld(true)
+      const bounds = new THREE.Box3().setFromObject(chest)
+      const largestDimension = Math.max(0.001, bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z)
+      chest.scale.setScalar(1.65 / largestDimension)
+      chest.updateMatrixWorld(true)
+      const grounded = new THREE.Box3().setFromObject(chest)
+      chest.position.set(position.x, -grounded.min.y, position.z)
+      chest.rotation.y = index * 1.3
+      chest.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return
+        child.castShadow = true
+        child.receiveShadow = true
+      })
+      bowCacheInfrastructure.add(chest)
+      if (openClip) {
+        const mixer = new THREE.AnimationMixer(chest)
+        const open = mixer.clipAction(openClip)
+        open.setLoop(THREE.LoopOnce, 1)
+        open.clampWhenFinished = true
+        bowCacheAnimations.push({ view: chest, mixer, open })
+      }
+    }
+  }).catch(() => {
+    // The procedural crate remains a playable fallback when the authored prop cannot load.
+  })
+}
+
+function openNearbyBowCache(): void {
+  const nearest = bowCacheAnimations
+    .map((cache) => ({ cache, distance: Math.hypot(cache.view.position.x - state.player.position.x, cache.view.position.z - state.player.position.z) }))
+    .sort((left, right) => left.distance - right.distance)[0]
+  if (!nearest || nearest.distance >= 2.8) return
+  nearest.cache.open.reset().play()
 }
 
 function createCharacter(role: CharacterId | "guard"): THREE.Group {
@@ -624,7 +674,7 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
 }
 
 function loadRobinRanger(): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
-  rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb")
+  rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb?v=relaxed-pose-2")
     .then((asset) => {
       const clipNames: Record<string, string> = {
         Ranger_Idle: "Robin_Idle",
@@ -2541,6 +2591,7 @@ function handleInteraction(): void {
     return
   }
   if (multiplayerActive) {
+    openNearbyBowCache()
     multiplayer.sendAction("interact")
     return
   }
@@ -2552,7 +2603,10 @@ function handleInteraction(): void {
     restocked: "Quiver restocked",
     "no-loot": "Bring stolen taxes back here",
     won: "SHERWOOD RISES",
+    "bow-cache": "QUIVER REFILLED — CHEST OPENED",
+    "quiver-full": "Your quiver is already full",
   }
+  if (result === "bow-cache") openNearbyBowCache()
   if (messages[result]) showToast(messages[result])
 }
 
@@ -2899,6 +2953,7 @@ function syncViews(elapsed: number, dt: number): void {
     setRobinRangerMotion(motion)
     robinRangerMixer.update(dt)
   }
+  for (const cache of bowCacheAnimations) cache.mixer.update(dt)
 
   state.guards.forEach((guard, index) => {
     const view = guardViews[index]
