@@ -30,7 +30,7 @@
       },
       "uri": "assets/characters/robin-ranger-rigged.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "04ef467f27a4f6a06c352376514fc63b85e981e7743138dee04c4ea5bc4c7c3f",
+      "sha256": "e62d1513a11837ed2482cb9b2d4b968eac75000dd5bb02c7ac03d188a76fd951",
       "bytesMax": 2500000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {

@@ -5,7 +5,7 @@ import pathlib
 import sys
 
 import bpy
-from mathutils import Vector
+from mathutils import Quaternion, Vector
 
 
 parser = argparse.ArgumentParser()
@@ -97,7 +97,16 @@ for obj in meshes:
         for weight, name in raw:
             groups[name].add([vertex.index], weight / total, "REPLACE")
 
-def action(name, end_frame, poses):
+def world_rotation(pose, rotations):
+    """Build a pose-space quaternion from rotations around armature axes."""
+    basis = pose.bone.matrix_local.to_3x3().inverted()
+    result = Quaternion()
+    for axis, angle in rotations:
+        local_axis = (basis @ Vector(axis)).normalized()
+        result = Quaternion(local_axis, angle) @ result
+    return result
+
+def action(name, end_frame, poses, aimed_poses=None):
     clip = bpy.data.actions.new(name)
     clip.use_fake_user = True
     rig.animation_data_create()
@@ -108,28 +117,64 @@ def action(name, end_frame, poses):
             pose.rotation_mode = "XYZ"
             pose.rotation_euler = rotation
             pose.keyframe_insert("rotation_euler", frame=frame, group=bone_name)
+        for bone_name, rotations in (aimed_poses or {}).get(frame, {}).items():
+            pose = rig.pose.bones[bone_name]
+            pose.rotation_mode = "QUATERNION"
+            pose.rotation_quaternion = world_rotation(pose, rotations)
+            pose.keyframe_insert("rotation_quaternion", frame=frame, group=bone_name)
         rig.pose.bones["root"].location.z = (0.006 * height if frame % 12 else 0)
         rig.pose.bones["root"].keyframe_insert("location", frame=frame, group="root")
     clip.frame_start, clip.frame_end = 1, end_frame
     return clip
 
+relaxed_left = [((0, 1, 0), math.radians(82)), ((1, 0, 0), math.radians(-5))]
+relaxed_right = [((0, 1, 0), math.radians(-78)), ((1, 0, 0), math.radians(7))]
+
 idle = action("Ranger_Idle", 48, {
     1: {"chest": (0, 0, -.025), "head": (0, 0, .015)},
     24: {"chest": (.025, 0, .025), "head": (-.015, 0, -.02)},
     48: {"chest": (0, 0, -.025), "head": (0, 0, .015)},
+}, {
+    1: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right,
+        "forearm.L": [((0, 1, 0), math.radians(8))], "forearm.R": [((0, 1, 0), math.radians(-18))]},
+    24: {"upper_arm.L": [((0, 1, 0), math.radians(80)), ((1, 0, 0), math.radians(-3))],
+         "upper_arm.R": [((0, 1, 0), math.radians(-76)), ((1, 0, 0), math.radians(5))],
+         "forearm.L": [((0, 1, 0), math.radians(10))], "forearm.R": [((0, 1, 0), math.radians(-20))]},
+    48: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right,
+         "forearm.L": [((0, 1, 0), math.radians(8))], "forearm.R": [((0, 1, 0), math.radians(-18))]},
 })
 walk = action("Ranger_Walk", 24, {
-    1: {"thigh.L": (.55, 0, 0), "thigh.R": (-.55, 0, 0), "upper_arm.L": (-.38, 0, 0), "upper_arm.R": (.38, 0, 0)},
-    7: {"thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0), "upper_arm.L": (0, 0, 0), "upper_arm.R": (0, 0, 0)},
-    13: {"thigh.L": (-.55, 0, 0), "thigh.R": (.55, 0, 0), "upper_arm.L": (.38, 0, 0), "upper_arm.R": (-.38, 0, 0)},
-    19: {"thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0), "upper_arm.L": (0, 0, 0), "upper_arm.R": (0, 0, 0)},
-    24: {"thigh.L": (.55, 0, 0), "thigh.R": (-.55, 0, 0), "upper_arm.L": (-.38, 0, 0), "upper_arm.R": (.38, 0, 0)},
+    1: {"thigh.L": (.55, 0, 0), "thigh.R": (-.55, 0, 0)},
+    7: {"thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
+    13: {"thigh.L": (-.55, 0, 0), "thigh.R": (.55, 0, 0)},
+    19: {"thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
+    24: {"thigh.L": (.55, 0, 0), "thigh.R": (-.55, 0, 0)},
+}, {
+    1: {"upper_arm.L": [((0, 1, 0), math.radians(74)), ((1, 0, 0), -.28)],
+        "upper_arm.R": [((0, 1, 0), math.radians(-84)), ((1, 0, 0), .28)]},
+    7: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right},
+    13: {"upper_arm.L": [((0, 1, 0), math.radians(88)), ((1, 0, 0), .28)],
+         "upper_arm.R": [((0, 1, 0), math.radians(-70)), ((1, 0, 0), -.28)]},
+    19: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right},
+    24: {"upper_arm.L": [((0, 1, 0), math.radians(74)), ((1, 0, 0), -.28)],
+         "upper_arm.R": [((0, 1, 0), math.radians(-84)), ((1, 0, 0), .28)]},
 })
 attack = action("Ranger_Attack", 30, {
-    1: {"chest": (0, 0, 0), "upper_arm.L": (0, 0, 0), "upper_arm.R": (0, 0, 0), "forearm.R": (0, 0, 0)},
-    10: {"chest": (0, 0, -.18), "upper_arm.L": (-.55, -.2, .25), "upper_arm.R": (-.75, .15, -.45), "forearm.R": (-1.1, 0, 0)},
-    18: {"chest": (0, 0, .12), "upper_arm.L": (-.35, 0, .15), "upper_arm.R": (.35, 0, .2), "forearm.R": (-.2, 0, 0)},
-    30: {"chest": (0, 0, 0), "upper_arm.L": (0, 0, 0), "upper_arm.R": (0, 0, 0), "forearm.R": (0, 0, 0)},
+    1: {"chest": (0, 0, 0)},
+    10: {"chest": (0, 0, -.18)},
+    18: {"chest": (0, 0, .12)},
+    30: {"chest": (0, 0, 0)},
+}, {
+    1: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right,
+        "forearm.L": [((0, 1, 0), math.radians(8))], "forearm.R": [((0, 1, 0), math.radians(-18))]},
+    10: {"upper_arm.L": [((0, 1, 0), math.radians(16)), ((1, 0, 0), math.radians(-8))],
+         "upper_arm.R": [((0, 1, 0), math.radians(-14)), ((1, 0, 0), math.radians(22))],
+         "forearm.R": [((0, 1, 0), math.radians(-72)), ((1, 0, 0), math.radians(18))]},
+    18: {"upper_arm.L": [((0, 1, 0), math.radians(18))],
+         "upper_arm.R": [((0, 1, 0), math.radians(-44)), ((1, 0, 0), math.radians(-12))],
+         "forearm.R": [((0, 1, 0), math.radians(-22))]},
+    30: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right,
+         "forearm.L": [((0, 1, 0), math.radians(8))], "forearm.R": [((0, 1, 0), math.radians(-18))]},
 })
 
 rig.animation_data.action = idle
