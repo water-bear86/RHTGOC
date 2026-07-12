@@ -85,13 +85,14 @@ describe("Sherwood simulation", () => {
 
   it("gives Much a bounded visible snare that cleans up after triggering", () => {
     const state = createInitialState("much")
-    state.player.position = { ...state.guards[0].position }
+    const target = state.guards.find((guard) => Math.hypot(guard.position.x - state.layout.objectivePosition.x, guard.position.z - state.layout.objectivePosition.z) >= 3)!
+    state.player.position = { ...target.position }
     expect(activateSignature(state).event).toBe("much-snare")
     expect(activateSignature(state).event).toBe("signature-unavailable")
     expect(state.traps).toHaveLength(1)
     expect(updateSimulation(state, { move: { x: 0, z: 0 } }, 0.05)).toContain("trap-triggered")
     expect(state.traps).toHaveLength(0)
-    expect(state.guards[0].stunnedFor).toBe(4.5)
+    expect(target.stunnedFor).toBe(4.5)
   })
 
   it("scores speed, precision, survival, and generosity", () => {

@@ -389,7 +389,9 @@ describe("authoritative mission", () => {
     players.get("m1")!.position = { ...mission.definition.routes.entry.find((route) => route.id === "river")!.position }
     mission.update(0.05)
     expect(mission.entryRoute).toBe("river")
-    expect(mission.guards).toHaveLength(12)
+    expect(mission.guards.length).toBeGreaterThanOrEqual(12)
+    expect(mission.guards.length).toBeLessThanOrEqual(21)
+    expect(mission.guards.length % 3).toBe(0)
   })
 
   it("rotates readable modifiers deterministically and exposes optional mastery", () => {

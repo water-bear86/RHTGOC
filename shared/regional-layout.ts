@@ -125,12 +125,28 @@ export function regionalizeMissionDefinition(base: MissionDefinition, seed: numb
     }
     return resolved
   }
+  const sheriffLootPositions = base.scenario?.kind === "storehouse"
+    ? base.scenario.lootCaches.map((cache) => offset(cache.position, originalObjective, objectivePosition))
+    : [{ ...objectivePosition }]
   const guardPosts = [
-    { x: objectivePosition.x + 5.5, z: objectivePosition.z - 3.5 },
+    ...sheriffLootPositions,
     { x: crossingPositions[0].x + 4.8, z: crossingPositions[0].z + 1.8 },
     { x: crossingPositions[1].x - 4.8, z: crossingPositions[1].z - 1.8 },
     { x: (campfirePosition.x + objectivePosition.x) / 2 + 3, z: (campfirePosition.z + objectivePosition.z) / 2 - 3 },
   ].map(keepAwayFromCamp)
+  const occupiedGuardCells = new Set(guardPosts.map(regionCellIndexAt))
+  const targetGuardCells = Math.max(occupiedGuardCells.size, 4 + Math.floor(random() * 4))
+  const patrolCandidates = cells
+    .filter((cell) => cell.index !== campfireCell.index && !occupiedGuardCells.has(cell.index))
+    .sort(() => random() - 0.5)
+  for (const cell of patrolCandidates) {
+    if (occupiedGuardCells.size >= Math.min(7, targetGuardCells)) break
+    const post = keepAwayFromCamp(jittered(cell, random))
+    const postCell = regionCellIndexAt(post)
+    if (postCell === campfireCell.index || occupiedGuardCells.has(postCell)) continue
+    guardPosts.push(post)
+    occupiedGuardCells.add(postCell)
+  }
   const guardPositions = guardPosts.flatMap((post, postIndex) => Array.from({ length: 3 }, (_, guardIndex) => {
     const angle = postIndex * 1.7 + guardIndex * (Math.PI * 2 / 3)
     return { x: post.x + Math.cos(angle) * 1.8, z: post.z + Math.sin(angle) * 1.8 }

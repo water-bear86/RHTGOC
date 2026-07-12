@@ -82,7 +82,7 @@ export function createInitialState(characterId: CharacterId = "robin", seed = st
       signatureCooldown: 0,
       veilFor: 0,
     },
-    guards: regional.definition.spawns.guards.slice(0, 3).map((guard, index) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: index * 2, stunnedFor: 0 })),
+    guards: regional.definition.spawns.guards.map((guard, index) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: index * 2, stunnedFor: 0 })),
     traps: [],
     delivered: 0,
     objectiveDiscovered: false,
