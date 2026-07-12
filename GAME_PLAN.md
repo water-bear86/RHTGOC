@@ -1,4 +1,4 @@
-# Sherwood Rebellion — game plan
+# Robin Hood: The Game (Onchain) · RHTGOC — game plan
 
 ## North star
 
