@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it, vi } from "vitest"
 import {
   EDGE_PARAMETER_KEYS,
@@ -13,6 +14,20 @@ import {
 } from "./aws-edge-release.mjs"
 
 describe("AWS edge release controls", () => {
+  it("keeps first-create CloudFront settings compatible with AWS lifecycle rules", () => {
+    const template = readFileSync(new URL("../deploy/aws/rhtgoc-edge.yaml", import.meta.url), "utf8")
+    const htmlPolicy = template.slice(
+      template.indexOf("  ClientHtmlCachePolicy:"),
+      template.indexOf("  VersionedAssetCachePolicy:"),
+    )
+
+    expect(htmlPolicy).toContain("EnableAcceptEncodingBrotli: false")
+    expect(htmlPolicy).toContain("EnableAcceptEncodingGzip: false")
+    expect(template).toContain(
+      "ContinuousDeploymentPolicyId: !If [CanaryIsEnabled, !GetAtt ContinuousDeploymentPolicy.Id, !Ref AWS::NoValue]",
+    )
+  })
+
   it("accepts only CloudFront's bounded canary weight", () => {
     expect(parseCanaryWeight("0")).toBe(0)
     expect(parseCanaryWeight("0.15")).toBe(MAX_CANARY_WEIGHT)
@@ -23,7 +38,7 @@ describe("AWS edge release controls", () => {
 
   it("uses field-limited status queries", () => {
     const stackArgs = buildStackStatusArgs("sherwood-rhtgoc-edge", "us-east-1")
-    const policyArgs = buildPolicyStatusArgs("E123ABC456", "us-east-1")
+    const policyArgs = buildPolicyStatusArgs("50737be0-1598-4379-b873-474d08766e36", "us-east-1")
     expect(stackArgs).toContain(EDGE_STACK_QUERY)
     expect(policyArgs).toContain(POLICY_STATUS_QUERY)
     expect(stackArgs.join(" ")).not.toContain("Environment")
@@ -61,7 +76,7 @@ describe("AWS edge release controls", () => {
           stackStatus: "CREATE_COMPLETE",
           canaryEnabled: "false",
           canaryWeight: "0",
-          continuousDeploymentPolicyId: "E123ABC456",
+          continuousDeploymentPolicyId: "50737be0-1598-4379-b873-474d08766e36",
           primaryDistributionId: "EPRIMARY",
           stagingDistributionId: "ESTAGING",
         }),

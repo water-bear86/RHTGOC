@@ -162,8 +162,8 @@ Resources:
         ParametersInCacheKeyAndForwardedToOrigin:
           CookiesConfig:
             CookieBehavior: none
-          EnableAcceptEncodingBrotli: true
-          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: false
+          EnableAcceptEncodingGzip: false
           HeadersConfig:
             HeaderBehavior: none
           QueryStringsConfig:
@@ -376,7 +376,9 @@ Resources:
         Aliases:
           - !Ref DomainName
         Comment: Sherwood production client with a shared authoritative Lightsail room backend.
-        ContinuousDeploymentPolicyId: !GetAtt ContinuousDeploymentPolicy.Id
+        # CloudFront rejects this field during distribution creation. Attach it only
+        # during a later canary-enabling update after the primary distribution exists.
+        ContinuousDeploymentPolicyId: !If [CanaryIsEnabled, !GetAtt ContinuousDeploymentPolicy.Id, !Ref AWS::NoValue]
         DefaultRootObject: index.html
         Enabled: true
         HttpVersion: http2

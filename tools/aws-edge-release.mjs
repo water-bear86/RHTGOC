@@ -22,6 +22,7 @@ export const EDGE_PARAMETER_KEYS = Object.freeze([
 ])
 
 const STACK_NAME_PATTERN = /^[A-Za-z][-A-Za-z0-9]*$/
+const CONTINUOUS_DEPLOYMENT_POLICY_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 const FORBIDDEN_OUTPUT = /environment|secret|password|credential|private.?key|access.?key|ops_admin_secret|supabase_secret_key/i
 
 export function parseCanaryWeight(value) {
@@ -55,7 +56,9 @@ export function buildStackStatusArgs(stackName = DEFAULT_EDGE_STACK, region = ED
 }
 
 export function buildPolicyStatusArgs(policyId, region = EDGE_REGION) {
-  if (!/^[A-Z0-9]+$/.test(policyId)) throw new Error("Invalid continuous deployment policy id")
+  if (!CONTINUOUS_DEPLOYMENT_POLICY_ID_PATTERN.test(policyId)) {
+    throw new Error("Invalid continuous deployment policy id")
+  }
   if (region !== EDGE_REGION) throw new Error(`The edge policy must be operated in ${EDGE_REGION}`)
   return [
     "cloudfront",
