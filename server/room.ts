@@ -133,11 +133,11 @@ export class Room {
     return true
   }
 
-  addPlayer(socket: WebSocket, displayName: string, characterId: CharacterId, authUserId: string | null = null): ConnectedPlayer {
+  addPlayer(socket: WebSocket, displayName: string, characterId: CharacterId, authUserId: string | null = null, roleConfirmed = true): ConnectedPlayer {
     this.pruneDisconnected(Date.now())
     if (this.phase !== "lobby") throw new Error("MISSION_STARTED")
     if (this.players.size >= MAX_ROOM_PLAYERS) throw new Error("ROOM_FULL")
-    if (!this.characterAvailable(characterId)) throw new Error("ROLE_FULL")
+    if (roleConfirmed && !this.characterAvailable(characterId)) throw new Error("ROLE_FULL")
     const occupiedSpawns = new Set([...this.players.values()].map((player) => player.spawnIndex))
     const spawnIndex = spawnPoints.findIndex((_, index) => !occupiedSpawns.has(index))
     const position = spawnPoints[spawnIndex]
@@ -147,6 +147,7 @@ export class Room {
       reconnectToken: randomUUID(),
       displayName,
       characterId,
+      roleConfirmed,
       loadoutId: "balanced",
       ready: false,
       connected: true,
@@ -210,7 +211,7 @@ export class Room {
 
   setReady(playerId: string, ready: boolean, now = Date.now()): boolean {
     const player = this.players.get(playerId)
-    if (!player || this.phase !== "lobby") return false
+    if (!player || this.phase !== "lobby" || (ready && !player.roleConfirmed)) return false
     player.ready = ready
     const connected = [...this.players.values()].filter((candidate) => candidate.connected)
     if (connected.length >= 2 && connected.every((candidate) => candidate.ready)) {
@@ -264,11 +265,16 @@ export class Room {
     return true
   }
 
+  hasConfirmedRole(playerId: string): boolean {
+    return this.players.get(playerId)?.roleConfirmed ?? false
+  }
+
   selectCharacter(playerId: string, characterId: CharacterId): boolean {
     const player = this.players.get(playerId)
     if (!player || this.phase !== "lobby") return false
     if (!this.characterAvailable(characterId, playerId)) return false
     player.characterId = characterId
+    player.roleConfirmed = true
     player.arrows = maxArrows(characterId)
     player.ready = false
     this.broadcastRoomState()
@@ -615,6 +621,7 @@ export class Room {
       id: player.id,
       displayName: player.displayName,
       characterId: player.characterId,
+      roleConfirmed: player.roleConfirmed,
       loadoutId: player.loadoutId,
       ready: player.ready,
       connected: player.connected,
@@ -636,7 +643,7 @@ export class Room {
   }
 
   private characterAvailable(characterId: CharacterId, excludingPlayerId?: string): boolean {
-    const selected = [...this.players.values()].filter((player) => player.id !== excludingPlayerId && player.characterId === characterId)
+    const selected = [...this.players.values()].filter((player) => player.id !== excludingPlayerId && player.roleConfirmed && player.characterId === characterId)
     return selected.length < 2
   }
 

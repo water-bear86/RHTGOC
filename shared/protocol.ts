@@ -91,6 +91,7 @@ export interface RoomPlayer {
   id: string
   displayName: string
   characterId: CharacterId
+  roleConfirmed: boolean
   loadoutId: LoadoutId
   ready: boolean
   connected: boolean

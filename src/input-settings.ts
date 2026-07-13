@@ -1,5 +1,6 @@
 export const GAME_ACTIONS = [
   "moveUp", "moveDown", "moveLeft", "moveRight",
+  "cameraLeft", "cameraRight",
   "interact", "fire", "signature", "revive", "transferLoot",
   "pingDanger", "pingTarget", "pingRoute", "pingLoot", "pingRegroup",
 ] as const
@@ -19,10 +20,12 @@ export interface InputSettings {
 }
 
 export const ACTION_LABELS: Record<GameAction, string> = {
-  moveUp: "Move north",
-  moveDown: "Move south",
-  moveLeft: "Move west",
-  moveRight: "Move east",
+  moveUp: "Move forward",
+  moveDown: "Move backward",
+  moveLeft: "Move left",
+  moveRight: "Move right",
+  cameraLeft: "Rotate camera left",
+  cameraRight: "Rotate camera right",
   interact: "Interact / give",
   fire: "Loose arrow",
   signature: "Signature",
@@ -41,6 +44,8 @@ export const DEFAULT_INPUT_SETTINGS: InputSettings = {
     moveDown: "KeyS",
     moveLeft: "KeyA",
     moveRight: "KeyD",
+    cameraLeft: "KeyZ",
+    cameraRight: "KeyX",
     interact: "KeyE",
     fire: "Space",
     signature: "KeyQ",
@@ -53,6 +58,8 @@ export const DEFAULT_INPUT_SETTINGS: InputSettings = {
     pingRegroup: "Digit5",
   },
   controller: {
+    cameraLeft: 10,
+    cameraRight: 11,
     interact: 0,
     fire: 1,
     signature: 2,

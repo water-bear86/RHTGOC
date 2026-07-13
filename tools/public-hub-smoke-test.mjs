@@ -79,26 +79,27 @@ try {
   second.send(JSON.stringify({ type: "join_public_hub", version: protocolVersion, displayName: "Willow", characterId: "marian", accessToken: "token-b-header.payload.signature-long" }))
   const [firstWelcome, secondWelcome] = await Promise.all([firstWelcomePromise, secondWelcomePromise])
 
-  const sharedState = waitForMessage(first, (message) => message.type === "hub_state" && message.players.length === 2 && message.players.every((player) => player.looking))
-  first.send(JSON.stringify({ type: "hub_intent", looking: true, targetPreference: "peoples-purse", desiredPartySize: 2 }))
-  second.send(JSON.stringify({ type: "hub_intent", looking: true, targetPreference: "any", desiredPartySize: 2 }))
-  await sharedState
-
   const firstAssignmentPromise = waitForMessage(first, (message) => message.type === "hub_band_ready")
   const secondAssignmentPromise = waitForMessage(second, (message) => message.type === "hub_band_ready")
-  first.send(JSON.stringify({ type: "hub_form_band" }))
+  first.send(JSON.stringify({ type: "hub_intent", looking: true, targetPreference: "peoples-purse", desiredPartySize: 2 }))
+  second.send(JSON.stringify({ type: "hub_intent", looking: true, targetPreference: "any", desiredPartySize: 2 }))
   const [firstAssignment, secondAssignment] = await Promise.all([firstAssignmentPromise, secondAssignmentPromise])
 
   const firstRoomWelcome = waitForMessage(first, (message) => message.type === "welcome")
+  const firstProvisionalState = waitForMessage(first, (message) => message.type === "room_state" && message.players.length === 1 && message.players.every((player) => !player.roleConfirmed))
   first.send(JSON.stringify({ type: "join_room", version: protocolVersion, roomCode: firstAssignment.roomCode, displayName: "Oakheart", characterId: "robin", accessToken: "token-a-header.payload.signature-long" }))
-  await firstRoomWelcome
+  await Promise.all([firstRoomWelcome, firstProvisionalState])
   const secondRoomWelcome = waitForMessage(second, (message) => message.type === "welcome")
-  const twoPlayerState = waitForMessage(first, (message) => message.type === "room_state" && message.players.length === 2)
+  const twoPlayerState = waitForMessage(first, (message) => message.type === "room_state" && message.players.length === 2 && message.players.every((player) => !player.roleConfirmed))
   second.send(JSON.stringify({ type: "join_room", version: protocolVersion, roomCode: secondAssignment.roomCode, displayName: "Willow", characterId: "marian", accessToken: "token-b-header.payload.signature-long" }))
   await secondRoomWelcome
-  const finalState = await twoPlayerState
+  await twoPlayerState
+  const confirmedState = waitForMessage(first, (message) => message.type === "room_state" && message.players.length === 2 && message.players.every((player) => player.roleConfirmed))
+  first.send(JSON.stringify({ type: "select_character", characterId: "robin" }))
+  second.send(JSON.stringify({ type: "select_character", characterId: "marian" }))
+  const finalState = await confirmedState
 
-  process.stdout.write(`${JSON.stringify({ ok: true, sameInstance: firstWelcome.instanceId === secondWelcome.instanceId, capacity: firstWelcome.capacity, samePrivateRoom: firstAssignment.roomCode === secondAssignment.roomCode, oneLeader: Number(firstAssignment.leader) + Number(secondAssignment.leader) === 1, privateRoomPlayers: finalState.players.length })}\n`)
+  process.stdout.write(`${JSON.stringify({ ok: true, automaticAssignment: true, sameInstance: firstWelcome.instanceId === secondWelcome.instanceId, capacity: firstWelcome.capacity, samePrivateRoom: firstAssignment.roomCode === secondAssignment.roomCode, oneLeader: Number(firstAssignment.leader) + Number(secondAssignment.leader) === 1, privateRoomPlayers: finalState.players.length, rolesConfirmedInRoom: finalState.players.every((player) => player.roleConfirmed) })}\n`)
 } finally {
   for (const socket of sockets) socket.close()
   roomServer.kill("SIGTERM")

@@ -34,6 +34,18 @@ describe("opt-in public campfire", () => {
     expect(hub.formBand(leader.id, 3_000)?.map((player) => player.userId)).toEqual(["leader", "friend"])
   })
 
+  it("automatically matches compatible players across public-camp instances", () => {
+    const hub = new PublicHubService()
+    const leader = hub.join(socket(), "leader", "Leader", "robin", [], 1_000)
+    for (let index = 1; index < PUBLIC_HUB_CAPACITY; index += 1) hub.join(socket(), `filler-${index}`, `Filler ${index}`, "much", [], 1_000 + index)
+    const remote = hub.join(socket(), "remote", "Remote", "marian", [], 1_100)
+    hub.setIntent(leader.id, true, "any", 2, 2_000)
+    hub.setIntent(remote.id, true, "peoples-purse", 2, 2_001)
+    expect(hub.instances.size).toBe(2)
+    expect(hub.drainMatches(3_000).map((group) => group.map((player) => player.userId))).toEqual([["leader", "remote"]])
+    expect([...hub.instances.values()].flatMap((instance) => [...instance.participants.values()]).some((player) => player.userId === "leader" || player.userId === "remote")).toBe(false)
+  })
+
   it("bounds movement, emote and ping rate, reports fixed reasons, and cleans idle sessions", () => {
     const hub = new PublicHubService()
     const first = hub.join(socket(), "first", "First", "robin", [], 1_000)

@@ -52,6 +52,7 @@ import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
 import { createArcheryEquipment } from "./archery-equipment"
 import { createHeroCharacter, poseHeroCharacter, type HeroAction } from "./character-visuals"
+import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { SHERWOOD_CELL_SIZE, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells } from "./region-map"
 
@@ -85,7 +86,10 @@ const boardParty = document.querySelector<HTMLSelectElement>("#board-party")!
 const boardScope = document.querySelector<HTMLSelectElement>("#board-scope")!
 const boardMission = document.querySelector<HTMLSelectElement>("#board-mission")!
 const boardSeason = document.querySelector<HTMLSelectElement>("#board-season")!
-const characterButtons = [...document.querySelectorAll<HTMLButtonElement>(".character-option")]
+const characterButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-character]")]
+const roleChoicePanel = document.querySelector<HTMLElement>("#role-choice-panel")!
+const roleChoiceButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-room-character]")]
+const roleChoiceStatus = document.querySelector<HTMLElement>("#role-choice-status")!
 const playerNameInput = document.querySelector<HTMLInputElement>("#player-name")!
 const roomCodeInput = document.querySelector<HTMLInputElement>("#room-code")!
 const createRoomButton = document.querySelector<HTMLButtonElement>("#create-room")!
@@ -196,7 +200,6 @@ const publicHubCount = document.querySelector<HTMLElement>("#public-hub-count")!
 const publicHubTarget = document.querySelector<HTMLSelectElement>("#public-hub-target")!
 const publicHubSize = document.querySelector<HTMLSelectElement>("#public-hub-size")!
 const publicHubLooking = document.querySelector<HTMLButtonElement>("#public-hub-looking")!
-const publicHubForm = document.querySelector<HTMLButtonElement>("#public-hub-form")!
 const publicHubEmotes = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-emote]")]
 const publicHubPings = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-ping]")]
 const publicHubList = document.querySelector<HTMLUListElement>("#public-hub-list")!
@@ -216,6 +219,7 @@ scene.fog = new THREE.FogExp2(0x91aa83, 0.012)
 
 const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 280)
 camera.position.set(6, 14, 20)
+const BASE_CAMERA_OFFSET = Object.freeze({ x: 12.5, z: 15.5 })
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" })
 const renderProfile = chooseRenderProfile({
@@ -285,6 +289,8 @@ let inPublicHub = false
 let publicHubParticipantId: string | null = null
 let publicHubPlayers: PublicHubPlayer[] = []
 let publicHubIsLooking = false
+let localRoleConfirmed = false
+let cameraQuarterTurns = 0
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
@@ -950,7 +956,7 @@ const multiplayer = new MultiplayerClient({
     hubRoomCode.textContent = roomCode
     roomCodeInput.value = roomCode
     roomLobby.classList.remove("hidden")
-    lobbyStatus.textContent = "Share this code, then ready up together."
+    lobbyStatus.textContent = "Choose an outlaw, then ready up together."
     enterHub(true)
     void syncPresence("in-band", roomCode)
   },
@@ -974,16 +980,20 @@ const multiplayer = new MultiplayerClient({
     renderSafetyPanel(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
     localReady = localPlayer?.ready ?? false
+    localRoleConfirmed = localPlayer?.roleConfirmed ?? false
     if (localPlayer) {
       if (localPlayer.characterId !== selectedCharacter) selectLocalCharacter(localPlayer.characterId, false)
       state.player.health = localPlayer.health
       if (phase === "lobby") state.player.position = { ...localPlayer.position }
     }
     readyButton.textContent = localReady ? "NOT READY" : "READY UP"
+    readyButton.disabled = !localRoleConfirmed
     hubReady.textContent = localReady ? "NOT READY" : "READY UP"
+    hubReady.disabled = roomConnected && !localRoleConfirmed
     hubLoadout.value = localPlayer?.loadoutId ?? "balanced"
     applyVillageState(visibleVillageState(village))
     renderHub()
+    renderRoleChoice(players)
     if (phase === "lobby") {
       multiplayerActive = false
       enterHub(true)
@@ -1069,10 +1079,29 @@ const multiplayer = new MultiplayerClient({
 function hubPlayerAsRoomPlayer(player: PublicHubPlayer): RoomPlayer {
   return {
     id: player.id, displayName: player.displayName, characterId: player.characterId, loadoutId: "balanced", ready: player.looking, connected: true,
+    roleConfirmed: true,
     bandRole: null, bandInvitePending: false,
     health: 3, arrows: 0, loot: 0, downedFor: 0, signatureCooldown: 0, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0, trapHits: 0, sabotageCount: 0,
     position: { ...player.position }, lastInputSequence: 0,
   }
+}
+
+function renderRoleChoice(players: RoomPlayer[]): void {
+  const shouldOpen = roomConnected && !localRoleConfirmed
+  const opening = shouldOpen && roleChoicePanel.classList.contains("hidden")
+  roleChoicePanel.classList.toggle("hidden", !shouldOpen)
+  roleChoicePanel.setAttribute("aria-hidden", String(!shouldOpen))
+  for (const button of roleChoiceButtons) {
+    const characterId = button.dataset.roomCharacter as CharacterId
+    const selected = players.filter((player) => player.roleConfirmed && player.characterId === characterId).length
+    const full = selected >= 2
+    button.disabled = full
+    button.classList.toggle("selected", localRoleConfirmed && selectedCharacter === characterId)
+    const availability = button.querySelector("i")
+    if (availability) availability.textContent = full ? "FULL" : `${2 - selected} SLOT${2 - selected === 1 ? "" : "S"} OPEN`
+  }
+  roleChoiceStatus.textContent = "Choose an outlaw before readying up."
+  if (opening) roleChoiceButtons.find((button) => !button.disabled)?.focus()
 }
 
 function setMissionWorldVisible(visible: boolean): void {
@@ -1181,10 +1210,9 @@ function renderHub(): void {
 
 function renderPublicHub(): void {
   publicHubCount.textContent = `${publicHubPlayers.length}/12`
-  publicHubLooking.textContent = publicHubIsLooking ? "STOP LOOKING" : "START LOOKING"
+  publicHubLooking.textContent = publicHubIsLooking ? "CANCEL SEARCH" : "FIND A BAND"
   const desiredPartySize = Number(publicHubSize.value)
   const compatible = publicHubPlayers.filter((player) => player.id !== publicHubParticipantId && player.looking && player.desiredPartySize === desiredPartySize && (publicHubTarget.value === "any" || player.targetPreference === "any" || player.targetPreference === publicHubTarget.value)).length
-  publicHubForm.disabled = !publicHubIsLooking || compatible < desiredPartySize - 1
   publicHubList.replaceChildren()
   for (const player of publicHubPlayers) {
     const item = document.createElement("li")
@@ -1211,8 +1239,8 @@ function renderPublicHub(): void {
     publicHubList.append(item)
   }
   publicHubStatus.textContent = publicHubIsLooking
-    ? `${compatible} compatible outlaw${compatible === 1 ? "" : "s"} · friends receive placement priority when capacity permits.`
-    : "Opt in to looking-for-band when your target and party size are ready."
+    ? `Searching across every public camp · ${compatible} visible match${compatible === 1 ? "" : "es"} here · friends receive priority but are never required.`
+    : "Choose a target and party size, then find a band automatically."
 }
 
 function renderRotationCountdown(): void {
@@ -1412,6 +1440,8 @@ const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, s
 const controllerButtonLabels = ["A / Cross", "B / Circle", "X / Square", "Y / Triangle", "LB / L1", "RB / R1", "LT / L2", "RT / R2", "View / Share", "Menu / Options", "Left stick", "Right stick", "D-pad up", "D-pad down", "D-pad left", "D-pad right"]
 const pointerActionLabels: Record<PointerAction, string> = {
   move: "Move to ground",
+  cameraLeft: ACTION_LABELS.cameraLeft,
+  cameraRight: ACTION_LABELS.cameraRight,
   interact: ACTION_LABELS.interact,
   fire: ACTION_LABELS.fire,
   signature: ACTION_LABELS.signature,
@@ -1430,14 +1460,14 @@ function isMobileSpectator(): boolean {
 
 function refreshControlCopy(): void {
   const key = inputSettings.keyboard
-  helpMove.textContent = `${keyLabel(key.moveUp)} / ${keyLabel(key.moveLeft)} / ${keyLabel(key.moveDown)} / ${keyLabel(key.moveRight)}, controller stick, or mapped pointer movement`
+  helpMove.textContent = `${keyLabel(key.moveUp)} / ${keyLabel(key.moveLeft)} / ${keyLabel(key.moveDown)} / ${keyLabel(key.moveRight)} moves by perspective · ${keyLabel(key.cameraLeft)} / ${keyLabel(key.cameraRight)} rotates the camera 90°`
   helpInteract.textContent = `${keyLabel(key.interact)} near the cart or village fire`
   helpFire.textContent = `${keyLabel(key.fire)} stuns the nearest guard in range`
   helpSignature.textContent = `${keyLabel(key.signature)} uses Twin Shot, Marian's Veil, Oak Sweep, or Much's Road Snare`
   signatureKeyElement.textContent = keyLabel(key.signature)
   helpSignals.textContent = `${keyLabel(key.pingDanger)} / ${keyLabel(key.pingTarget)} / ${keyLabel(key.pingRoute)} / ${keyLabel(key.pingLoot)} / ${keyLabel(key.pingRegroup)} place symbol-coded signals`
   helpSupport.textContent = `${keyLabel(key.revive)} revives a nearby outlaw · ${keyLabel(key.transferLoot)} transfers up to 60 coin`
-  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE`
+  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE`
   missionPrompt = missionPromptForPhase(currentMissionPhase)
 }
 
@@ -1554,6 +1584,13 @@ function closeActivePanel(): boolean {
 
 function performMappedAction(action: GameAction | PointerAction): void {
   if (action === "move" || action.startsWith("move")) return
+  if (action === "cameraLeft" || action === "cameraRight") {
+    cameraQuarterTurns = (cameraQuarterTurns + (action === "cameraLeft" ? -1 : 1) + 4) % 4
+    clickTarget = null
+    destinationMarker.visible = false
+    showToast(`CAMERA ROTATED ${action === "cameraLeft" ? "LEFT" : "RIGHT"}`)
+    return
+  }
   if (action === "interact") handleInteraction()
   if (action === "fire") fireArrow()
   if (action === "signature") useSignature()
@@ -2128,10 +2165,9 @@ async function refreshSocialPanel(): Promise<void> {
         running = false
         hubPanel.classList.add("hidden")
         roomCodeInput.value = code
-        if (invite.character_hint) selectLocalCharacter(invite.character_hint, false)
         intro.classList.remove("closed")
         closePanel(socialPanel)
-        showToast("INVITE READY · CHOOSE YOUR HERO AND JOIN")
+        showToast("INVITE READY · JOIN THE ROOM TO CHOOSE YOUR HERO")
       })
       addSocialAction(actions, "DECLINE", async () => { await respondDirectInvite(invite.id, false); await refreshSocialPanel() })
       item.append(copy, actions)
@@ -2502,7 +2538,7 @@ function getMoveInput(): Vec2 {
   if (x !== 0 || z !== 0) {
     clickTarget = null
     destinationMarker.visible = false
-    return { x, z }
+    return cameraRelativeMove({ x, z }, { x: camera.position.x, z: camera.position.z }, state.player.position)
   }
   if (clickTarget) {
     const dx = clickTarget.x - state.player.position.x
@@ -2622,7 +2658,7 @@ function useSignature(): void {
 }
 
 function isModalOpen(): boolean {
-  return panelElements.some((panel) => !panel.classList.contains("hidden"))
+  return !roleChoicePanel.classList.contains("hidden") || panelElements.some((panel) => !panel.classList.contains("hidden"))
 }
 
 async function openLeaderboard(): Promise<void> {
@@ -2945,7 +2981,8 @@ function syncViews(elapsed: number, dt: number): void {
     if (child.userData.coin) child.visible = state.cartCoin > 0
   })
 
-  const desiredCamera = new THREE.Vector3(player.x + 12.5, 14.5, player.z + 15.5)
+  const cameraOffset = rotateCameraOffset(BASE_CAMERA_OFFSET, cameraQuarterTurns)
+  const desiredCamera = new THREE.Vector3(player.x + cameraOffset.x, 14.5, player.z + cameraOffset.z)
   camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt))
   camera.lookAt(player.x, 0.75, player.z)
 
@@ -3151,7 +3188,6 @@ publicHubLooking.addEventListener("click", () => {
 for (const select of [publicHubTarget, publicHubSize]) select.addEventListener("change", () => {
   if (publicHubIsLooking) multiplayer.setHubIntent(true, publicHubTarget.value as PublicHubPlayer["targetPreference"], Number(publicHubSize.value) as 2 | 3 | 4)
 })
-publicHubForm.addEventListener("click", () => multiplayer.formHubBand())
 publicHubEmotes.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubEmote(button.dataset.hubEmote as "wave" | "cheer" | "bow")))
 publicHubPings.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubPing(button.dataset.hubPing as "regroup" | "target")))
 publicHubLeave.addEventListener("click", () => {
@@ -3180,8 +3216,18 @@ characterButtons.forEach((button) => {
   })
 })
 
+roleChoiceButtons.forEach((button) => button.addEventListener("click", () => {
+  const characterId = button.dataset.roomCharacter
+  if (characterId !== "robin" && characterId !== "marian" && characterId !== "little-john" && characterId !== "much") return
+  roleChoiceStatus.textContent = `Securing ${characterName(characterId)}…`
+  selectLocalCharacter(characterId, true)
+}))
+
 function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): void {
-  if (selectedCharacter === characterId) return
+  if (selectedCharacter === characterId) {
+    if (notifyServer && multiplayer.playerId) multiplayer.selectCharacter(characterId)
+    return
+  }
   selectedCharacter = characterId
   characterButtons.forEach((option) => {
     const selected = option.dataset.character === characterId
@@ -3292,7 +3338,9 @@ window.addEventListener("keydown", (event) => {
     renderBindingControls()
     return
   }
-  const activePanel = panelElements.find((panel) => !panel.classList.contains("hidden"))
+  const activePanel = !roleChoicePanel.classList.contains("hidden")
+    ? roleChoicePanel
+    : panelElements.find((panel) => !panel.classList.contains("hidden"))
   if (event.code === "Tab" && activePanel) {
     const focusable = [...activePanel.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex='-1'])")]
       .filter((element) => element.offsetParent !== null)
@@ -3308,6 +3356,7 @@ window.addEventListener("keydown", (event) => {
   }
   if (event.code === "Escape") {
     event.preventDefault()
+    if (!roleChoicePanel.classList.contains("hidden")) return
     if (!closeActivePanel() && running) openPanel(helpPanel, helpButton)
     return
   }

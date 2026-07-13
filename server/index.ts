@@ -17,7 +17,7 @@ import { SherwoodSeasonService, type SeasonTransition } from "./season-service"
 import { campaignRotationWindow } from "../shared/sherwood-season"
 import { createSeasonStoreFromEnv } from "./season-store"
 import { createSocialStoreFromEnv } from "./social-store"
-import { PublicHubService } from "./public-hub"
+import { PublicHubService, type HubParticipant } from "./public-hub"
 
 const port = Number(process.env.PORT ?? 8787)
 const rooms = new Map<string, Room>()
@@ -66,6 +66,17 @@ function roomCode(): string {
 
 function send(socket: WebSocket, message: ServerMessage): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
+}
+
+function reservePublicBand(group: HubParticipant[], automatic: boolean): void {
+  const code = roomCode()
+  const room = new Room(code, (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)), (now) => seasonService.snapshot(now))
+  rooms.set(code, room)
+  reservedRoomsUntil.set(code, Date.now() + 10_000)
+  roomTraces.set(code, randomUUID())
+  group.forEach((participant, index) => send(participant.socket, { type: "hub_band_ready", roomCode: code, leader: index === 0 }))
+  telemetry.increment("hub_private_bands_formed_total")
+  structuredLog("hub_private_band_formed", { traceId: roomTraces.get(code) ?? null, partySize: group.length, automatic })
 }
 
 const contentTypes: Record<string, string> = {
@@ -624,7 +635,7 @@ sockets.on("connection", (socket) => {
         const reconnected = message.type === "join_room" && message.reconnectToken
           ? room.reconnect(socket, message.reconnectToken, Date.now(), authUserId)
           : null
-        const player = reconnected ?? room.addPlayer(socket, message.displayName, message.characterId, authUserId)
+        const player = reconnected ?? room.addPlayer(socket, message.displayName, message.characterId, authUserId, false)
         telemetry.increment(reconnected ? "reconnect_success_total" : message.type === "create_room" ? "rooms_created_total" : "room_joins_total")
         if (message.type === "create_room") {
           const traceId = randomUUID()
@@ -695,16 +706,7 @@ sockets.on("connection", (socket) => {
       } else if (message.type === "hub_form_band") {
         const group = publicHub.formBand(hubParticipantId)
         if (!group) send(socket, { type: "error", code: "FORBIDDEN", message: "At least one compatible looking-for-band outlaw is required" })
-        else {
-          const code = roomCode()
-          const room = new Room(code, (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)), (now) => seasonService.snapshot(now))
-          rooms.set(code, room)
-          reservedRoomsUntil.set(code, Date.now() + 10_000)
-          roomTraces.set(code, randomUUID())
-          group.forEach((participant, index) => send(participant.socket, { type: "hub_band_ready", roomCode: code, leader: index === 0 }))
-          telemetry.increment("hub_private_bands_formed_total")
-          structuredLog("hub_private_band_formed", { traceId: roomTraces.get(code) ?? null, partySize: group.length })
-        }
+        else reservePublicBand(group, false)
       } else if (message.type === "hub_leave") {
         publicHub.leave(hubParticipantId)
         hubParticipantId = null
@@ -718,7 +720,7 @@ sockets.on("connection", (socket) => {
       return
     }
     if (message.type === "set_ready" && !joinedRoom.setReady(playerId, message.ready) && message.ready) {
-      send(socket, { type: "error", code: "FORBIDDEN", message: "That daily target expired or requires a different party size" })
+      send(socket, { type: "error", code: "FORBIDDEN", message: joinedRoom.hasConfirmedRole(playerId) ? "That daily target expired or requires a different party size" : "Choose an available outlaw before readying up" })
     }
     if (message.type === "set_ready" && message.ready) telemetry.increment("players_ready_total")
     if (message.type === "select_character") {
@@ -950,6 +952,7 @@ setInterval(() => {
 
 setInterval(() => {
   publicHub.cleanup()
+  for (const group of publicHub.drainMatches()) reservePublicBand(group, true)
   publicHub.broadcastAll()
   telemetry.gauge("public_hub_instances", publicHub.instances.size)
   telemetry.gauge("public_hub_players", [...publicHub.instances.values()].reduce((sum, instance) => sum + instance.participants.size, 0))
