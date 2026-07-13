@@ -4,20 +4,30 @@ import { createArcheryEquipment, type BowVariant } from "./archery-equipment"
 import { createToonMaterial } from "./toon-materials"
 
 interface CharacterRig {
+  characterId: CharacterId
   torso: THREE.Group
   head: THREE.Group
   leftArm: THREE.Group
   rightArm: THREE.Group
+  leftForearm: THREE.Group
+  rightForearm: THREE.Group
+  leftHand: THREE.Group
+  rightHand: THREE.Group
   leftLeg: THREE.Group
   rightLeg: THREE.Group
+  leftShin: THREE.Group
+  rightShin: THREE.Group
   bow: THREE.Group | null
   cape: THREE.Object3D | null
+  staff: THREE.Object3D | null
 }
+
+export type HeroAction = "idle" | "attack" | "signature"
 
 export interface CharacterPose {
   elapsed: number
   moving: boolean
-  attacking?: boolean
+  action?: HeroAction
   downed?: boolean
   motionScale?: number
 }
@@ -76,23 +86,58 @@ function addFace(head: THREE.Group, mesh: ReturnType<typeof createCharacterFacto
   }
 }
 
-function createLimb(
+function createArm(
   name: string,
   mesh: ReturnType<typeof createCharacterFactory>["mesh"],
   color: number,
-  length: number,
+  upperLength: number,
+  lowerLength: number,
   radius: number,
-  handOrBootColor: number,
-  endScale = 1,
-): THREE.Group {
-  const pivot = new THREE.Group()
-  pivot.name = name
-  const limb = mesh(`${name}Shape`, new THREE.CylinderGeometry(radius * 0.88, radius, length, 7), color)
-  limb.position.y = -length / 2
-  const end = mesh(`${name}End`, new THREE.SphereGeometry(radius * 1.12 * endScale, 8, 6), handOrBootColor)
-  end.position.y = -length
-  pivot.add(limb, end)
-  return pivot
+): { upper: THREE.Group; lower: THREE.Group; hand: THREE.Group } {
+  const upper = new THREE.Group()
+  upper.name = name
+  const sleeve = mesh(`${name}Upper`, new THREE.CylinderGeometry(radius * 0.9, radius, upperLength, 7), color)
+  sleeve.position.y = -upperLength / 2
+  const lower = new THREE.Group()
+  lower.name = `${name}Forearm`
+  lower.position.y = -upperLength
+  const elbow = mesh(`${name}Elbow`, new THREE.SphereGeometry(radius * 1.04, 7, 5), color)
+  const forearm = mesh(`${name}Lower`, new THREE.CylinderGeometry(radius * 0.74, radius * 0.88, lowerLength, 7), color)
+  forearm.position.y = -lowerLength / 2
+  const hand = new THREE.Group()
+  hand.name = `${name}Hand`
+  hand.position.y = -lowerLength
+  const palm = mesh(`${name}Palm`, new THREE.BoxGeometry(radius * 1.35, radius * 1.55, radius * 0.9), SKIN)
+  palm.position.z = radius * 0.16
+  hand.add(palm)
+  lower.add(elbow, forearm, hand)
+  upper.add(sleeve, lower)
+  return { upper, lower, hand }
+}
+
+function createLeg(
+  name: string,
+  mesh: ReturnType<typeof createCharacterFactory>["mesh"],
+  upperLength: number,
+  lowerLength: number,
+  radius: number,
+): { upper: THREE.Group; lower: THREE.Group } {
+  const upper = new THREE.Group()
+  upper.name = name
+  const thigh = mesh(`${name}Upper`, new THREE.CylinderGeometry(radius * 0.9, radius, upperLength, 7), 0x4a4031)
+  thigh.position.y = -upperLength / 2
+  const lower = new THREE.Group()
+  lower.name = `${name}Shin`
+  lower.position.y = -upperLength
+  const knee = mesh(`${name}Knee`, new THREE.SphereGeometry(radius * 1.05, 7, 5), 0x4a4031)
+  const shin = mesh(`${name}Lower`, new THREE.CylinderGeometry(radius * 0.72, radius * 0.88, lowerLength, 7), 0x40382d)
+  shin.position.y = -lowerLength / 2
+  const boot = mesh(`${name}Boot`, new THREE.BoxGeometry(radius * 1.65, radius * 1.35, radius * 2.5), DARK_LEATHER)
+  boot.position.set(0, -lowerLength, radius * 0.55)
+  boot.rotation.x = -0.08
+  lower.add(knee, shin, boot)
+  upper.add(thigh, lower)
+  return { upper, lower }
 }
 
 function addRobinDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType<typeof createCharacterFactory>["mesh"]): void {
@@ -156,12 +201,13 @@ function addLittleJohnDetails(root: THREE.Group, rig: CharacterRig, mesh: Return
   chestStrap.position.set(0, 1.34, 0.42)
   chestStrap.rotation.z = -0.48
   const staff = mesh("JohnQuarterstaff", new THREE.CylinderGeometry(0.055, 0.068, 2.75, 8), 0x664326)
-  staff.position.set(0.17, -0.88, 0.1)
-  staff.rotation.z = -0.16
   const staffBand = mesh("JohnStaffBand", new THREE.CylinderGeometry(0.082, 0.082, 0.2, 8), IRON)
   staffBand.position.y = 1.22
   staff.add(staffBand)
-  rig.rightArm.add(staff)
+  staff.position.set(0, -0.45, 0.16)
+  staff.rotation.set(0.08, 0, -0.08)
+  rig.rightHand.add(staff)
+  rig.staff = staff
   root.add(shoulderLeft, shoulderRight, chestStrap)
 }
 
@@ -230,30 +276,53 @@ export function createHeroCharacter(characterId: CharacterId): THREE.Group {
 
   const shoulderY = isJohn ? 1.72 : isMuch ? 1.48 : 1.59
   const shoulderX = isJohn ? 0.51 : isMarian ? 0.36 : 0.4
-  const armLength = isJohn ? 0.88 : isMuch ? 0.72 : 0.8
+  const upperArmLength = isJohn ? 0.48 : isMuch ? 0.38 : 0.42
+  const lowerArmLength = isJohn ? 0.46 : isMuch ? 0.36 : 0.4
   const armRadius = isJohn ? 0.15 : 0.12
-  const leftArm = createLimb("RigLeftArm", mesh, sleeveColor, armLength, armRadius, SKIN)
+  const leftArmRig = createArm("RigLeftArm", mesh, sleeveColor, upperArmLength, lowerArmLength, armRadius)
+  const leftArm = leftArmRig.upper
   leftArm.position.set(-shoulderX, shoulderY, 0)
-  const rightArm = createLimb("RigRightArm", mesh, sleeveColor, armLength, armRadius, SKIN)
+  const rightArmRig = createArm("RigRightArm", mesh, sleeveColor, upperArmLength, lowerArmLength, armRadius)
+  const rightArm = rightArmRig.upper
   rightArm.position.set(shoulderX, shoulderY, 0)
   root.add(leftArm, rightArm)
 
   const hipY = isJohn ? 0.93 : isMuch ? 0.73 : 0.82
-  const legLength = isJohn ? 0.9 : isMuch ? 0.67 : 0.76
+  const upperLegLength = isJohn ? 0.5 : isMuch ? 0.36 : 0.42
+  const lowerLegLength = isJohn ? 0.46 : isMuch ? 0.35 : 0.4
   const legRadius = isJohn ? 0.145 : 0.115
-  const leftLeg = createLimb("RigLeftLeg", mesh, 0x4a4031, legLength, legRadius, DARK_LEATHER, 1.2)
+  const leftLegRig = createLeg("RigLeftLeg", mesh, upperLegLength, lowerLegLength, legRadius)
+  const leftLeg = leftLegRig.upper
   leftLeg.position.set(-(isJohn ? 0.23 : 0.19), hipY, 0)
-  const rightLeg = createLimb("RigRightLeg", mesh, 0x4a4031, legLength, legRadius, DARK_LEATHER, 1.2)
+  const rightLegRig = createLeg("RigRightLeg", mesh, upperLegLength, lowerLegLength, legRadius)
+  const rightLeg = rightLegRig.upper
   rightLeg.position.set(isJohn ? 0.23 : 0.19, hipY, 0)
   root.add(leftLeg, rightLeg)
 
-  const rig: CharacterRig = { torso, head, leftArm, rightArm, leftLeg, rightLeg, bow: null, cape: null }
+  const rig: CharacterRig = {
+    characterId,
+    torso,
+    head,
+    leftArm,
+    rightArm,
+    leftForearm: leftArmRig.lower,
+    rightForearm: rightArmRig.lower,
+    leftHand: leftArmRig.hand,
+    rightHand: rightArmRig.hand,
+    leftLeg,
+    rightLeg,
+    leftShin: leftLegRig.lower,
+    rightShin: rightLegRig.lower,
+    bow: null,
+    cape: null,
+    staff: null,
+  }
   if (!isJohn) {
     const bowVariant: BowVariant = characterId === "robin" ? "longbow" : isMarian ? "recurve" : "shortbow"
     const { bow, quiver } = createArcheryEquipment(bowVariant, isMuch ? 0.82 : isMarian ? 0.9 : 1)
-    bow.position.set(-0.12, -0.63, 0.13)
-    bow.rotation.set(0, 0, 0.08)
-    leftArm.add(bow)
+    bow.position.set(0, -0.04, 0.1)
+    bow.rotation.set(0, 0, Math.PI / 2)
+    leftArmRig.hand.add(bow)
     quiver.position.set(0.27, 1.36, -0.26)
     quiver.rotation.set(-0.18, 0, -0.2)
     root.add(quiver)
@@ -279,20 +348,43 @@ export function poseHeroCharacter(root: THREE.Group, pose: CharacterPose): void 
   const rig = root.userData.rig as CharacterRig | undefined
   if (!rig) return
   const motionScale = pose.motionScale ?? 1
-  const walk = pose.moving && !pose.downed ? Math.sin(pose.elapsed * 10) * 0.62 * motionScale : 0
+  const action = pose.action ?? "idle"
+  const cadence = rig.characterId === "little-john" ? 8.2 : rig.characterId === "marian" ? 11.5 : rig.characterId === "much" ? 10.8 : 10
+  const stride = rig.characterId === "little-john" ? 0.48 : rig.characterId === "marian" ? 0.68 : rig.characterId === "much" ? 0.58 : 0.62
+  const walk = pose.moving && !pose.downed ? Math.sin(pose.elapsed * cadence) * stride * motionScale : 0
   const breathe = Math.sin(pose.elapsed * 2.6) * 0.025 * motionScale
+  const leftStep = Math.max(0, -walk)
+  const rightStep = Math.max(0, walk)
+  const isBowAction = action !== "idle" && rig.characterId !== "little-john"
+  const isStaffAction = action !== "idle" && rig.characterId === "little-john"
 
   rig.leftLeg.rotation.x = walk
   rig.rightLeg.rotation.x = -walk
-  rig.leftArm.rotation.x = pose.attacking ? -1.22 : -walk * 0.72
-  rig.rightArm.rotation.x = pose.attacking ? -1.02 : walk * 0.72
-  rig.leftArm.rotation.z = pose.attacking ? 0.3 : 0.06
-  rig.rightArm.rotation.z = pose.attacking ? -0.42 : -0.06
-  rig.rightArm.rotation.y = pose.attacking ? -0.35 : 0
+  rig.leftShin.rotation.x = leftStep * 0.72
+  rig.rightShin.rotation.x = rightStep * 0.72
+  rig.leftArm.rotation.x = isBowAction ? -1.48 : isStaffAction ? -1.05 : -walk * 0.62
+  rig.rightArm.rotation.x = isBowAction ? -1.25 : isStaffAction ? -0.92 : walk * 0.62
+  rig.leftArm.rotation.z = isBowAction ? 0.22 : isStaffAction ? 0.38 : 0.08
+  rig.rightArm.rotation.z = isBowAction ? -0.72 : isStaffAction ? -0.34 : -0.08
+  rig.leftArm.rotation.y = isBowAction ? 0.08 : isStaffAction ? -0.28 : 0
+  rig.rightArm.rotation.y = isBowAction ? -0.58 : isStaffAction ? 0.35 : 0
+  rig.leftForearm.rotation.x = isBowAction ? -0.15 : isStaffAction ? -0.62 : Math.max(0, walk) * 0.18
+  rig.rightForearm.rotation.x = isBowAction ? -1.15 : isStaffAction ? -0.78 : Math.max(0, -walk) * 0.18
+  rig.rightForearm.rotation.z = isBowAction ? -0.32 : 0
   rig.torso.position.y = Math.abs(walk) * 0.035 + breathe
-  rig.torso.rotation.z = pose.moving ? walk * 0.035 : 0
-  rig.head.rotation.y = pose.attacking ? 0.16 : Math.sin(pose.elapsed * 0.85) * 0.035 * motionScale
+  rig.torso.rotation.z = pose.moving ? walk * (rig.characterId === "much" ? 0.065 : 0.035) : 0
+  rig.torso.rotation.x = rig.characterId === "much" ? 0.08 : rig.characterId === "little-john" ? -0.035 : 0
+  if (isStaffAction) rig.torso.rotation.y = Math.sin(pose.elapsed * 13) * 0.42
+  else rig.torso.rotation.y = 0
+  rig.head.rotation.y = isBowAction ? 0.12 : Math.sin(pose.elapsed * 0.85) * 0.045 * motionScale
   rig.head.rotation.z = pose.moving ? -walk * 0.025 : 0
-  if (rig.bow) rig.bow.rotation.y = pose.attacking ? -0.18 : 0
-  if (rig.cape) rig.cape.rotation.x = -0.1 - Math.abs(walk) * 0.08
+  if (rig.bow) {
+    rig.bow.rotation.x = isBowAction ? 0.12 : 0
+    rig.bow.rotation.y = isBowAction ? -0.18 : 0
+  }
+  if (rig.staff) rig.staff.rotation.z = isStaffAction ? Math.sin(pose.elapsed * 13) * 0.52 : -0.08
+  if (rig.cape) {
+    rig.cape.rotation.x = -0.1 - Math.abs(walk) * 0.11
+    rig.cape.rotation.z = pose.moving ? -walk * 0.025 : Math.sin(pose.elapsed * 1.8) * 0.012 * motionScale
+  }
 }

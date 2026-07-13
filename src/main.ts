@@ -51,7 +51,7 @@ import {
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
 import { createArcheryEquipment } from "./archery-equipment"
-import { createHeroCharacter, poseHeroCharacter } from "./character-visuals"
+import { createHeroCharacter, poseHeroCharacter, type HeroAction } from "./character-visuals"
 import { SHERWOOD_CELL_SIZE, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells } from "./region-map"
 
@@ -296,6 +296,8 @@ interface RemoteView {
   lastPosition: THREE.Vector3
   characterId: CharacterId
   downedFor: number
+  action: HeroAction
+  actionUntil: number
 }
 
 const remoteViews = new Map<string, RemoteView>()
@@ -338,7 +340,8 @@ let villageCottageFallback: THREE.Group | null = null
 let villageCottageView: THREE.Group | null = null
 let proceduralWagonShellView: THREE.Group | null = null
 let villageWagonShellView: THREE.Group | null = null
-let robinShotUntil = 0
+let heroAttackUntil = 0
+let heroSignatureUntil = 0
 
 const palette = {
   grass: 0x506e40,
@@ -1778,6 +1781,22 @@ function showMissionEvent(event: MissionEvent): void {
     mission_succeeded: "SHERWOOD RISES",
     mission_failed: "THE BAND HAS FALLEN",
   }
+  if (event.type === "signature_used") {
+    if (event.playerId === multiplayer.playerId) heroSignatureUntil = clock.elapsedTime + 0.9
+    else if (event.playerId) {
+      const remote = remoteViews.get(event.playerId)
+      if (remote) {
+        remote.action = "signature"
+        remote.actionUntil = clock.elapsedTime + 0.9
+      }
+    }
+  } else if (event.type === "guard_stunned" && event.playerId && event.playerId !== multiplayer.playerId) {
+    const remote = remoteViews.get(event.playerId)
+    if (remote) {
+      remote.action = "attack"
+      remote.actionUntil = clock.elapsedTime + 0.8
+    }
+  }
   if (event.type === "signature_used" && event.detail === "little-john-sweep") showVanguardImpact(event.playerId)
   const message = event.type === "signature_used" && event.detail === "little-john-sweep"
     ? "OAK SWEEP — HOLD THE LINE"
@@ -2451,6 +2470,8 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
       lastPosition: view.position.clone(),
       characterId: player.characterId,
       downedFor: player.downedFor,
+      action: "idle",
+      actionUntil: 0,
     }
     remote.snapshots.push(player.position, performance.now())
     remoteViews.set(player.id, remote)
@@ -2540,7 +2561,7 @@ function fireArrow(): void {
       return
     }
     multiplayer.sendAction("shoot")
-    robinShotUntil = clock.elapsedTime + 0.8
+    heroAttackUntil = clock.elapsedTime + 0.8
     return
   }
   const guardId = shoot(state)
@@ -2554,7 +2575,7 @@ function fireArrow(): void {
   const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffe3a0 }))
   scene.add(line)
   arrowEffects.push({ line, age: 0 })
-  robinShotUntil = clock.elapsedTime + 0.8
+  heroAttackUntil = clock.elapsedTime + 0.8
   showToast("Guard stunned")
 }
 
@@ -2580,6 +2601,7 @@ function useSignature(): void {
   }
   if (multiplayerActive) {
     multiplayer.sendAction("signature")
+    heroSignatureUntil = clock.elapsedTime + 0.9
     return
   }
   const result = activateSignature(state)
@@ -2595,6 +2617,7 @@ function useSignature(): void {
   if (result.event === "much-snare") {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
   }
+  if (result.event !== "signature-unavailable" && result.event !== "volley-missed") heroSignatureUntil = clock.elapsedTime + 0.9
   showToast(messages[result.event] ?? result.event)
 }
 
@@ -2875,7 +2898,7 @@ function syncViews(elapsed: number, dt: number): void {
   poseHeroCharacter(playerView, {
     elapsed,
     moving: playerMoving,
-    attacking: elapsed < robinShotUntil,
+    action: elapsed < heroSignatureUntil ? "signature" : elapsed < heroAttackUntil ? "attack" : "idle",
     downed: localDownedFor > 0,
     motionScale: renderProfile.motionScale,
   })
@@ -2899,9 +2922,11 @@ function syncViews(elapsed: number, dt: number): void {
     remote.fallback.visible = cameraDistance <= 48
     if (moving) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
     remote.view.rotation.z = remote.downedFor > 0 ? Math.PI / 2.7 : 0
+    if (elapsed >= remote.actionUntil) remote.action = "idle"
     poseHeroCharacter(remote.fallback, {
       elapsed,
       moving,
+      action: remote.action,
       downed: remote.downedFor > 0,
       motionScale: renderProfile.motionScale,
     })

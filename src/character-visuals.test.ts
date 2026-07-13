@@ -10,7 +10,11 @@ describe("procedural Merry Band characters", () => {
       expect(character.name).toBe(`character.${hero}.procedural`)
       expect(character.getObjectByName("RigHead")).toBeTruthy()
       expect(character.getObjectByName("RigLeftArm")).toBeTruthy()
+      expect(character.getObjectByName("RigLeftArmForearm")).toBeTruthy()
+      expect(character.getObjectByName("RigRightArmHand")).toBeTruthy()
       expect(character.getObjectByName("RigRightLeg")).toBeTruthy()
+      expect(character.getObjectByName("RigRightLegShin")).toBeTruthy()
+      expect(character.getObjectByName("RigLeftLegBoot")).toBeTruthy()
       expect(character.getObjectByName("FaceLeftEye")).toBeTruthy()
     }
   })
@@ -24,10 +28,18 @@ describe("procedural Merry Band characters", () => {
 
   it("poses articulated limbs for walking and attacks", () => {
     const robin = createHeroCharacter("robin")
-    poseHeroCharacter(robin, { elapsed: 0.15, moving: true, attacking: false })
+    poseHeroCharacter(robin, { elapsed: 0.15, moving: true, action: "idle" })
     const walkingLeg = robin.getObjectByName("RigLeftLeg")!
     expect(Math.abs(walkingLeg.rotation.x)).toBeGreaterThan(0.1)
-    poseHeroCharacter(robin, { elapsed: 0.15, moving: false, attacking: true })
-    expect(robin.getObjectByName("RigLeftArm")!.rotation.x).toBeCloseTo(-1.22)
+    poseHeroCharacter(robin, { elapsed: 0.15, moving: false, action: "attack" })
+    expect(robin.getObjectByName("RigLeftArm")!.rotation.x).toBeCloseTo(-1.48)
+    expect(robin.getObjectByName("RigRightArmForearm")!.rotation.x).toBeCloseTo(-1.15)
+  })
+
+  it("uses a grounded staff pose for Little John's signature", () => {
+    const john = createHeroCharacter("little-john")
+    poseHeroCharacter(john, { elapsed: 0.15, moving: false, action: "signature" })
+    expect(john.getObjectByName("JohnQuarterstaff")).toBeTruthy()
+    expect(john.getObjectByName("RigLeftArmForearm")!.rotation.x).toBeCloseTo(-0.62)
   })
 })
