@@ -954,6 +954,23 @@ destinationMarker.position.y = 0.08
 destinationMarker.visible = false
 scene.add(destinationMarker)
 
+const objectiveBeacon = new THREE.Group()
+objectiveBeacon.name = "ObjectiveBeacon"
+const objectiveBeaconRing = new THREE.Mesh(
+  new THREE.TorusGeometry(1.45, 0.09, 7, 28),
+  new THREE.MeshBasicMaterial({ color: palette.gold, transparent: true, opacity: 0.88, depthWrite: false }),
+)
+objectiveBeaconRing.rotation.x = Math.PI / 2
+objectiveBeaconRing.position.y = 3.2
+const objectiveBeaconRay = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.1, 0.34, 7, 8, 1, true),
+  new THREE.MeshBasicMaterial({ color: palette.gold, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }),
+)
+objectiveBeaconRay.position.y = 3.5
+objectiveBeacon.add(objectiveBeaconRing, objectiveBeaconRay)
+objectiveBeacon.visible = false
+scene.add(objectiveBeacon)
+
 const multiplayer = new MultiplayerClient({
   onWelcome: (_playerId, roomCode) => {
     inPublicHub = false
@@ -2791,8 +2808,17 @@ function updateUI(): void {
     : multiplayerActive
       ? missionPrompt
       : getContextPrompt(state)
+  const discovered = latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered
+  const objectivePosition = latestMissionSnapshot?.layout.objectivePosition ?? state.layout.objectivePosition
+  const dx = objectivePosition.x - state.player.position.x
+  const dz = objectivePosition.z - state.player.position.z
+  const objectiveDistance = Math.round(Math.hypot(dx, dz))
+  const angle = (Math.atan2(dx, -dz) * 180 / Math.PI + 360) % 360
+  const bearing = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(angle / 45) % 8]
   if (multiplayerActive) {
-    objectiveElement.textContent = missionObjective
+    objectiveElement.textContent = discovered && latestMissionSnapshot?.phase === "scout"
+      ? `${missionObjective} · ${bearing} ${objectiveDistance}m`
+      : missionObjective
     return
   }
   if (state.player.loot > 0) objectiveElement.textContent = "Return the coin to the village"
@@ -2800,7 +2826,7 @@ function updateUI(): void {
   else objectiveElement.textContent = state.delivered > 0
     ? "Strike the tax cart again"
     : state.objectiveDiscovered
-      ? "Close on the Sheriff's shipment"
+      ? `Close on the Sheriff's shipment · ${bearing} ${objectiveDistance}m`
       : "Search all 25 Sherwood sectors"
 }
 
@@ -2810,7 +2836,8 @@ function renderRegionMap(): void {
   if (!missionVisible) return
   const explored = latestMissionSnapshot?.exploredCellIndices ?? state.exploredCellIndices
   const objectiveDiscovered = latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered
-  const cells = buildRegionMapCells(state.layout, explored, state.player.position, objectiveDiscovered)
+  const searchPressure = latestMissionSnapshot?.searchPressure ?? state.searchPressure
+  const cells = buildRegionMapCells(state.layout, explored, state.player.position, objectiveDiscovered, searchPressure)
   if (regionMapGrid.children.length !== cells.length) {
     regionMapGrid.replaceChildren(...cells.map(() => {
       const cell = document.createElement("span")
@@ -2822,7 +2849,7 @@ function renderRegionMap(): void {
   cells.forEach((cell, index) => {
     const view = regionMapGrid.children[index] as HTMLElement
     if (cell.explored) exploredCount += 1
-    view.className = `region-map-cell${cell.explored ? " explored" : " fogged"}${cell.current ? " current" : ""}`
+    view.className = `region-map-cell${cell.explored ? " explored" : " fogged"}${cell.activity ? " activity" : ""}${cell.objective ? " objective" : ""}${cell.current ? " current" : ""}`
     view.textContent = cell.current ? "▲" : ""
     view.setAttribute("aria-hidden", "true")
   })
@@ -2892,6 +2919,11 @@ function syncViews(elapsed: number, dt: number): void {
     },
   )
   water.update(elapsed, renderProfile.motionScale)
+  const objectiveVisible = !inHub && (latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered)
+  objectiveBeacon.visible = objectiveVisible
+  objectiveBeacon.position.set(cartView.position.x, 0, cartView.position.z)
+  objectiveBeaconRing.rotation.z = elapsed * 0.45
+  objectiveBeacon.position.y = Math.sin(elapsed * 2) * 0.12
   if (windmillRotor) windmillRotor.rotation.z = elapsed * 0.32 * renderProfile.motionScale
   if (!multiplayerActive) {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))

@@ -72,6 +72,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .region-map-cell.current { outline: 2px solid #fff3b1; outline-offset: -3px; box-shadow: inset 0 0 7px #fff; }
 .region-map-cell.camp { color: #7c2c20; }
 .region-map-cell.objective { color: #f6d16a; background: #6b432e; }
+.region-map-cell.activity { color: #2a1a13; background: repeating-linear-gradient(45deg, #b87a43 0 4px, #d3a45d 4px 8px); }
+.region-map-cell.activity::after { content: "?"; color: #fff2bf; text-shadow: 0 1px 2px #321; }
+.region-map-cell.objective::after { content: "◆"; color: #ffe37b; text-shadow: 0 0 5px #ffe37b; }
 .region-map small { display: flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 7px; font-weight: 800; letter-spacing: .08em; }
 .map-key { width: 6px; height: 6px; border-radius: 50%; background: #7c2c20; }
 .map-key.objective { margin-left: 5px; background: #d49b28; }
