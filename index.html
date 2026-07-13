@@ -52,20 +52,6 @@
         <span class="eyebrow">RHTGOC · A 3D OUTLAW ADVENTURE</span>
         <h1>Robin Hood.<br /><em>The Game (On Chain).</em></h1>
         <p>Take from the crown. Return it to the people. Ambush the Sheriff's tax cart and carry the coin home before they catch you.</p>
-        <div class="character-select" aria-label="Choose an outlaw">
-          <button class="character-option selected" data-character="robin" aria-pressed="true">
-            <b>ROBIN HOOD</b><span>Marksman</span><small>Six arrows · Q: Twin Shot</small>
-          </button>
-          <button class="character-option" data-character="marian" aria-pressed="false">
-            <b>MAID MARIAN</b><span>Scout</span><small>Faster · Q: Veil</small>
-          </button>
-          <button class="character-option" data-character="little-john" aria-pressed="false">
-            <b>LITTLE JOHN</b><span>Vanguard</span><small>Heavy carry · Q: Oak Sweep</small>
-          </button>
-          <button class="character-option" data-character="much" aria-pressed="false">
-            <b>MUCH</b><span>Saboteur</span><small>Cut signals · Q: Road Snare</small>
-          </button>
-        </div>
         <div class="band-setup">
           <input id="player-name" maxlength="20" value="Greenhood" aria-label="Outlaw name" />
           <button id="create-room">FORM A MERRY BAND</button>
@@ -83,6 +69,18 @@
         <button id="start-button">ENTER THE CAMPFIRE <span>→</span></button>
         <small id="intro-controls">WASD / CLICK TO MOVE · E TO INTERACT · SPACE TO FIRE · Q SIGNATURE</small>
       </div>
+    </div>
+    <div class="panel role-choice-panel hidden" id="role-choice-panel" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="role-choice-title">
+      <span class="eyebrow">YOU ARE IN THE ROOM</span>
+      <h2 id="role-choice-title">Choose your outlaw</h2>
+      <p>Selections are secured by the server in arrival order. Choose another outlaw if a role fills first.</p>
+      <div class="character-select role-choice-grid" aria-label="Available outlaws">
+        <button class="character-option" data-room-character="robin"><b>ROBIN HOOD</b><span>Marksman</span><small>Six arrows · Q: Twin Shot</small><i>AVAILABLE</i></button>
+        <button class="character-option" data-room-character="marian"><b>MAID MARIAN</b><span>Scout</span><small>Faster · Q: Veil</small><i>AVAILABLE</i></button>
+        <button class="character-option" data-room-character="little-john"><b>LITTLE JOHN</b><span>Vanguard</span><small>Heavy carry · Q: Oak Sweep</small><i>AVAILABLE</i></button>
+        <button class="character-option" data-room-character="much"><b>MUCH</b><span>Saboteur</span><small>Cut signals · Q: Road Snare</small><i>AVAILABLE</i></button>
+      </div>
+      <small id="role-choice-status" role="status" aria-live="polite">Choose an outlaw before readying up.</small>
     </div>
     <div class="panel hidden" id="help-panel" role="dialog" aria-modal="true" aria-labelledby="help-title" tabindex="-1">
       <button id="close-help" aria-label="Close controls">×</button>
@@ -269,7 +267,7 @@
       <p>No public text or voice. Use fixed intent, pings, emotes, mute, block, and report.</p>
       <label>TARGET <select id="public-hub-target"><option value="any">Any trusted mission</option><option value="peoples-purse">People's Purse</option><option value="prison-wagon">Iron Road</option><option value="royal-storehouse">Nottingham Ledger</option></select></label>
       <label>PARTY SIZE <select id="public-hub-size"><option value="2">2 outlaws</option><option value="3">3 outlaws</option><option value="4">4 outlaws</option></select></label>
-      <div class="public-hub-actions"><button id="public-hub-looking">START LOOKING</button><button id="public-hub-form" disabled>FORM PRIVATE BAND</button></div>
+      <div class="public-hub-actions"><button id="public-hub-looking">FIND A BAND</button></div>
       <div class="public-hub-emotes"><button data-hub-emote="wave">WAVE</button><button data-hub-emote="cheer">CHEER</button><button data-hub-emote="bow">BOW</button><button data-hub-ping="regroup">REGROUP</button></div>
       <ul id="public-hub-list"></ul>
       <button id="public-hub-leave">LEAVE PUBLIC CAMP</button>

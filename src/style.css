@@ -200,6 +200,7 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .public-hub-panel label { display: grid; grid-template-columns: 1fr 1.5fr; align-items: center; margin: 7px 0; color: var(--gold); font-size: 8px; font-weight: 800; }
 .public-hub-panel select { padding: 7px; color: var(--cream); background: #203c2d; border: 1px solid #f7f0d42b; font-size: 8px; }
 .public-hub-actions, .public-hub-emotes { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 9px 0; }
+.public-hub-actions { grid-template-columns: 1fr; }
 .public-hub-emotes { grid-template-columns: repeat(4,1fr); }
 .public-hub-panel button { padding: 8px; color: var(--cream); background: #294632; border: 1px solid #f7f0d42b; cursor: pointer; font-size: 8px; font-weight: 800; }
 .public-hub-panel button:disabled { opacity: .42; cursor: default; }
@@ -278,6 +279,14 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .hub-roles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 7px 0 13px; }
 .hub-roles button, .hub-actions button { padding: 8px; color: var(--cream); background: #294632; border: 1px solid #f7f0d42c; cursor: pointer; font-size: 8px; font-weight: 800; }
 .hub-roles button.selected { color: #10251d; background: var(--gold); }
+.role-choice-panel { z-index: 30; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+.role-choice-panel h2 { margin: 5px 0 8px; font: 700 clamp(25px, 4vw, 42px) Cinzel, serif; }
+.role-choice-panel > p { margin: 0 0 14px; color: #f7f0d4a8; }
+.role-choice-grid .character-option { position: relative; text-align: left; }
+.role-choice-grid .character-option i { display: block; margin-top: 9px; color: var(--gold); font-size: 8px; font-style: normal; font-weight: 900; letter-spacing: .1em; }
+.role-choice-grid .character-option:disabled { opacity: .38; cursor: not-allowed; }
+.role-choice-grid .character-option:disabled i { color: #d46b58; }
+#role-choice-status { display: block; margin-top: 12px; color: var(--gold); }
 .hub-loadout select { width: 100%; margin-top: 7px; padding: 8px; color: var(--cream); background: #0c1d16; border: 1px solid #f7f0d42c; }
 .hub-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 14px; }
 .hub-actions button:last-child { color: var(--ink); background: var(--gold); }

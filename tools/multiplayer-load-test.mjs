@@ -44,13 +44,22 @@ function send(socket, message) {
 async function createRoom(index) {
   const robin = await connect()
   const robinWelcome = waitForMessage(robin, (message) => message.type === "welcome")
+  const robinProvisional = waitForMessage(robin, (message) => message.type === "room_state" && message.players.length === 1 && !message.players[0].roleConfirmed)
   send(robin, { type: "create_room", version: protocolVersion, displayName: `Load Robin ${index}`, characterId: "robin" })
   const { roomCode } = await robinWelcome
+  await robinProvisional
+  const robinConfirmed = waitForMessage(robin, (message) => message.type === "room_state" && message.players.length === 1 && message.players[0].roleConfirmed)
+  send(robin, { type: "select_character", characterId: "robin" })
+  await robinConfirmed
 
   const marian = await connect()
   const marianWelcome = waitForMessage(marian, (message) => message.type === "welcome")
+  const marianProvisional = waitForMessage(marian, (message) => message.type === "room_state" && message.players.length === 2 && message.players.some((player) => !player.roleConfirmed))
   send(marian, { type: "join_room", version: protocolVersion, roomCode, displayName: `Load Marian ${index}`, characterId: "marian" })
-  await marianWelcome
+  await Promise.all([marianWelcome, marianProvisional])
+  const roomConfirmed = waitForMessage(robin, (message) => message.type === "room_state" && message.players.length === 2 && message.players.every((player) => player.roleConfirmed))
+  send(marian, { type: "select_character", characterId: "marian" })
+  await roomConfirmed
   return { roomCode, sockets: [robin, marian] }
 }
 

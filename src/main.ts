@@ -43,13 +43,17 @@ import {
 } from "./input-settings"
 import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, sendMagicLink, signOutSocial, updateSocialPresence, type SocialState } from "./social"
 import { createVillageCottage, createVillageWagonShell } from "./village-assets"
+import { createAuthoredTreePlacements, TREE_VARIANT_NAMES } from "./tree-placements"
 import {
   PUBLIC_HUB_WORLD_BOUNDS,
   resolveSherwoodPlayerMovement,
 } from "../shared/world-collisions"
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
-import { createArcheryEquipment, type BowVariant } from "./archery-equipment"
+import { createArcheryEquipment } from "./archery-equipment"
+import { createHeroCharacter, poseHeroCharacter, type HeroAction } from "./character-visuals"
+import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
+import { syncGuardViewCount } from "./guard-view-pool"
 import { SHERWOOD_CELL_SIZE, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells } from "./region-map"
 
@@ -83,7 +87,10 @@ const boardParty = document.querySelector<HTMLSelectElement>("#board-party")!
 const boardScope = document.querySelector<HTMLSelectElement>("#board-scope")!
 const boardMission = document.querySelector<HTMLSelectElement>("#board-mission")!
 const boardSeason = document.querySelector<HTMLSelectElement>("#board-season")!
-const characterButtons = [...document.querySelectorAll<HTMLButtonElement>(".character-option")]
+const characterButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-character]")]
+const roleChoicePanel = document.querySelector<HTMLElement>("#role-choice-panel")!
+const roleChoiceButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-room-character]")]
+const roleChoiceStatus = document.querySelector<HTMLElement>("#role-choice-status")!
 const playerNameInput = document.querySelector<HTMLInputElement>("#player-name")!
 const roomCodeInput = document.querySelector<HTMLInputElement>("#room-code")!
 const createRoomButton = document.querySelector<HTMLButtonElement>("#create-room")!
@@ -194,7 +201,6 @@ const publicHubCount = document.querySelector<HTMLElement>("#public-hub-count")!
 const publicHubTarget = document.querySelector<HTMLSelectElement>("#public-hub-target")!
 const publicHubSize = document.querySelector<HTMLSelectElement>("#public-hub-size")!
 const publicHubLooking = document.querySelector<HTMLButtonElement>("#public-hub-looking")!
-const publicHubForm = document.querySelector<HTMLButtonElement>("#public-hub-form")!
 const publicHubEmotes = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-emote]")]
 const publicHubPings = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-ping]")]
 const publicHubList = document.querySelector<HTMLUListElement>("#public-hub-list")!
@@ -214,6 +220,7 @@ scene.fog = new THREE.FogExp2(0x91aa83, 0.012)
 
 const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 280)
 camera.position.set(6, 14, 20)
+const BASE_CAMERA_OFFSET = Object.freeze({ x: 12.5, z: 15.5 })
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" })
 const renderProfile = chooseRenderProfile({
@@ -283,6 +290,8 @@ let inPublicHub = false
 let publicHubParticipantId: string | null = null
 let publicHubPlayers: PublicHubPlayer[] = []
 let publicHubIsLooking = false
+let localRoleConfirmed = false
+let cameraQuarterTurns = 0
 
 const guardViews: THREE.Group[] = []
 const arrowEffects: { line: THREE.Line; age: number }[] = []
@@ -290,14 +299,12 @@ const vanguardEffects: { ring: THREE.Mesh; age: number }[] = []
 interface RemoteView {
   view: THREE.Group
   fallback: THREE.Group
-  authored: THREE.Group | null
   snapshots: SnapshotBuffer
-  mixer: THREE.AnimationMixer | null
-  actions: Map<string, THREE.AnimationAction>
-  motion: string
   lastPosition: THREE.Vector3
   characterId: CharacterId
   downedFor: number
+  action: HeroAction
+  actionUntil: number
 }
 
 const remoteViews = new Map<string, RemoteView>()
@@ -308,7 +315,18 @@ const alarmViews = new Map<string, THREE.Group>()
 const lootCacheViews = new Map<string, THREE.Group>()
 const preparationViews = new Map<string, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
-const authoredGroveViews: THREE.Group[] = []
+interface AuthoredTreeInstance {
+  batch: THREE.InstancedMesh
+  instanceId: number
+  visibleMatrix: THREE.Matrix4
+  hiddenMatrix: THREE.Matrix4
+  x: number
+  z: number
+  radius: number
+  hidden: boolean
+}
+
+const authoredTreeInstances: AuthoredTreeInstance[] = []
 const regionFogViews: THREE.Mesh[] = []
 const medievalPropViews: THREE.Object3D[] = []
 const cameraOccluders: Array<{ view: THREE.Group; radius: number; maxDistance?: number }> = []
@@ -319,8 +337,7 @@ const missionCampfireView = new THREE.Group()
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
-let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
-let treeGroveAssetPromise: Promise<THREE.Group> | null = null
+let treeCatalogAssetPromise: Promise<THREE.Group> | null = null
 let villageAssetPromise: Promise<THREE.Group> | null = null
 let medievalPropsPromise: Promise<THREE.Group> | null = null
 let treasureChestPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
@@ -330,10 +347,8 @@ let villageCottageFallback: THREE.Group | null = null
 let villageCottageView: THREE.Group | null = null
 let proceduralWagonShellView: THREE.Group | null = null
 let villageWagonShellView: THREE.Group | null = null
-let robinRangerMixer: THREE.AnimationMixer | null = null
-let robinRangerActions = new Map<string, THREE.AnimationAction>()
-let robinRangerMotion = ""
-let robinShotUntil = 0
+let heroAttackUntil = 0
+let heroSignatureUntil = 0
 
 const palette = {
   grass: 0x506e40,
@@ -397,7 +412,7 @@ function addLighting(): void {
   scene.add(sun)
 }
 
-function createTree(x: number, z: number, scale = 1): THREE.Group {
+function createFallbackTree(x: number, z: number, scale = 1): THREE.Group {
   const tree = new THREE.Group()
   tree.position.set(x, 0, z)
   const trunk = mesh(new THREE.CylinderGeometry(0.22 * scale, 0.34 * scale, 2.4 * scale, 7), palette.trunk)
@@ -482,8 +497,6 @@ function createWorld(): void {
   missionCampfireView.add(fire)
   missionCampfireView.position.set(state.layout.campfirePosition.x, 0, state.layout.campfirePosition.z)
   scene.add(missionCampfireView)
-
-  for (const tree of SHERWOOD_TREE_LAYOUT) createTree(tree.x, tree.z, tree.scale)
 
   let seed = 7331
   const random = (): number => {
@@ -599,13 +612,10 @@ function openNearbyBowCache(): void {
 }
 
 function createCharacter(role: CharacterId | "guard"): THREE.Group {
+  if (role !== "guard") return createHeroCharacter(role)
   const character = new THREE.Group()
-  const isRobin = role === "robin"
-  const isMarian = role === "marian"
-  const isLittleJohn = role === "little-john"
-  const isHero = role !== "guard"
-  const tunicColor = isRobin ? palette.green : isMarian ? 0x4d536f : isLittleJohn ? 0x76532f : role === "much" ? 0x665337 : palette.red
-  const tunic = mesh(new THREE.CylinderGeometry(isLittleJohn ? 0.48 : 0.38, isLittleJohn ? 0.62 : 0.52, isLittleJohn ? 1.52 : 1.35, 8), tunicColor)
+  character.name = "character.sheriff.guard"
+  const tunic = mesh(new THREE.CylinderGeometry(0.38, 0.52, 1.35, 8), palette.red)
   tunic.position.y = 1.08
   const belt = mesh(new THREE.CylinderGeometry(0.43, 0.43, 0.14, 8), 0x3e2a21)
   belt.position.y = 1.15
@@ -615,86 +625,21 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
   legLeft.position.set(-0.19, 0.38, 0)
   const legRight = legLeft.clone()
   legRight.position.x = 0.19
-  const hat = isHero
-    ? mesh(new THREE.ConeGeometry(0.48, 0.72, 7), isMarian ? 0x34374f : 0x234b2d)
-    : mesh(new THREE.SphereGeometry(0.39, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0x777d78)
+  const hat = mesh(new THREE.SphereGeometry(0.39, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0x777d78)
   hat.position.y = 2.23
-  hat.rotation.z = isHero ? -0.35 : 0
   character.add(tunic, belt, head, legLeft, legRight, hat)
-  if (isHero) {
-    const bowVariant: BowVariant = isRobin ? "longbow" : isMarian ? "recurve" : "shortbow"
-    const kitScale = isLittleJohn ? 1.05 : isMarian ? 0.88 : role === "much" ? 0.78 : 0.95
-    const { group: archeryKit, bow, quiver } = createArcheryEquipment(bowVariant, kitScale)
-    if (isLittleJohn) {
-      bow.position.set(-0.28, 1.35, 0.34)
-      bow.rotation.set(0.12, 0.2, -0.18)
-    } else {
-      bow.position.set(-0.52, 1.18, 0)
-      bow.rotation.set(0, 0, 0.08)
-    }
-    quiver.position.set(0.28, 1.38, 0.28)
-    quiver.rotation.set(-0.14, 0, -0.16)
-    character.add(archeryKit)
-  }
-  if (isHero && !isLittleJohn) {
-    if (isMarian) {
-      const mantle = mesh(new THREE.ConeGeometry(0.6, 1.45, 8, 1, true), 0x39465d)
-      mantle.position.set(0, 1.1, 0.17)
-      mantle.rotation.x = 0.08
-      character.add(mantle)
-    }
-    if (role === "much") {
-      const satchel = mesh(new THREE.BoxGeometry(0.48, 0.42, 0.24), 0x8b6234)
-      satchel.position.set(0.43, 1.04, 0.28)
-      satchel.rotation.z = -0.18
-      const fuse = mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.6, 5), 0xd4b15e)
-      fuse.position.set(0.36, 1.55, 0.22)
-      fuse.rotation.z = -0.55
-      character.add(satchel, fuse)
-    }
-  } else if (isLittleJohn) {
-    const staff = mesh(new THREE.CylinderGeometry(0.055, 0.065, 2.9, 8), 0x654225)
-    staff.position.set(0.55, 1.25, 0)
-    staff.rotation.z = -0.16
-    const ironBand = mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.22, 8), 0x8b8f86)
-    ironBand.position.set(0.78, 2.66, 0)
-    ironBand.rotation.z = -0.16
-    const shoulder = mesh(new THREE.TorusGeometry(0.48, 0.075, 6, 18, Math.PI), 0x3e2a21)
-    shoulder.position.set(0, 1.64, 0)
-    shoulder.rotation.x = Math.PI / 2
-    character.add(staff, ironBand, shoulder)
-  } else {
-    const spear = mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.5, 5), 0x3c2c20)
-    spear.position.set(0.48, 1.15, 0)
-    const tip = mesh(new THREE.ConeGeometry(0.12, 0.4, 5), 0xaeb4ae)
-    tip.position.set(0.48, 2.55, 0)
-    character.add(spear, tip)
-  }
+  const spear = mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.5, 5), 0x3c2c20)
+  spear.position.set(0.48, 1.15, 0)
+  const tip = mesh(new THREE.ConeGeometry(0.12, 0.4, 5), 0xaeb4ae)
+  tip.position.set(0.48, 2.55, 0)
+  character.add(spear, tip)
   return character
 }
 
-function loadRobinRanger(): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
-  rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb?v=clean-rig-3")
-    .then((asset) => {
-      const clipNames: Record<string, string> = {
-        Ranger_Idle: "Robin_Idle",
-        Ranger_Walk: "Robin_Walk",
-        Ranger_Attack: "Robin_Shoot",
-      }
-      const animations = asset.animations.map((clip) => {
-        const renamed = clip.clone()
-        renamed.name = clipNames[clip.name] ?? clip.name
-        return renamed
-      })
-      return { scene: convertObjectToToon(asset.scene), animations }
-    })
-  return rangerAssetPromise
-}
-
-function loadTreeGrove(): Promise<THREE.Group> {
-  treeGroveAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-tree-grove.glb")
+function loadTreeCatalog(): Promise<THREE.Group> {
+  treeCatalogAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-tree-catalog.glb")
     .then((asset) => convertObjectToToon(asset.scene))
-  return treeGroveAssetPromise
+  return treeCatalogAssetPromise
 }
 
 function loadVillageCatalog(): Promise<THREE.Group> {
@@ -765,78 +710,68 @@ function attachVillageSlice(cart: THREE.Group): void {
   })
 }
 
-function attachTreeGroves(): void {
-  const placements = renderProfile.tier === "degraded"
-    ? [{ x: -57, z: -56, scale: 15, rotation: 0.35 }]
-    : [
-        { x: -57, z: -56, scale: 15, rotation: 0.35 },
-        { x: 56, z: 57, scale: 14, rotation: -1.1 },
-        { x: 57, z: -56, scale: 13, rotation: 1.7 },
-      ]
-  void loadTreeGrove().then((source) => {
-    for (const placement of placements) {
-      const grove = source.clone(true)
-      grove.position.set(placement.x, 0, placement.z)
-      grove.rotation.y = placement.rotation
-      grove.scale.setScalar(placement.scale)
-      grove.userData.authoredTreeGrove = true
-      grove.traverse((child) => {
-        if (!(child instanceof THREE.Mesh)) return
-        // The authored grove is scaled as distant perimeter dressing. Casting
-        // that scaled silhouette into the shared shadow map produces enormous
-        // near-black toon bands across the playfield, so only nearby procedural
-        // trees and gameplay actors cast dynamic shadows.
-        child.castShadow = false
-        child.receiveShadow = true
-        child.frustumCulled = true
+function attachStylizedTrees(): void {
+  const placements = createAuthoredTreePlacements(SHERWOOD_TREE_LAYOUT)
+  void loadTreeCatalog().then((catalog) => {
+    const batches: THREE.InstancedMesh[] = []
+    const records: AuthoredTreeInstance[] = []
+    catalog.updateMatrixWorld(true)
+
+    for (const variantName of TREE_VARIANT_NAMES) {
+      const source = catalog.getObjectByName(variantName)
+      if (!source) throw new Error(`Tree catalog is missing ${variantName}`)
+      const sourceMeshes: THREE.Mesh[] = []
+      source.traverse((child) => {
+        if (child instanceof THREE.Mesh) sourceMeshes.push(child)
       })
-      authoredGroveViews.push(grove)
-      scene.add(grove)
+      if (sourceMeshes.length === 0) throw new Error(`Tree catalog variant has no mesh: ${variantName}`)
+      const variantPlacements = placements.filter((placement) => placement.variantName === variantName)
+      sourceMeshes.forEach((sourceMesh, partIndex) => {
+        const batch = new THREE.InstancedMesh(sourceMesh.geometry, sourceMesh.material, variantPlacements.length)
+        batch.name = `${variantName}_Part_${partIndex + 1}_Instances`
+        batch.castShadow = renderProfile.tier !== "degraded"
+        batch.receiveShadow = true
+        batch.frustumCulled = true
+        batch.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+
+        variantPlacements.forEach((placement, instanceId) => {
+          const visibleMatrix = new THREE.Matrix4().compose(
+            new THREE.Vector3(placement.x, 0, placement.z),
+            new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), placement.rotation),
+            new THREE.Vector3(placement.height, placement.height, placement.height),
+          ).multiply(sourceMesh.matrixWorld)
+          const hiddenMatrix = new THREE.Matrix4().compose(
+            new THREE.Vector3(placement.x, -20, placement.z),
+            new THREE.Quaternion(),
+            new THREE.Vector3(0.001, 0.001, 0.001),
+          )
+          batch.setMatrixAt(instanceId, visibleMatrix)
+          records.push({
+            batch,
+            instanceId,
+            visibleMatrix,
+            hiddenMatrix,
+            x: placement.x,
+            z: placement.z,
+            radius: placement.visualRadius,
+            hidden: false,
+          })
+        })
+
+        batch.computeBoundingBox()
+        batch.computeBoundingSphere()
+        batch.instanceMatrix.needsUpdate = true
+        batches.push(batch)
+      })
     }
-  }).catch(() => showToast("The authored tree grove could not be loaded; procedural forest remains active"))
-}
 
-function prepareRangerInstance(source: THREE.Group): THREE.Group {
-  const ranger = cloneSkeleton(source) as THREE.Group
-  cloneObjectMaterialsForInstance(ranger)
-  ranger.updateMatrixWorld(true)
-  const sourceBounds = new THREE.Box3().setFromObject(ranger)
-  const sourceHeight = Math.max(0.001, sourceBounds.max.y - sourceBounds.min.y)
-  ranger.scale.setScalar(2.35 / sourceHeight)
-  ranger.updateMatrixWorld(true)
-  const groundedBounds = new THREE.Box3().setFromObject(ranger)
-  ranger.position.y = -groundedBounds.min.y
-  ranger.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return
-    child.castShadow = true
-    child.receiveShadow = true
-    child.frustumCulled = true
+    authoredTreeInstances.push(...records)
+    scene.add(...batches)
+  }).catch((error) => {
+    console.error("Stylized tree catalog failed to initialize", error)
+    for (const tree of SHERWOOD_TREE_LAYOUT) createFallbackTree(tree.x, tree.z, tree.scale)
+    showToast("Stylized trees could not be loaded; simple forest fallback enabled")
   })
-  return ranger
-}
-
-function attachRobinRanger(view: THREE.Group): void {
-  void loadRobinRanger().then((asset) => {
-    if (playerView !== view || selectedCharacter !== "robin") return
-    disposeObjectInstanceMaterials(view)
-    view.clear()
-    const ranger = prepareRangerInstance(asset.scene)
-    view.add(ranger)
-    robinRangerMixer = new THREE.AnimationMixer(ranger)
-    robinRangerActions = new Map(asset.animations.map((clip) => [clip.name, robinRangerMixer!.clipAction(clip)]))
-    robinRangerMotion = ""
-    setRobinRangerMotion("Robin_Idle")
-  }).catch(() => showToast("Robin's ranger model could not be loaded"))
-}
-
-function setRobinRangerMotion(name: string): void {
-  if (!robinRangerMixer || robinRangerMotion === name) return
-  const next = robinRangerActions.get(name)
-  if (!next) return
-  const previous = robinRangerActions.get(robinRangerMotion)
-  previous?.fadeOut(0.12)
-  next.reset().fadeIn(0.12).play()
-  robinRangerMotion = name
 }
 
 function createCart(): THREE.Group {
@@ -982,12 +917,11 @@ function createDisguiseRack(): THREE.Group {
 
 addLighting()
 createWorld()
-attachTreeGroves()
+attachStylizedTrees()
 attachMedievalProps()
 
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
-attachRobinRanger(playerView)
 state.guards.forEach(() => {
   const guard = createCharacter("guard")
   guardViews.push(guard)
@@ -1023,7 +957,7 @@ const multiplayer = new MultiplayerClient({
     hubRoomCode.textContent = roomCode
     roomCodeInput.value = roomCode
     roomLobby.classList.remove("hidden")
-    lobbyStatus.textContent = "Share this code, then ready up together."
+    lobbyStatus.textContent = "Choose an outlaw, then ready up together."
     enterHub(true)
     void syncPresence("in-band", roomCode)
   },
@@ -1047,16 +981,20 @@ const multiplayer = new MultiplayerClient({
     renderSafetyPanel(players)
     const localPlayer = players.find((player) => player.id === multiplayer.playerId)
     localReady = localPlayer?.ready ?? false
+    localRoleConfirmed = localPlayer?.roleConfirmed ?? false
     if (localPlayer) {
       if (localPlayer.characterId !== selectedCharacter) selectLocalCharacter(localPlayer.characterId, false)
       state.player.health = localPlayer.health
       if (phase === "lobby") state.player.position = { ...localPlayer.position }
     }
     readyButton.textContent = localReady ? "NOT READY" : "READY UP"
+    readyButton.disabled = !localRoleConfirmed
     hubReady.textContent = localReady ? "NOT READY" : "READY UP"
+    hubReady.disabled = roomConnected && !localRoleConfirmed
     hubLoadout.value = localPlayer?.loadoutId ?? "balanced"
     applyVillageState(visibleVillageState(village))
     renderHub()
+    renderRoleChoice(players)
     if (phase === "lobby") {
       multiplayerActive = false
       enterHub(true)
@@ -1142,10 +1080,29 @@ const multiplayer = new MultiplayerClient({
 function hubPlayerAsRoomPlayer(player: PublicHubPlayer): RoomPlayer {
   return {
     id: player.id, displayName: player.displayName, characterId: player.characterId, loadoutId: "balanced", ready: player.looking, connected: true,
+    roleConfirmed: true,
     bandRole: null, bandInvitePending: false,
     health: 3, arrows: 0, loot: 0, downedFor: 0, signatureCooldown: 0, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0, trapHits: 0, sabotageCount: 0,
     position: { ...player.position }, lastInputSequence: 0,
   }
+}
+
+function renderRoleChoice(players: RoomPlayer[]): void {
+  const shouldOpen = roomConnected && !localRoleConfirmed
+  const opening = shouldOpen && roleChoicePanel.classList.contains("hidden")
+  roleChoicePanel.classList.toggle("hidden", !shouldOpen)
+  roleChoicePanel.setAttribute("aria-hidden", String(!shouldOpen))
+  for (const button of roleChoiceButtons) {
+    const characterId = button.dataset.roomCharacter as CharacterId
+    const selected = players.filter((player) => player.roleConfirmed && player.characterId === characterId).length
+    const full = selected >= 2
+    button.disabled = full
+    button.classList.toggle("selected", localRoleConfirmed && selectedCharacter === characterId)
+    const availability = button.querySelector("i")
+    if (availability) availability.textContent = full ? "FULL" : `${2 - selected} SLOT${2 - selected === 1 ? "" : "S"} OPEN`
+  }
+  roleChoiceStatus.textContent = "Choose an outlaw before readying up."
+  if (opening) roleChoiceButtons.find((button) => !button.disabled)?.focus()
 }
 
 function setMissionWorldVisible(visible: boolean): void {
@@ -1254,10 +1211,9 @@ function renderHub(): void {
 
 function renderPublicHub(): void {
   publicHubCount.textContent = `${publicHubPlayers.length}/12`
-  publicHubLooking.textContent = publicHubIsLooking ? "STOP LOOKING" : "START LOOKING"
+  publicHubLooking.textContent = publicHubIsLooking ? "CANCEL SEARCH" : "FIND A BAND"
   const desiredPartySize = Number(publicHubSize.value)
   const compatible = publicHubPlayers.filter((player) => player.id !== publicHubParticipantId && player.looking && player.desiredPartySize === desiredPartySize && (publicHubTarget.value === "any" || player.targetPreference === "any" || player.targetPreference === publicHubTarget.value)).length
-  publicHubForm.disabled = !publicHubIsLooking || compatible < desiredPartySize - 1
   publicHubList.replaceChildren()
   for (const player of publicHubPlayers) {
     const item = document.createElement("li")
@@ -1284,8 +1240,8 @@ function renderPublicHub(): void {
     publicHubList.append(item)
   }
   publicHubStatus.textContent = publicHubIsLooking
-    ? `${compatible} compatible outlaw${compatible === 1 ? "" : "s"} · friends receive placement priority when capacity permits.`
-    : "Opt in to looking-for-band when your target and party size are ready."
+    ? `Searching across every public camp · ${compatible} visible match${compatible === 1 ? "" : "es"} here · friends receive priority but are never required.`
+    : "Choose a target and party size, then find a band automatically."
 }
 
 function renderRotationCountdown(): void {
@@ -1485,6 +1441,8 @@ const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, s
 const controllerButtonLabels = ["A / Cross", "B / Circle", "X / Square", "Y / Triangle", "LB / L1", "RB / R1", "LT / L2", "RT / R2", "View / Share", "Menu / Options", "Left stick", "Right stick", "D-pad up", "D-pad down", "D-pad left", "D-pad right"]
 const pointerActionLabels: Record<PointerAction, string> = {
   move: "Move to ground",
+  cameraLeft: ACTION_LABELS.cameraLeft,
+  cameraRight: ACTION_LABELS.cameraRight,
   interact: ACTION_LABELS.interact,
   fire: ACTION_LABELS.fire,
   signature: ACTION_LABELS.signature,
@@ -1503,14 +1461,14 @@ function isMobileSpectator(): boolean {
 
 function refreshControlCopy(): void {
   const key = inputSettings.keyboard
-  helpMove.textContent = `${keyLabel(key.moveUp)} / ${keyLabel(key.moveLeft)} / ${keyLabel(key.moveDown)} / ${keyLabel(key.moveRight)}, controller stick, or mapped pointer movement`
+  helpMove.textContent = `${keyLabel(key.moveUp)} / ${keyLabel(key.moveLeft)} / ${keyLabel(key.moveDown)} / ${keyLabel(key.moveRight)} moves by perspective · ${keyLabel(key.cameraLeft)} / ${keyLabel(key.cameraRight)} rotates the camera 90°`
   helpInteract.textContent = `${keyLabel(key.interact)} near the cart or village fire`
   helpFire.textContent = `${keyLabel(key.fire)} stuns the nearest guard in range`
   helpSignature.textContent = `${keyLabel(key.signature)} uses Twin Shot, Marian's Veil, Oak Sweep, or Much's Road Snare`
   signatureKeyElement.textContent = keyLabel(key.signature)
   helpSignals.textContent = `${keyLabel(key.pingDanger)} / ${keyLabel(key.pingTarget)} / ${keyLabel(key.pingRoute)} / ${keyLabel(key.pingLoot)} / ${keyLabel(key.pingRegroup)} place symbol-coded signals`
   helpSupport.textContent = `${keyLabel(key.revive)} revives a nearby outlaw · ${keyLabel(key.transferLoot)} transfers up to 60 coin`
-  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE`
+  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE`
   missionPrompt = missionPromptForPhase(currentMissionPhase)
 }
 
@@ -1627,6 +1585,13 @@ function closeActivePanel(): boolean {
 
 function performMappedAction(action: GameAction | PointerAction): void {
   if (action === "move" || action.startsWith("move")) return
+  if (action === "cameraLeft" || action === "cameraRight") {
+    cameraQuarterTurns = (cameraQuarterTurns + (action === "cameraLeft" ? -1 : 1) + 4) % 4
+    clickTarget = null
+    destinationMarker.visible = false
+    showToast(`CAMERA ROTATED ${action === "cameraLeft" ? "LEFT" : "RIGHT"}`)
+    return
+  }
   if (action === "interact") handleInteraction()
   if (action === "fire") fireArrow()
   if (action === "signature") useSignature()
@@ -1853,6 +1818,22 @@ function showMissionEvent(event: MissionEvent): void {
     signature_used: "SIGNATURE UNLEASHED",
     mission_succeeded: "SHERWOOD RISES",
     mission_failed: "THE BAND HAS FALLEN",
+  }
+  if (event.type === "signature_used") {
+    if (event.playerId === multiplayer.playerId) heroSignatureUntil = clock.elapsedTime + 0.9
+    else if (event.playerId) {
+      const remote = remoteViews.get(event.playerId)
+      if (remote) {
+        remote.action = "signature"
+        remote.actionUntil = clock.elapsedTime + 0.9
+      }
+    }
+  } else if (event.type === "guard_stunned" && event.playerId && event.playerId !== multiplayer.playerId) {
+    const remote = remoteViews.get(event.playerId)
+    if (remote) {
+      remote.action = "attack"
+      remote.actionUntil = clock.elapsedTime + 0.8
+    }
   }
   if (event.type === "signature_used" && event.detail === "little-john-sweep") showVanguardImpact(event.playerId)
   const message = event.type === "signature_used" && event.detail === "little-john-sweep"
@@ -2185,10 +2166,9 @@ async function refreshSocialPanel(): Promise<void> {
         running = false
         hubPanel.classList.add("hidden")
         roomCodeInput.value = code
-        if (invite.character_hint) selectLocalCharacter(invite.character_hint, false)
         intro.classList.remove("closed")
         closePanel(socialPanel)
-        showToast("INVITE READY · CHOOSE YOUR HERO AND JOIN")
+        showToast("INVITE READY · JOIN THE ROOM TO CHOOSE YOUR HERO")
       })
       addSocialAction(actions, "DECLINE", async () => { await respondDirectInvite(invite.id, false); await refreshSocialPanel() })
       item.append(copy, actions)
@@ -2502,7 +2482,19 @@ function renderParty(players: RoomPlayer[]): void {
 function ensureRemotePlayers(players: RoomPlayer[]): void {
   const activeIds = new Set(players.filter((player) => player.id !== multiplayer.playerId).map((player) => player.id))
   for (const player of players) {
-    if (player.id === multiplayer.playerId || remoteViews.has(player.id)) continue
+    if (player.id === multiplayer.playerId) continue
+    const existing = remoteViews.get(player.id)
+    if (existing) {
+      existing.downedFor = player.downedFor
+      if (existing.characterId !== player.characterId) {
+        disposeObjectInstanceMaterials(existing.fallback)
+        existing.view.remove(existing.fallback)
+        existing.fallback = createCharacter(player.characterId)
+        existing.characterId = player.characterId
+        existing.view.add(existing.fallback)
+      }
+      continue
+    }
     const view = new THREE.Group()
     const fallback = createCharacter(player.characterId)
     view.add(fallback)
@@ -2511,30 +2503,15 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
     const remote: RemoteView = {
       view,
       fallback,
-      authored: null,
       snapshots: new SnapshotBuffer(),
-      mixer: null,
-      actions: new Map(),
-      motion: "",
       lastPosition: view.position.clone(),
       characterId: player.characterId,
       downedFor: player.downedFor,
+      action: "idle",
+      actionUntil: 0,
     }
     remote.snapshots.push(player.position, performance.now())
     remoteViews.set(player.id, remote)
-    if (player.characterId === "robin") {
-      void loadRobinRanger().then((asset) => {
-        if (remoteViews.get(player.id) !== remote) return
-        const ranger = prepareRangerInstance(asset.scene)
-        view.add(ranger)
-        remote.authored = ranger
-        remote.fallback.visible = false
-        remote.mixer = new THREE.AnimationMixer(ranger)
-        remote.actions = new Map(asset.animations.map((clip) => [clip.name, remote.mixer!.clipAction(clip)]))
-        remote.motion = "Robin_Idle"
-        remote.actions.get("Robin_Idle")?.play()
-      }).catch(() => undefined)
-    }
   }
   for (const [id, remote] of remoteViews) {
     if (activeIds.has(id)) continue
@@ -2562,7 +2539,7 @@ function getMoveInput(): Vec2 {
   if (x !== 0 || z !== 0) {
     clickTarget = null
     destinationMarker.visible = false
-    return { x, z }
+    return cameraRelativeMove({ x, z }, { x: camera.position.x, z: camera.position.z }, state.player.position)
   }
   if (clickTarget) {
     const dx = clickTarget.x - state.player.position.x
@@ -2621,8 +2598,7 @@ function fireArrow(): void {
       return
     }
     multiplayer.sendAction("shoot")
-    robinShotUntil = clock.elapsedTime + 0.8
-    setRobinRangerMotion("Robin_Shoot")
+    heroAttackUntil = clock.elapsedTime + 0.8
     return
   }
   const guardId = shoot(state)
@@ -2636,8 +2612,7 @@ function fireArrow(): void {
   const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffe3a0 }))
   scene.add(line)
   arrowEffects.push({ line, age: 0 })
-  robinShotUntil = clock.elapsedTime + 0.8
-  setRobinRangerMotion("Robin_Shoot")
+  heroAttackUntil = clock.elapsedTime + 0.8
   showToast("Guard stunned")
 }
 
@@ -2663,6 +2638,7 @@ function useSignature(): void {
   }
   if (multiplayerActive) {
     multiplayer.sendAction("signature")
+    heroSignatureUntil = clock.elapsedTime + 0.9
     return
   }
   const result = activateSignature(state)
@@ -2678,11 +2654,12 @@ function useSignature(): void {
   if (result.event === "much-snare") {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
   }
+  if (result.event !== "signature-unavailable" && result.event !== "volley-missed") heroSignatureUntil = clock.elapsedTime + 0.9
   showToast(messages[result.event] ?? result.event)
 }
 
 function isModalOpen(): boolean {
-  return panelElements.some((panel) => !panel.classList.contains("hidden"))
+  return !roleChoicePanel.classList.contains("hidden") || panelElements.some((panel) => !panel.classList.contains("hidden"))
 }
 
 async function openLeaderboard(): Promise<void> {
@@ -2892,6 +2869,16 @@ function syncVillageLods(player: Vec2): void {
 }
 
 function syncViews(elapsed: number, dt: number): void {
+  syncGuardViewCount(
+    guardViews,
+    state.guards.length,
+    () => createCharacter("guard"),
+    (view) => scene.add(view),
+    (view) => {
+      scene.remove(view)
+      disposeObjectInstanceMaterials(view)
+    },
+  )
   water.update(elapsed, renderProfile.motionScale)
   if (!multiplayerActive) {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
@@ -2900,7 +2887,7 @@ function syncViews(elapsed: number, dt: number): void {
   const explored = new Set(latestMissionSnapshot?.exploredCellIndices ?? state.exploredCellIndices)
   explored.add(state.layout.campfireCell.index)
   for (const fogTile of regionFogViews) fogTile.visible = !inHub && !explored.has(Number(fogTile.userData.regionCell))
-  const groveDistance = renderProfile.tier === "degraded" ? 48 : 64
+  const treeDistance = renderProfile.tier === "degraded" ? 34 : 48
   const propDistance = renderProfile.tier === "degraded" ? 34 : 48
   for (const prop of medievalPropViews) prop.visible = Math.hypot(prop.position.x - player.x, prop.position.z - player.z) <= propDistance
   syncVillageLods(player)
@@ -2922,20 +2909,27 @@ function syncViews(elapsed: number, dt: number): void {
       && !(segmentPosition > 0.05 && segmentPosition < 0.95
       && Math.hypot(occluder.view.position.x - sightline.x, occluder.view.position.z - sightline.z) < occluder.radius)
   }
-  for (const grove of authoredGroveViews) {
-    const playerDistance = Math.hypot(grove.position.x - player.x, grove.position.z - player.z)
-    const cameraToGrove = { x: grove.position.x - camera.position.x, z: grove.position.z - camera.position.z }
+  const dirtyTreeBatches = new Set<THREE.InstancedMesh>()
+  for (const tree of authoredTreeInstances) {
+    const playerDistance = Math.hypot(tree.x - player.x, tree.z - player.z)
+    const cameraToTree = { x: tree.x - camera.position.x, z: tree.z - camera.position.z }
+    const cameraDistance = Math.hypot(cameraToTree.x, cameraToTree.z)
     const segmentPosition = cameraToPlayerLengthSquared > 0
-      ? Math.max(0, Math.min(1, (cameraToGrove.x * cameraToPlayer.x + cameraToGrove.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
+      ? Math.max(0, Math.min(1, (cameraToTree.x * cameraToPlayer.x + cameraToTree.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
       : 0
     const sightline = {
       x: camera.position.x + cameraToPlayer.x * segmentPosition,
       z: camera.position.z + cameraToPlayer.z * segmentPosition,
     }
     const blocksCamera = segmentPosition > 0.05 && segmentPosition < 0.95
-      && Math.hypot(grove.position.x - sightline.x, grove.position.z - sightline.z) < grove.scale.x * 0.62
-    grove.visible = playerDistance <= groveDistance && !blocksCamera
+      && Math.hypot(tree.x - sightline.x, tree.z - sightline.z) < tree.radius
+    const hidden = playerDistance > treeDistance || cameraDistance <= tree.radius * 2.35 || blocksCamera
+    if (hidden === tree.hidden) continue
+    tree.hidden = hidden
+    tree.batch.setMatrixAt(tree.instanceId, hidden ? tree.hiddenMatrix : tree.visibleMatrix)
+    dirtyTreeBatches.add(tree.batch)
   }
+  for (const batch of dirtyTreeBatches) batch.instanceMatrix.needsUpdate = true
   for (const view of alarmViews.values()) {
     if (view.userData.alarmStatus !== "triggered") continue
     const pulse = 1 + Math.sin(elapsed * 8) * 0.14 * renderProfile.motionScale
@@ -2948,11 +2942,13 @@ function syncViews(elapsed: number, dt: number): void {
   const playerMoving = Math.hypot(dx, dz) > 0.001
   if (playerMoving) playerView.rotation.y = Math.atan2(dx, dz)
   lastPlayerPosition = { ...player }
-  if (robinRangerMixer) {
-    const motion = elapsed < robinShotUntil ? "Robin_Shoot" : playerMoving ? "Robin_Walk" : "Robin_Idle"
-    setRobinRangerMotion(motion)
-    robinRangerMixer.update(dt)
-  }
+  poseHeroCharacter(playerView, {
+    elapsed,
+    moving: playerMoving,
+    action: elapsed < heroSignatureUntil ? "signature" : elapsed < heroAttackUntil ? "attack" : "idle",
+    downed: localDownedFor > 0,
+    motionScale: renderProfile.motionScale,
+  })
   for (const cache of bowCacheAnimations) cache.mixer.update(dt)
 
   state.guards.forEach((guard, index) => {
@@ -2970,24 +2966,18 @@ function syncViews(elapsed: number, dt: number): void {
     const remoteDz = remote.view.position.z - remote.lastPosition.z
     const moving = Math.hypot(remoteDx, remoteDz) > 0.0001
     const cameraDistance = camera.position.distanceTo(remote.view.position)
-    if (remote.authored) {
-      remote.authored.visible = cameraDistance <= 24
-      remote.fallback.visible = cameraDistance > 24 && cameraDistance <= 48
-    } else {
-      remote.fallback.visible = cameraDistance <= 48
-    }
+    remote.fallback.visible = cameraDistance <= 48
     if (moving) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
     remote.view.rotation.z = remote.downedFor > 0 ? Math.PI / 2.7 : 0
+    if (elapsed >= remote.actionUntil) remote.action = "idle"
+    poseHeroCharacter(remote.fallback, {
+      elapsed,
+      moving,
+      action: remote.action,
+      downed: remote.downedFor > 0,
+      motionScale: renderProfile.motionScale,
+    })
     remote.lastPosition.copy(remote.view.position)
-    if (remote.mixer) {
-      const motion = moving ? "Robin_Walk" : "Robin_Idle"
-      if (motion !== remote.motion) {
-        remote.actions.get(remote.motion)?.fadeOut(0.12)
-        remote.actions.get(motion)?.reset().fadeIn(0.12).play()
-        remote.motion = motion
-      }
-      remote.mixer.update(dt)
-    }
   }
 
   for (const view of pingViews.values()) {
@@ -3002,7 +2992,8 @@ function syncViews(elapsed: number, dt: number): void {
     if (child.userData.coin) child.visible = state.cartCoin > 0
   })
 
-  const desiredCamera = new THREE.Vector3(player.x + 12.5, 14.5, player.z + 15.5)
+  const cameraOffset = rotateCameraOffset(BASE_CAMERA_OFFSET, cameraQuarterTurns)
+  const desiredCamera = new THREE.Vector3(player.x + cameraOffset.x, 14.5, player.z + cameraOffset.z)
   camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt))
   camera.lookAt(player.x, 0.75, player.z)
 
@@ -3208,7 +3199,6 @@ publicHubLooking.addEventListener("click", () => {
 for (const select of [publicHubTarget, publicHubSize]) select.addEventListener("change", () => {
   if (publicHubIsLooking) multiplayer.setHubIntent(true, publicHubTarget.value as PublicHubPlayer["targetPreference"], Number(publicHubSize.value) as 2 | 3 | 4)
 })
-publicHubForm.addEventListener("click", () => multiplayer.formHubBand())
 publicHubEmotes.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubEmote(button.dataset.hubEmote as "wave" | "cheer" | "bow")))
 publicHubPings.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubPing(button.dataset.hubPing as "regroup" | "target")))
 publicHubLeave.addEventListener("click", () => {
@@ -3237,8 +3227,18 @@ characterButtons.forEach((button) => {
   })
 })
 
+roleChoiceButtons.forEach((button) => button.addEventListener("click", () => {
+  const characterId = button.dataset.roomCharacter
+  if (characterId !== "robin" && characterId !== "marian" && characterId !== "little-john" && characterId !== "much") return
+  roleChoiceStatus.textContent = `Securing ${characterName(characterId)}…`
+  selectLocalCharacter(characterId, true)
+}))
+
 function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): void {
-  if (selectedCharacter === characterId) return
+  if (selectedCharacter === characterId) {
+    if (notifyServer && multiplayer.playerId) multiplayer.selectCharacter(characterId)
+    return
+  }
   selectedCharacter = characterId
   characterButtons.forEach((option) => {
     const selected = option.dataset.character === characterId
@@ -3249,12 +3249,8 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   lastPlayerPosition = { ...state.player.position }
   disposeObjectInstanceMaterials(playerView)
   scene.remove(playerView)
-  robinRangerMixer = null
-  robinRangerActions = new Map()
-  robinRangerMotion = ""
   playerView = createCharacter(selectedCharacter)
   scene.add(playerView)
-  if (selectedCharacter === "robin") attachRobinRanger(playerView)
   if (notifyServer && multiplayer.playerId) multiplayer.selectCharacter(selectedCharacter)
   updateUI()
 }
@@ -3353,7 +3349,9 @@ window.addEventListener("keydown", (event) => {
     renderBindingControls()
     return
   }
-  const activePanel = panelElements.find((panel) => !panel.classList.contains("hidden"))
+  const activePanel = !roleChoicePanel.classList.contains("hidden")
+    ? roleChoicePanel
+    : panelElements.find((panel) => !panel.classList.contains("hidden"))
   if (event.code === "Tab" && activePanel) {
     const focusable = [...activePanel.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex='-1'])")]
       .filter((element) => element.offsetParent !== null)
@@ -3369,6 +3367,7 @@ window.addEventListener("keydown", (event) => {
   }
   if (event.code === "Escape") {
     event.preventDefault()
+    if (!roleChoicePanel.classList.contains("hidden")) return
     if (!closeActivePanel() && running) openPanel(helpPanel, helpButton)
     return
   }

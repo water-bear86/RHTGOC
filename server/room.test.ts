@@ -18,6 +18,20 @@ const persistedBand: PersistentBandRecord = {
 }
 
 describe("Merry Band room", () => {
+  it("admits provisional players before room-entry character selection", () => {
+    const room = new Room("CHOOSE")
+    const first = room.addPlayer(fakeSocket(), "First", "robin", null, false)
+    const second = room.addPlayer(fakeSocket(), "Second", "robin", null, false)
+    const third = room.addPlayer(fakeSocket(), "Third", "robin", null, false)
+    expect(room.publicPlayer(first)).toMatchObject({ characterId: "robin", roleConfirmed: false, ready: false })
+    expect(room.setReady(first.id, true)).toBe(false)
+    expect(room.selectCharacter(first.id, "robin")).toBe(true)
+    expect(room.selectCharacter(second.id, "robin")).toBe(true)
+    expect(room.selectCharacter(third.id, "robin")).toBe(false)
+    expect(room.selectCharacter(third.id, "marian")).toBe(true)
+    expect(room.publicPlayer(third)).toMatchObject({ characterId: "marian", roleConfirmed: true })
+  })
+
   it("caps rooms at four players", () => {
     const room = new Room("ABC234")
     for (let index = 0; index < MAX_ROOM_PLAYERS; index += 1) room.addPlayer(fakeSocket(), `Player ${index}`, index % 2 === 0 ? "robin" : "marian")
