@@ -14,6 +14,7 @@ import {
 import { PEOPLES_PURSE_MISSION } from "./mission-catalog"
 import { regionalizeMissionDefinition, riverPointAt } from "./regional-layout"
 import { composeSherwoodWorld } from "./world-composer"
+import { SHERWOOD_RIDGE_SEGMENTS } from "./world-topology"
 
 function localPoint(x: number, z: number): { x: number; z: number } {
   const collider = VILLAGE_COTTAGE_COLLIDER
@@ -206,41 +207,24 @@ describe("shared Sherwood world collision contract", () => {
     }
   })
 
-  it("turns visible ridges into solid spans while carving roads and mission anchors", () => {
+  it("keeps authored ridge crests walkable without weakening visible obstacles", () => {
     const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 4219).layout
     const topology = createSherwoodTopologyColliders(layout)
     const secondRead = createSherwoodTopologyColliders(layout)
     expect(topology).toBe(secondRead)
-    expect(topology.length).toBeGreaterThan(30)
-    expect(topology.every((collider) => collider.id.startsWith("sherwood-topology-"))).toBe(true)
-    expect(isSherwoodPlayerPositionBlocked(topology[0].center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
+    expect(topology).toEqual([])
 
-    const ridge = topology.find((collider) => SHERWOOD_TREE_COLLIDERS.every((tree) => (
-      Math.hypot(collider.center.x - tree.center.x, collider.center.z - tree.center.z) > 3
-    )))!
-    const normal = { x: Math.sin(ridge.rotation), z: Math.cos(ridge.rotation) }
-    const approachDistance = ridge.halfExtents.z + SHERWOOD_PLAYER_RADIUS + 1
-    const ridgeStart = {
-      x: ridge.center.x - normal.x * approachDistance,
-      z: ridge.center.z - normal.z * approachDistance,
-    }
-    const ridgeResolved = resolveSherwoodPlayerMovement(ridgeStart, {
-      x: normal.x * approachDistance * 2,
-      z: normal.z * approachDistance * 2,
-    }, layout.worldBounds, SHERWOOD_PLAYER_RADIUS, layout)
-    const resolvedSide = (ridgeResolved.x - ridge.center.x) * normal.x + (ridgeResolved.z - ridge.center.z) * normal.z
-    expect(resolvedSide).toBeLessThanOrEqual(-(ridge.halfExtents.z + SHERWOOD_PLAYER_RADIUS) + 0.001)
+    const walkableCrests = SHERWOOD_RIDGE_SEGMENTS.map((ridge) => {
+      const crest = {
+        x: (ridge.start.x + ridge.end.x) / 2,
+        z: (ridge.start.z + ridge.end.z) / 2,
+      }
+      return isSherwoodPlayerPositionBlocked(crest, SHERWOOD_PLAYER_RADIUS, layout) ? null : crest
+    }).filter((crest): crest is { x: number; z: number } => crest !== null)
+    expect(walkableCrests.length).toBeGreaterThanOrEqual(4)
 
-    for (const anchor of [layout.campfirePosition, layout.objectivePosition, ...layout.crossingPositions]) {
-      expect(topology.some((collider) => {
-        const cosine = Math.cos(collider.rotation)
-        const sine = Math.sin(collider.rotation)
-        const x = anchor.x - collider.center.x
-        const z = anchor.z - collider.center.z
-        const local = { x: cosine * x - sine * z, z: sine * x + cosine * z }
-        return Math.abs(local.x) < collider.halfExtents.x + SHERWOOD_PLAYER_RADIUS
-          && Math.abs(local.z) < collider.halfExtents.z + SHERWOOD_PLAYER_RADIUS
-      })).toBe(false)
-    }
+    expect(isSherwoodPlayerPositionBlocked(SHERWOOD_TREE_COLLIDERS[0].center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
+    expect(isSherwoodPlayerPositionBlocked(riverPointAt(0), SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
+    expect(isSherwoodPlayerPositionBlocked(createSherwoodSettlementColliders(layout)[0].center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
   })
 })

@@ -1,5 +1,10 @@
 import * as THREE from "three"
+import {
+  SHERWOOD_RIVER_CENTER_X,
+  SHERWOOD_RIVER_SLOPE,
+} from "../shared/regional-layout"
 import type { ComposedBuilding, ComposedWorld, SettlementKind } from "../shared/world-composer"
+import { SHERWOOD_RIVER_HALF_WIDTH } from "../shared/world-obstacles"
 import {
   createStylizedBuildingBatch,
   type StylizedBuildingDescriptor,
@@ -20,11 +25,25 @@ export interface SettlementWorldOptions {
   castShadow?: boolean
 }
 
-const unitCircleGeometry = new THREE.CircleGeometry(1, 20)
-unitCircleGeometry.rotateX(-Math.PI / 2)
+const settlementGreenShape = new THREE.Shape([
+  new THREE.Vector2(-0.94, -0.18),
+  new THREE.Vector2(-0.78, -0.74),
+  new THREE.Vector2(-0.18, -1),
+  new THREE.Vector2(0.5, -0.84),
+  new THREE.Vector2(1, -0.3),
+  new THREE.Vector2(0.88, 0.38),
+  new THREE.Vector2(0.54, 0.92),
+  new THREE.Vector2(-0.12, 0.96),
+  new THREE.Vector2(-0.72, 0.7),
+])
+const settlementGreenGeometry = new THREE.ShapeGeometry(settlementGreenShape)
+settlementGreenGeometry.rotateX(-Math.PI / 2)
 const ridgeGeometry = new THREE.DodecahedronGeometry(1, 0)
 const hedgeGeometry = new THREE.IcosahedronGeometry(1, 1)
 const sharedSettlementMaterial = createToonMaterial({ color: 0xffffff })
+const riverNormalLength = Math.hypot(1, -SHERWOOD_RIVER_SLOPE)
+const riverNormalRotation = -Math.atan2(-SHERWOOD_RIVER_SLOPE, 1)
+const settlementGreenRiverMargin = 0.4
 
 function paletteFor(settlementKind: SettlementKind): StylizedBuildingPalette {
   if (settlementKind === "sheriff-post") return "sheriff"
@@ -92,21 +111,33 @@ function instanced(
 }
 
 function createSettlementSquares(world: ComposedWorld): THREE.InstancedMesh {
-  const matrices = world.settlements.map((settlement) => new THREE.Matrix4().compose(
-    new THREE.Vector3(
-      settlement.center.x,
-      sherwoodHeightAt(settlement.center.x, settlement.center.z) + 0.035,
-      settlement.center.z,
-    ),
-    new THREE.Quaternion(),
-    new THREE.Vector3(5.5, 1, 5.5),
-  ))
+  const matrices = world.settlements.map((settlement, index) => {
+    const riverDistance = Math.abs(
+      settlement.center.x - SHERWOOD_RIVER_CENTER_X - SHERWOOD_RIVER_SLOPE * settlement.center.z,
+    ) / riverNormalLength
+    const normalRadius = Math.min(
+      4.9,
+      Math.max(2.8, riverDistance - SHERWOOD_RIVER_HALF_WIDTH - settlementGreenRiverMargin),
+    )
+    return new THREE.Matrix4().compose(
+      new THREE.Vector3(
+        settlement.center.x,
+        sherwoodHeightAt(settlement.center.x, settlement.center.z) + 0.035,
+        settlement.center.z,
+      ),
+      new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        riverNormalRotation + (index % 2) * Math.PI,
+      ),
+      new THREE.Vector3(normalRadius, 1, 5 + (index % 3) * 0.18),
+    )
+  })
   const colors = world.settlements.map((settlement) => (
     settlement.kind === "sheriff-post" ? 0x765d46
       : settlement.kind === "outlaw-hamlet" ? 0x796546
         : 0x8d744d
   ))
-  return instanced("SettlementGreenInstances", unitCircleGeometry, matrices, colors, false)
+  return instanced("SettlementGreenInstances", settlementGreenGeometry, matrices, colors, false)
 }
 
 function createBlindSpots(castShadow: boolean): THREE.Group {

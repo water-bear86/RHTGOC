@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   SHERWOOD_PASSES,
+  SHERWOOD_SETTLEMENT_SITES,
   isSherwoodTopologySegmentBlocked,
   routeThroughSherwoodPasses,
   sherwoodTopologyHeightAt,
@@ -21,6 +22,16 @@ describe("shared Sherwood topography", () => {
     const passHeight = sherwoodTopologyHeightAt(pass.position.x, pass.position.z)
     const crestHeight = sherwoodTopologyHeightAt(27.5, -30)
     expect(crestHeight - passHeight).toBeGreaterThan(2)
+  })
+
+  it("preserves the river valley through overlapping settlement terraces", () => {
+    const site = SHERWOOD_SETTLEMENT_SITES.find((candidate) => candidate.id === "southeast-inner")!
+    const riverX = 1 - site.center.z * 0.1
+
+    expect(Math.hypot(riverX - site.center.x, 0)).toBeLessThan(site.radius)
+    expect(sherwoodTopologyHeightAt(riverX, site.center.z)).toBeCloseTo(-0.52, 5)
+    expect(sherwoodTopologyHeightAt(riverX + 3.5, site.center.z)).toBeLessThan(0)
+    expect(sherwoodTopologyHeightAt(site.center.x, site.center.z)).toBeGreaterThan(0)
   })
 
   it("recovers a finite neutral height for invalid samples", () => {

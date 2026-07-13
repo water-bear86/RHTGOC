@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from "vitest"
 import * as THREE from "three"
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
-import { regionalizeMissionDefinition } from "../shared/regional-layout"
+import {
+  SHERWOOD_RIVER_CENTER_X,
+  SHERWOOD_RIVER_SLOPE,
+  regionalizeMissionDefinition,
+} from "../shared/regional-layout"
 import { composeSherwoodWorld } from "../shared/world-composer"
+import { SHERWOOD_RIVER_HALF_WIDTH } from "../shared/world-obstacles"
+import { SHERWOOD_SETTLEMENT_SITES } from "../shared/world-topology"
 import { sherwoodHeightAt } from "./sherwood-terrain"
 import {
   SETTLEMENT_WORLD_DRAW_CALL_BUDGET,
@@ -65,6 +71,43 @@ describe("settlement renderer", () => {
     expect(ridges.count).toBe(22)
     expect(hedges.count).toBe(18)
     expect(greens.count).toBe(3)
+  })
+
+  it("renders irregular settlement commons entirely outside the river", () => {
+    const siteWorld = {
+      settlements: SHERWOOD_SETTLEMENT_SITES.map((site, index) => ({
+        id: `test-settlement-${site.id}`,
+        kind: index % 2 === 0 ? "forest-village" as const : "outlaw-hamlet" as const,
+        center: { ...site.center },
+        buildings: [],
+      })),
+      roads: [],
+      buildingCount: 0,
+    }
+    const rendered = createSettlementWorld(siteWorld)
+    const greens = rendered.getObjectByName("SettlementGreenInstances") as THREE.InstancedMesh
+    const positions = greens.geometry.getAttribute("position")
+    const radii = new Set<string>()
+    for (let vertex = 0; vertex < positions.count; vertex += 1) {
+      radii.add(Math.hypot(positions.getX(vertex), positions.getZ(vertex)).toFixed(2))
+    }
+    expect(radii.size).toBeGreaterThan(4)
+
+    const matrix = new THREE.Matrix4()
+    const point = new THREE.Vector3()
+    const riverNormalLength = Math.hypot(1, -SHERWOOD_RIVER_SLOPE)
+    for (let instance = 0; instance < greens.count; instance += 1) {
+      greens.getMatrixAt(instance, matrix)
+      const signedDistances: number[] = []
+      for (let vertex = 0; vertex < positions.count; vertex += 1) {
+        point.set(positions.getX(vertex), positions.getY(vertex), positions.getZ(vertex)).applyMatrix4(matrix)
+        signedDistances.push(
+          (point.x - SHERWOOD_RIVER_CENTER_X - SHERWOOD_RIVER_SLOPE * point.z) / riverNormalLength,
+        )
+      }
+      expect(Math.min(...signedDistances.map(Math.abs))).toBeGreaterThanOrEqual(SHERWOOD_RIVER_HALF_WIDTH + 0.39)
+      expect(Math.min(...signedDistances) > 0 || Math.max(...signedDistances) < 0).toBe(true)
+    }
   })
 
   it("upgrades friendly cottages through one authored batch without duplicating sheriff visuals", () => {

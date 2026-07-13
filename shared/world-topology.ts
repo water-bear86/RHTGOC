@@ -106,6 +106,11 @@ function rawHeightAt(x: number, z: number): number {
   return -0.52 + (upland + 0.52) * valleyBlend
 }
 
+function riverValleyBlendAt(x: number, z: number): number {
+  const riverDistance = Math.abs(x - 1 + z * 0.1)
+  return smoothstep((riverDistance - 3.2) / 6.5)
+}
+
 /** Pure shared height contract; no Three.js state or renderer objects are involved. */
 export function sherwoodTopologyHeightAt(x: number, z: number): number {
   if (!Number.isFinite(x) || !Number.isFinite(z)) return 0
@@ -116,7 +121,9 @@ export function sherwoodTopologyHeightAt(x: number, z: number): number {
     if (distance >= site.radius + 3.5) continue
     const terraceHeight = rawHeightAt(site.center.x, site.center.z)
     const blend = 1 - smoothstep((distance - site.radius + 3.5) / 7)
-    result += (terraceHeight - result) * blend
+    // Terraces level buildable ground, but they must never fill the river
+    // depression when an authored site overlaps the valley's outer blend.
+    result += (terraceHeight - result) * blend * riverValleyBlendAt(x, z)
   }
   return result
 }

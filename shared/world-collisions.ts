@@ -1,7 +1,6 @@
 import type { RegionalMissionLayout } from "./regional-layout"
 import { SHERWOOD_GUARD_SEPARATION } from "./guard-rules"
 import { composeSherwoodWorld } from "./world-composer"
-import { SHERWOOD_RIDGE_SEGMENTS } from "./world-topology"
 import {
   SHERWOOD_STATIC_OBSTACLES,
   SHERWOOD_TREE_OBSTACLES,
@@ -66,58 +65,15 @@ export function createSherwoodSettlementColliders(layout: RegionalMissionLayout)
 
 const topologyColliderCache = new WeakMap<RegionalMissionLayout, OrientedRectangleCollider[]>()
 
-function distanceToSegment(point: XzPoint, start: XzPoint, end: XzPoint): number {
-  const dx = end.x - start.x
-  const dz = end.z - start.z
-  const lengthSquared = dx * dx + dz * dz
-  if (lengthSquared < COLLISION_EPSILON) return Math.hypot(point.x - start.x, point.z - start.z)
-  const amount = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.z - start.z) * dz) / lengthSquared))
-  return Math.hypot(point.x - (start.x + dx * amount), point.z - (start.z + dz * amount))
-}
-
 /**
- * Converts the visible macro-ridges into short authoritative spans. Spans near
- * generated roads, settlement pads, and mission anchors are omitted, producing
- * deterministic passes instead of trapping objectives behind decorative hills.
+ * Ridges are traversable heightfield features, not invisible movement walls.
+ * Road composition still uses the authored ridge/pass contract, while runtime
+ * collision remains reserved for visible buildings, trees, and river banks.
  */
 export function createSherwoodTopologyColliders(layout: RegionalMissionLayout): OrientedRectangleCollider[] {
   const cached = topologyColliderCache.get(layout)
   if (cached) return cached
-  const world = composeSherwoodWorld(layout)
-  const clearings = [
-    { center: layout.campfirePosition, radius: 7.5 },
-    { center: layout.objectivePosition, radius: 8 },
-    { center: layout.reinforcementSignalPosition, radius: 4 },
-    { center: layout.disguisePosition, radius: 4 },
-    ...layout.crossingPositions.map((center) => ({ center, radius: 6.5 })),
-    ...layout.playerSpawns.map((center) => ({ center, radius: 4 })),
-    ...layout.guardPositions.map((center) => ({ center, radius: 2.4 })),
-    ...world.settlements.map((settlement) => ({ center: settlement.center, radius: 13.5 })),
-  ]
-  const colliders = SHERWOOD_RIDGE_SEGMENTS.flatMap((ridge) => {
-    const dx = ridge.end.x - ridge.start.x
-    const dz = ridge.end.z - ridge.start.z
-    const length = Math.max(0.001, Math.hypot(dx, dz))
-    const chunkCount = Math.ceil(length / 3.25)
-    return Array.from({ length: chunkCount }, (_, index): OrientedRectangleCollider | null => {
-      const startAmount = index / chunkCount
-      const endAmount = (index + 1) / chunkCount
-      const start = { x: ridge.start.x + dx * startAmount, z: ridge.start.z + dz * startAmount }
-      const end = { x: ridge.start.x + dx * endAmount, z: ridge.start.z + dz * endAmount }
-      const center = { x: (start.x + end.x) / 2, z: (start.z + end.z) / 2 }
-      if (clearings.some((clearing) => Math.hypot(center.x - clearing.center.x, center.z - clearing.center.z) < clearing.radius + ridge.collisionHalfWidth)) return null
-      const roadClear = world.roads.some((road) => road.points.slice(1).some((point, pointIndex) => (
-        distanceToSegment(center, road.points[pointIndex], point) < road.width / 2 + ridge.collisionHalfWidth + 0.8
-      )))
-      if (roadClear) return null
-      return {
-        id: `sherwood-topology-${ridge.id}-${index}`,
-        center,
-        halfExtents: { x: Math.hypot(end.x - start.x, end.z - start.z) / 2 + 0.08, z: ridge.collisionHalfWidth },
-        rotation: Math.atan2(-dz, dx),
-      }
-    }).filter((collider): collider is OrientedRectangleCollider => collider !== null)
-  })
+  const colliders: OrientedRectangleCollider[] = []
   topologyColliderCache.set(layout, colliders)
   return colliders
 }
