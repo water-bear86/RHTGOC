@@ -75,10 +75,10 @@ const CHARACTER_PROFILES: Readonly<Record<CharacterId, CharacterProfile>> = Obje
     tunic: 0x2f6337, sleeve: 0x31593a, trousers: 0x423a2f, hair: 0x4d2d1d,
   },
   marian: {
-    shoulderWidth: 0.73, waistWidth: 0.51, torsoDepth: 0.46, torsoHeight: 0.98, skirtLength: 0.56,
-    upperArmLength: 0.43, lowerArmLength: 0.41, armRadius: 0.105,
-    upperLegLength: 0.49, lowerLegLength: 0.46, legRadius: 0.102, headRadius: 0.292,
-    tunic: 0x4e5878, sleeve: 0x68708b, trousers: 0x3f455c, hair: 0x4a2a1e,
+    shoulderWidth: 0.75, waistWidth: 0.53, torsoDepth: 0.47, torsoHeight: 0.97, skirtLength: 0.52,
+    upperArmLength: 0.42, lowerArmLength: 0.4, armRadius: 0.103,
+    upperLegLength: 0.48, lowerLegLength: 0.46, legRadius: 0.102, headRadius: 0.286,
+    tunic: 0x536b78, sleeve: 0x7a7186, trousers: 0x514752, hair: 0x5a3526,
   },
   "little-john": {
     shoulderWidth: 1.08, waistWidth: 0.76, torsoDepth: 0.65, torsoHeight: 1.04, skirtLength: 0.38,
@@ -122,9 +122,43 @@ function createCharacterFactory() {
 
 type MeshFactory = ReturnType<typeof createCharacterFactory>["mesh"]
 
-function addFace(head: THREE.Group, mesh: MeshFactory, profile: CharacterProfile): void {
+function addFace(head: THREE.Group, mesh: MeshFactory, profile: CharacterProfile, characterId: CharacterId): void {
   const radius = profile.headRadius
   const featureOptions = { castShadow: false, receiveShadow: false }
+  if (characterId === "marian") {
+    const eyeGeometry = new THREE.CircleGeometry(radius * 0.105, 8)
+    const pupilGeometry = new THREE.CircleGeometry(radius * 0.048, 8)
+    const eyeZ = radius * 0.912
+    const eyeX = radius * 0.31
+    const leftEye = mesh("FaceLeftEye", eyeGeometry, LINEN, featureOptions)
+    leftEye.position.set(-eyeX, radius * 0.12, eyeZ)
+    leftEye.scale.y = 0.72
+    const rightEye = leftEye.clone()
+    rightEye.name = "FaceRightEye"
+    rightEye.position.x = eyeX
+    const leftPupil = mesh("FaceLeftPupil", pupilGeometry, profile.hair, featureOptions)
+    leftPupil.position.set(-eyeX, radius * 0.115, eyeZ + radius * 0.012)
+    leftPupil.scale.y = 0.86
+    const rightPupil = leftPupil.clone()
+    rightPupil.name = "FaceRightPupil"
+    rightPupil.position.x = eyeX
+    const browLeft = mesh("FaceLeftBrow", new THREE.BoxGeometry(radius * 0.34, radius * 0.035, radius * 0.025), profile.hair, featureOptions)
+    browLeft.position.set(-eyeX, radius * 0.34, eyeZ - radius * 0.008)
+    browLeft.rotation.z = -0.05
+    const browRight = browLeft.clone()
+    browRight.name = "FaceRightBrow"
+    browRight.position.x = eyeX
+    browRight.rotation.z = 0.05
+    const nose = mesh("FaceNose", new THREE.SphereGeometry(radius * 0.11, 7, 5), SKIN_SHADOW, featureOptions)
+    nose.position.set(0, -radius * 0.035, radius * 0.955)
+    nose.scale.set(0.68, 0.9, 0.45)
+    const mouth = mesh("FaceMouth", new THREE.TorusGeometry(radius * 0.11, radius * 0.018, 4, 10, Math.PI), 0x8b4e4b, featureOptions)
+    mouth.position.set(0, -radius * 0.31, radius * 0.9)
+    mouth.rotation.z = Math.PI
+    mouth.scale.y = 0.36
+    head.add(leftEye, rightEye, leftPupil, rightPupil, browLeft, browRight, nose, mouth)
+    return
+  }
   const eyeZ = radius * 0.94
   const eyeX = radius * 0.35
   const leftEye = mesh("FaceLeftEye", new THREE.SphereGeometry(radius * 0.13, 6, 5), 0x25302b, featureOptions)
@@ -210,6 +244,33 @@ function createCape(rig: CharacterRig, mesh: MeshFactory, name: string, color: n
   rig.capeHinge = hinge
 }
 
+function createMarianMantle(rig: CharacterRig, mesh: MeshFactory): void {
+  const hinge = new THREE.Group()
+  hinge.name = "MarianMantleHinge"
+  hinge.position.set(0, CHARACTER_PROFILES.marian.torsoHeight * 0.84, -CHARACTER_PROFILES.marian.torsoDepth * 0.45)
+  const shape = new THREE.Shape()
+  shape.moveTo(-0.3, 0)
+  shape.lineTo(0.3, 0)
+  shape.lineTo(0.45, -0.78)
+  shape.lineTo(0.38, -0.96)
+  shape.lineTo(0, -0.89)
+  shape.lineTo(-0.38, -0.96)
+  shape.lineTo(-0.45, -0.78)
+  shape.closePath()
+  const panel = mesh("MarianMantlePanel2", new THREE.ExtrudeGeometry(shape, {
+    depth: 0.035,
+    bevelEnabled: true,
+    bevelSegments: 1,
+    bevelSize: 0.012,
+    bevelThickness: 0.01,
+    steps: 1,
+  }), 0x40566c)
+  panel.position.z = -0.045
+  hinge.add(panel)
+  rig.torso.add(hinge)
+  rig.capeHinge = hinge
+}
+
 function createStaff(mesh: MeshFactory, name: string): THREE.Group {
   const staff = new THREE.Group()
   staff.name = name
@@ -258,28 +319,60 @@ function addRobinDetails(rig: CharacterRig, mesh: MeshFactory): void {
 }
 
 function addMarianDetails(rig: CharacterRig, mesh: MeshFactory): void {
-  const hairBack = mesh("MarianHairBack", new THREE.CapsuleGeometry(0.28, 0.48, 4, 8), 0x4a2a1e)
-  hairBack.position.set(0, -0.18, -0.13)
-  rig.head.add(hairBack)
-  for (const side of [-1, 1]) {
-    const braid = mesh(`MarianBraid${side}`, new THREE.CylinderGeometry(0.052, 0.033, 0.58, 7), 0x5a3423)
-    braid.position.set(side * 0.25, -0.2, 0)
-    braid.rotation.z = side * 0.12
-    rig.head.add(braid)
-  }
-  const circlet = mesh("MarianCirclet", new THREE.TorusGeometry(0.3, 0.022, 5, 16, Math.PI * 1.45), 0xb99b52, { castShadow: false })
-  circlet.position.set(0, 0.13, 0.02)
-  circlet.rotation.set(Math.PI / 2, 0, -0.72)
-  rig.head.add(circlet)
-  createCape(rig, mesh, "MarianMantle", 0x39465d, 1.02, 0.94)
+  const radius = CHARACTER_PROFILES.marian.headRadius
+  const hairCap = mesh("MarianHairCap", new THREE.SphereGeometry(radius * 1.025, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.49), CHARACTER_PROFILES.marian.hair)
+  hairCap.position.set(0, radius * 0.08, -radius * 0.045)
+  hairCap.scale.set(1, 0.94, 0.97)
+  const leftLock = mesh("MarianHairLockLeft", new THREE.ConeGeometry(radius * 0.2, radius * 1.18, 7), CHARACTER_PROFILES.marian.hair, { castShadow: false })
+  leftLock.position.set(-radius * 0.82, -radius * 0.21, radius * 0.02)
+  leftLock.rotation.z = -0.12
+  leftLock.scale.z = 0.62
+  const rightLock = leftLock.clone()
+  rightLock.name = "MarianHairLockRight"
+  rightLock.position.x = radius * 0.82
+  rightLock.rotation.z = 0.12
+  const braidProfile = [
+    new THREE.Vector2(0.025, -0.25), new THREE.Vector2(0.052, -0.2),
+    new THREE.Vector2(0.039, -0.14), new THREE.Vector2(0.06, -0.08),
+    new THREE.Vector2(0.043, -0.01), new THREE.Vector2(0.064, 0.06),
+    new THREE.Vector2(0.046, 0.13), new THREE.Vector2(0.068, 0.2),
+    new THREE.Vector2(0.05, 0.26),
+  ]
+  const braid = mesh("MarianBraid", new THREE.LatheGeometry(braidProfile, 7), CHARACTER_PROFILES.marian.hair, { castShadow: false })
+  braid.position.set(radius * 0.62, -radius * 1.12, -radius * 0.55)
+  braid.rotation.z = -0.12
+  const circlet = mesh("MarianCirclet", new THREE.TorusGeometry(radius * 0.92, radius * 0.052, 5, 18, Math.PI), 0xc5a65b, { castShadow: false })
+  circlet.position.set(0, radius * 0.37, radius * 0.87)
+  circlet.scale.y = 0.28
+  const circletJewel = mesh("MarianCircletJewel", new THREE.OctahedronGeometry(radius * 0.16, 0), 0x8fc4b7, { castShadow: false })
+  circletJewel.position.set(0, radius * 0.64, radius * 0.91)
+  rig.head.add(hairCap, leftLock, rightLock, braid, circlet, circletJewel)
+  createMarianMantle(rig, mesh)
 
+  const shoulderMantle = mesh("MarianShoulderMantle", new THREE.TorusGeometry(0.4, 0.082, 6, 16, Math.PI), 0x774f59, { castShadow: false })
+  shoulderMantle.position.set(0, CHARACTER_PROFILES.marian.torsoHeight * 0.84, CHARACTER_PROFILES.marian.torsoDepth * 0.36)
+  shoulderMantle.scale.y = 0.46
   const brooch = mesh("MarianBrooch", new THREE.SphereGeometry(0.085, 8, 6), 0xc5a65b, { castShadow: false })
-  brooch.position.set(0, CHARACTER_PROFILES.marian.torsoHeight * 0.82, 0.25)
-  const sash = mesh("MarianSash", new THREE.BoxGeometry(0.12, 0.92, 0.05), 0x253449)
+  brooch.position.set(0, CHARACTER_PROFILES.marian.torsoHeight * 0.83, CHARACTER_PROFILES.marian.torsoDepth * 0.51)
+  const sash = mesh("MarianSash", new THREE.BoxGeometry(0.09, 0.86, 0.04), 0x774f59)
   sash.name = "MarianSash"
-  sash.position.set(0.07, 0.46, CHARACTER_PROFILES.marian.torsoDepth * 0.52)
-  sash.rotation.z = 0.42
-  rig.torso.add(brooch, sash)
+  sash.position.set(0.06, 0.45, CHARACTER_PROFILES.marian.torsoDepth * 0.525)
+  sash.rotation.z = 0.38
+  rig.torso.add(shoulderMantle, brooch, sash)
+
+  const overskirtShape = new THREE.Shape()
+  overskirtShape.moveTo(-0.27, 0.02)
+  overskirtShape.lineTo(-0.035, 0)
+  overskirtShape.lineTo(-0.075, -0.5)
+  overskirtShape.lineTo(-0.3, -0.4)
+  overskirtShape.closePath()
+  const overskirtGeometry = new THREE.ExtrudeGeometry(overskirtShape, { depth: 0.025, bevelEnabled: false })
+  const overskirtLeft = mesh("MarianOverskirtLeft", overskirtGeometry, CHARACTER_PROFILES.marian.sleeve, { castShadow: false })
+  overskirtLeft.position.z = CHARACTER_PROFILES.marian.torsoDepth * 0.49
+  const overskirtRight = mesh("MarianOverskirtRight", overskirtGeometry, CHARACTER_PROFILES.marian.tunic, { castShadow: false })
+  overskirtRight.position.z = CHARACTER_PROFILES.marian.torsoDepth * 0.49 + 0.002
+  overskirtRight.scale.x = -1
+  rig.pelvis.add(overskirtLeft, overskirtRight)
 }
 
 function addLittleJohnDetails(rig: CharacterRig, mesh: MeshFactory): void {
@@ -437,9 +530,10 @@ export function createHeroCharacter(characterId: CharacterId): THREE.Group {
   head.name = "RigHead"
   head.position.y = profile.torsoHeight + profile.headRadius * 1.12
   const face = mesh("Face", new THREE.SphereGeometry(profile.headRadius, 12, 8), SKIN)
-  face.scale.set(characterId === "little-john" ? 0.96 : 0.9, 1.1, 0.93)
+  if (characterId === "marian") face.scale.set(0.96, 1.02, 0.96)
+  else face.scale.set(characterId === "little-john" ? 0.96 : 0.9, 1.1, 0.93)
   head.add(face)
-  addFace(head, mesh, profile)
+  addFace(head, mesh, profile, characterId)
   torso.add(head)
 
   const shoulderY = profile.torsoHeight * 0.82

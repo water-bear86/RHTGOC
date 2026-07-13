@@ -40,6 +40,26 @@ describe("procedural hero animation sampler", () => {
     expect(signature.showBackStaff).toBe(false)
   })
 
+  it("keeps Marian's walk calmer than Robin's without disabling locomotion", () => {
+    const marian = sampleHeroAnimation({ characterId: "marian", elapsed: 0.15, moving: true })
+    const robin = sampleHeroAnimation({ characterId: "robin", elapsed: 0.15, moving: true })
+
+    expect(Math.abs(marian.leftLeg.x)).toBeGreaterThan(0.4)
+    expect(Math.abs(marian.leftLeg.x)).toBeLessThan(Math.abs(robin.leftLeg.x))
+    expect(Math.abs(marian.leftArm.x)).toBeLessThan(Math.abs(robin.leftArm.x))
+    expect(Math.abs(marian.torso.z)).toBeLessThan(Math.abs(robin.torso.z))
+  })
+
+  it("opens Marian's veil gesture instead of folding both arms across her chest", () => {
+    const signature = sampleHeroAnimation({ characterId: "marian", elapsed: 0, moving: false, action: "signature", actionProgress: 0.5 })
+
+    expect(signature.leftArm.z).toBeGreaterThan(0.35)
+    expect(signature.leftArm.z).toBeLessThan(0.7)
+    expect(signature.rightArm.z).toBeGreaterThan(-0.7)
+    expect(signature.head.y).toBeGreaterThan(0)
+    expect(signature.capeRoll).toBeGreaterThan(0)
+  })
+
   it("makes downed state override locomotion and active abilities", () => {
     for (const characterId of heroes) {
       const sample = sampleHeroAnimation({ characterId, elapsed: 1, moving: true, action: "signature", actionProgress: 0.5, downed: true })

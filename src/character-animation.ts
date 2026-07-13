@@ -53,7 +53,7 @@ interface MotionProfile {
 
 const MOTION_PROFILES: Record<CharacterId, MotionProfile> = {
   robin: { cadence: 10, stride: 0.62, armSwing: 0.62, torsoLean: 0.015, downedLift: 0.287 },
-  marian: { cadence: 11.5, stride: 0.68, armSwing: 0.68, torsoLean: -0.015, downedLift: 0.067 },
+  marian: { cadence: 9.4, stride: 0.52, armSwing: 0.46, torsoLean: -0.005, downedLift: 0.067 },
   "little-john": { cadence: 8.2, stride: 0.48, armSwing: 0.52, torsoLean: -0.045, downedLift: 0.176 },
   much: { cadence: 10.8, stride: 0.58, armSwing: 0.66, torsoLean: 0.095, downedLift: 0.112 },
 }
@@ -128,14 +128,15 @@ function applyRobinVolley(sample: HeroAnimationSample, amount: number): void {
 }
 
 function applyMarianVeil(sample: HeroAnimationSample, amount: number): void {
-  copyRotation(sample.leftArm, rotation(-0.42, -0.2, 0.92), amount)
-  copyRotation(sample.rightArm, rotation(-0.55, 0.18, -0.98), amount)
-  copyRotation(sample.leftForearm, rotation(-0.82, 0.12, 0.12), amount)
-  copyRotation(sample.rightForearm, rotation(-0.72, -0.12, -0.12), amount)
-  sample.torso.x -= 0.12 * amount
-  sample.head.x -= 0.08 * amount
-  sample.capePitch -= 0.32 * amount
-  sample.capeRoll += 0.18 * amount
+  copyRotation(sample.leftArm, rotation(-0.84, -0.16, 0.52), amount)
+  copyRotation(sample.rightArm, rotation(-0.5, 0.2, -0.4), amount)
+  copyRotation(sample.leftForearm, rotation(-0.42, 0.08, 0.08), amount)
+  copyRotation(sample.rightForearm, rotation(-0.68, -0.08, -0.08), amount)
+  sample.torso.x -= 0.04 * amount
+  sample.torso.y -= 0.06 * amount
+  sample.head.y += 0.1 * amount
+  sample.capePitch -= 0.22 * amount
+  sample.capeRoll += 0.1 * amount
 }
 
 function applyJohnSweep(sample: HeroAnimationSample, amount: number, progress: number): void {
@@ -207,14 +208,15 @@ export function sampleHeroAnimation(input: HeroAnimationInput): HeroAnimationSam
     ? Math.sin(safeElapsed * profile.cadence) * profile.stride * motionScale
     : 0
   const breathe = Math.sin(safeElapsed * 2.6) * 0.022 * motionScale
+  const gaitComposure = input.characterId === "marian" ? 0.68 : 1
   const leftStep = Math.max(0, -walk)
   const rightStep = Math.max(0, walk)
   const sample: HeroAnimationSample = {
-    bodyY: Math.abs(walk) * 0.022 + breathe,
+    bodyY: Math.abs(walk) * 0.022 * gaitComposure + breathe,
     body: rotation(),
-    pelvis: rotation(0, input.moving ? -walk * 0.06 : 0, 0),
-    torso: rotation(profile.torsoLean, input.moving ? walk * 0.1 : 0, input.moving ? walk * (input.characterId === "much" ? 0.065 : 0.035) : 0),
-    head: rotation(0, input.moving ? -walk * 0.065 : Math.sin(safeElapsed * 0.85) * 0.045 * motionScale, input.moving ? -walk * 0.025 : 0),
+    pelvis: rotation(0, input.moving ? -walk * 0.06 * gaitComposure : 0, 0),
+    torso: rotation(profile.torsoLean, input.moving ? walk * 0.1 * gaitComposure : 0, input.moving ? walk * (input.characterId === "much" ? 0.065 : 0.035) * gaitComposure : 0),
+    head: rotation(0, input.moving ? -walk * 0.065 * gaitComposure : Math.sin(safeElapsed * 0.85) * 0.045 * motionScale, input.moving ? -walk * 0.025 : 0),
     leftArm: rotation(-walk * profile.armSwing, 0, 0.08),
     rightArm: rotation(walk * profile.armSwing, 0, -0.08),
     leftForearm: rotation(Math.max(0, walk) * 0.18, 0, 0),

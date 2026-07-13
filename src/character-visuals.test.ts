@@ -91,6 +91,12 @@ describe("procedural Merry Band characters", () => {
     expect(createHeroCharacter("robin").getObjectByName("RobinVolleyArrow")).toBeTruthy()
     expect(createHeroCharacter("marian").getObjectByName("MarianMantlePanel2")).toBeTruthy()
     expect(createHeroCharacter("marian").getObjectByName("MarianSash")).toBeTruthy()
+    expect(createHeroCharacter("marian").getObjectByName("MarianCircletJewel")).toBeTruthy()
+    expect(createHeroCharacter("marian").getObjectByName("MarianHairCap")).toBeTruthy()
+    expect(createHeroCharacter("marian").getObjectByName("MarianHairLockLeft")).toBeTruthy()
+    expect(createHeroCharacter("marian").getObjectByName("MarianBraid")).toBeTruthy()
+    expect(createHeroCharacter("marian").getObjectByName("MarianOverskirtLeft")).toBeTruthy()
+    expect(createHeroCharacter("marian").getObjectByName("MarianOverskirtRight")).toBeTruthy()
     expect(createHeroCharacter("little-john").getObjectByName("JohnQuarterstaffBack")).toBeTruthy()
     expect(createHeroCharacter("little-john").getObjectByName("equipment.bow.shortbow")).toBeTruthy()
     expect(createHeroCharacter("much").getObjectByName("MuchSatchel")).toBeTruthy()
@@ -120,7 +126,22 @@ describe("procedural Merry Band characters", () => {
     const marian = createHeroCharacter("marian")
     poseHeroCharacter(marian, { elapsed: 0, moving: false, action: "signature", actionProgress: 0.5 })
     expect(marian.getObjectByName("BowNockedArrow")?.visible).toBe(false)
-    expect(Math.abs(marian.getObjectByName("RigLeftArm")!.rotation.z)).toBeGreaterThan(0.7)
+    expect(Math.abs(marian.getObjectByName("RigLeftArm")!.rotation.z)).toBeLessThan(0.7)
+    expect(marian.getObjectByName("RigHead")!.rotation.y).toBeGreaterThan(0)
+  })
+
+  it("gives Marian a softer embedded face and correctly oriented circlet", () => {
+    const marian = createHeroCharacter("marian")
+    const face = marian.getObjectByName("Face") as THREE.Mesh
+    const leftEye = marian.getObjectByName("FaceLeftEye") as THREE.Mesh
+    const circlet = marian.getObjectByName("MarianCirclet")!
+
+    expect(face.scale.y).toBeLessThan(1.05)
+    expect(leftEye.geometry.type).toBe("CircleGeometry")
+    expect(marian.getObjectByName("FaceLeftPupil")).toBeTruthy()
+    expect(marian.getObjectByName("FaceRightPupil")).toBeTruthy()
+    expect(circlet.rotation.x).toBe(0)
+    expect(circlet.scale.y).toBeLessThan(0.4)
   })
 
   it("aims a nocked arrow in the same direction as the hero faces", () => {
