@@ -5,17 +5,33 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "server": "tsx server/index.ts",
+    "build": "npm run validate:assets && npm run validate:missions && tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:load": "node tools/multiplayer-load-test.mjs",
+    "test:soak": "SOAK=1 node tools/multiplayer-load-test.mjs",
+    "test:reconnect": "node tools/reconnect-failure-test.mjs",
+    "test:hub": "node tools/public-hub-smoke-test.mjs",
+    "test:operator": "node tools/operator-review-smoke-test.mjs",
+    "ops:aws-status": "node tools/aws-lightsail-status.mjs",
+    "build:village-assets": "node tools/build-sherwood-village-slice.mjs",
+    "validate:assets": "node tools/validate-assets.mjs",
+    "validate:missions": "tsx tools/validate-missions.ts"
   },
   "dependencies": {
-    "postgres": "^3.4.7",
-    "three": "^0.178.0"
+    "@supabase/supabase-js": "2.110.2",
+    "three": "^0.178.0",
+    "tsx": "4.23.0",
+    "ws": "^8.18.3",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "4.4.1",
     "@types/three": "^0.178.1",
-    "@vercel/node": "^5.3.7",
+    "@types/ws": "^8.18.1",
+    "gltf-validator": "2.0.0-dev.3.10",
+    "spdx-expression-parse": "4.0.0",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",
     "vitest": "^3.2.4"

@@ -1,0 +1,422 @@
+{
+  "version": 2,
+  "units": "meters",
+  "forwardAxis": "+Z",
+  "upAxis": "+Y",
+  "assets": [
+    {
+      "id": "character.robin.ranger",
+      "category": "hero",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-11",
+        "rationale": "Project-owner supplied Meshy Robin, rebound to a grounded 22-bone game rig, reduced to one draw, simplified below the hero triangle budget, stripped to the toon-relevant base-color texture, and validated with three runtime animation clips."
+      },
+      "provenance": {
+        "sourceAsset": "Meshy_AI_Robin_Hood_0711214327_image-to-3d-texture (1).blend",
+        "sourceSha256": "92526cbca1bb6bd68a418aba7b376f4a11c8aa245a337c3ef42310affd94d8bd",
+        "sourceBytes": 43186851,
+        "sourceGenerator": "Meshy",
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/rig-forest-ranger.py and tools/strip-robin-pbr.mjs",
+        "conversionDoc": "docs/operations/3d-assets.md",
+        "optimizer": "glTF Transform simplify, prune, and WebP"
+      },
+      "license": {
+        "status": "project-authorized",
+        "identifier": "LicenseRef-Project-Owner-Authorized",
+        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
+        "evidenceSha256": "014d13ec7a96657bc6ce3798bae2323a15d770f5de118a87bd6503e90325317b"
+      },
+      "uri": "assets/characters/robin-ranger-rigged.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "aaf74163c676e725c1e839d1c3c4419194f3842c8de617f2150cdea8a6c40818",
+      "bytesMax": 2500000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 181635,
+        "uploadVertices": 35448,
+        "triangles": 60545,
+        "uniquePrimitives": 1,
+        "sceneDrawCalls": 1
+      },
+      "materials": {
+        "count": 1,
+        "names": ["Material_0"]
+      },
+      "texture": {
+        "count": 1,
+        "format": "webp",
+        "width": 1024,
+        "height": 1024,
+        "encodedBytes": 52720,
+        "gpuBytesApprox": 5592404
+      },
+      "clips": ["Ranger_Idle", "Ranger_Walk", "Ranger_Attack"],
+      "pivot": {
+        "policy": "runtime foot grounding from centered source pivot",
+        "passes": true,
+        "evidence": "Runtime Box3 normalization scales the authored ranger to 2.35 meters and grounds its minimum Y"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-0.93649, -1.06475, -0.20565],
+        "boundsMax": [0.9346, 0.83455, 0.20387],
+        "runtimeMaxHeight": 2.35
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": { "type": "capsule", "radius": 0.55, "height": 2.1, "centerY": 1.05 },
+      "lod": [
+        { "level": 0, "maxDistance": 24, "asset": "self" },
+        { "level": 1, "maxDistance": 48, "asset": "procedural hero silhouette" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+      ]
+    },
+    {
+      "id": "environment.sherwood.tree-grove",
+      "category": "decorative-environment",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-11",
+        "rationale": "Ground removed, transforms and pivot normalized, meshes consolidated, resources embedded, and decorative collision plus LOD fallbacks defined."
+      },
+      "provenance": {
+        "sourceAsset": "Tree Assets (1).glb",
+        "sourceSha256": "88f82eeeb0f1f3d929df456459b16a2853fc7ba38260a871bee8e154ad15bfdf",
+        "sourceBytes": 410864,
+        "sourceGenerator": "obj2gltf",
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/normalize-tree-grove.py",
+        "conversionDoc": "docs/assets/authored-tree-grove.md",
+        "optimizer": "Blender glTF 2.0 exporter"
+      },
+      "license": {
+        "status": "project-authorized",
+        "identifier": "LicenseRef-Project-Owner-Authorized",
+        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
+        "evidenceSha256": "014d13ec7a96657bc6ce3798bae2323a15d770f5de118a87bd6503e90325317b"
+      },
+      "uri": "assets/environment/sherwood-tree-grove.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "b7dda3ea846d5dc3b51e98df4cbeaac7522abe5c415d8f414231e8202fdf4bc8",
+      "bytesMax": 450000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 15264,
+        "uploadVertices": 11107,
+        "triangles": 5088,
+        "uniquePrimitives": 8,
+        "sceneDrawCalls": 8
+      },
+      "materials": {
+        "count": 8,
+        "names": ["mat16", "mat17", "mat19", "mat9", "mat10", "mat20", "mat11", "mat21"]
+      },
+      "texture": { "count": 0, "format": "none", "width": 0, "height": 0, "encodedBytes": 0, "gpuBytesApprox": 0 },
+      "clips": [],
+      "pivot": {
+        "policy": "bottom center at origin",
+        "passes": true,
+        "evidence": "Validated bounds are centered on X/Z with minY=0"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-0.4817104191, 0, -0.4750157073],
+        "boundsMax": [0.4817103893, 1.0000000149, 0.4750157222]
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": { "type": "none", "reason": "decorative perimeter grove; gameplay bounds remain authoritative" },
+      "lod": [
+        { "level": 0, "maxDistance": 38, "asset": "self" },
+        { "level": 1, "maxDistance": 48, "asset": "procedural perimeter trees" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden in fog" }
+      ]
+    },
+    {
+      "id": "prop.sherwood.treasure-chest",
+      "category": "repeated-prop",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-12",
+        "rationale": "Project-owner supplied animated chest reduced from 3.18 MB to a 176 KB toon-ready GLB while preserving its rig and open, burst-open, close, and idle clips."
+      },
+      "provenance": {
+        "sourceAsset": "treasure_chest.glb",
+        "sourceSha256": "f9d1d80bfa5bd42b569128d894e4d22698057e5033ef807195a2bc1349e0e5ce",
+        "sourceBytes": 3181924,
+        "sourceGenerator": "Sketchfab-16.72.0",
+        "suppliedBy": "project owner",
+        "conversionScript": "glTF Transform optimize and tools/strip-robin-pbr.mjs",
+        "conversionDoc": "docs/operations/3d-assets.md",
+        "optimizer": "glTF Transform prune, resample, 512px WebP, and toon PBR stripping"
+      },
+      "license": {
+        "status": "project-authorized",
+        "identifier": "LicenseRef-Project-Owner-Authorized",
+        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
+        "evidenceSha256": "014d13ec7a96657bc6ce3798bae2323a15d770f5de118a87bd6503e90325317b"
+      },
+      "uri": "assets/props/treasure-chest.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "e666d4d47155cdba547b2d4d4e47a9e4f49cddabef55f9b60beb1ecfe5e6b700",
+      "bytesMax": 500000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 3852,
+        "uploadVertices": 1379,
+        "triangles": 1284,
+        "uniquePrimitives": 3,
+        "sceneDrawCalls": 3
+      },
+      "materials": { "count": 1, "names": ["chest_mat"] },
+      "texture": {
+        "count": 1,
+        "format": "webp",
+        "width": 512,
+        "height": 512,
+        "encodedBytes": 41636,
+        "gpuBytesApprox": 1398100
+      },
+      "clips": [
+        "chest_rig|chest_burst_open_anim",
+        "chest_rig|chest_close_anim",
+        "chest_rig|chest_open_anim",
+        "chest_rig|Idle"
+      ],
+      "pivot": {
+        "policy": "runtime bottom grounding from animated source bounds",
+        "passes": true,
+        "evidence": "Runtime Box3 normalization grounds every cloned cache after scale normalization"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-0.67264, -0.51991, -0.93061],
+        "boundsMax": [0.67264, 0.51991, 0],
+        "runtimeMaxDimension": 1.65
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": { "type": "none", "reason": "interactive cache remains nonblocking; server validates interaction radius" },
+      "lod": [
+        { "level": 0, "maxDistance": 34, "asset": "self" },
+        { "level": 1, "maxDistance": 58, "asset": "procedural crate fallback" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
+      ]
+    },
+    {
+      "id": "environment.craftpix.medieval-props",
+      "category": "modular-environment",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-11",
+        "rationale": "Ten licensed low-poly props curated into one grounded, meter-scaled, embedded catalog with shared material, deterministic placement, distance culling, and nonblocking gameplay policy."
+      },
+      "provenance": {
+        "sourceAsset": "free-medieval-props-3d-low-poly-pack.zip curated 10-prop slice",
+        "sourceSha256": "3d09da28a728db18f4c95dbf305cde0d5f6e30d4bfde3de011e9447c85421c54",
+        "sourceBytes": 605366,
+        "sourceGenerator": "FBX source pack",
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/build-craftpix-medieval-props.py",
+        "conversionDoc": "docs/assets/quality-gate-audit.md#july-11-supplied-character-and-prop-packs",
+        "optimizer": "Blender glTF exporter and glTF Transform dedup/prune"
+      },
+      "license": {
+        "status": "project-authorized",
+        "identifier": "LicenseRef-Project-Owner-Authorized",
+        "evidence": "docs/assets/licenses/craftpix-freebie-license-reference.md",
+        "evidenceSha256": "b88e6d1d42e4cc4951b88ec5f24eda71230f231519e3b1d44793950ffd0ab910"
+      },
+      "uri": "assets/environment/craftpix-medieval-props.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "851c3ec8da70675b035b01e2da3d2ac9b373dbf9e87a680b99e6d1914e84f181",
+      "bytesMax": 3000000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 15486,
+        "uploadVertices": 10392,
+        "triangles": 5162,
+        "uniquePrimitives": 10,
+        "sceneDrawCalls": 10
+      },
+      "materials": { "count": 1, "names": ["Material #25.001"] },
+      "texture": { "count": 0, "format": "none", "width": 0, "height": 0, "encodedBytes": 0, "gpuBytesApprox": 0 },
+      "clips": [],
+      "pivot": {
+        "policy": "each prop bottom-centered at origin",
+        "passes": true,
+        "evidence": "All ten direct prop roots are grounded at minY=0"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-1.90448, 0, -0.55898],
+        "boundsMax": [1.90448, 2.2, 0.55897]
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": { "type": "none", "reason": "nonblocking regional dressing; authoritative navigation remains unchanged" },
+      "lod": [
+        { "level": 0, "maxDistance": 34, "asset": "self" },
+        { "level": 1, "maxDistance": 48, "asset": "self on desktop; hidden in degraded mode" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
+      ]
+    },
+    {
+      "id": "environment.sherwood.village-slice",
+      "category": "modular-environment",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-11",
+        "rationale": "Twelve CC0 village roots curated into one deterministic, grounded, self-contained module catalog with seven material families, measured browser cost, and shared runtime collision policy."
+      },
+      "provenance": {
+        "sourceAsset": "Medieval Village MegaKit[Standard] curated 12-root slice",
+        "sourceSha256": "71d564c9a2f3a4e94933bf9091ab08e2b2f5540650e200eb8afbf4a574399068",
+        "sourceBytes": 43055344,
+        "sourceGenerator": "Khronos glTF Blender I/O v4.0.44",
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/build-sherwood-village-slice.mjs",
+        "conversionDoc": "docs/assets/medieval-village-slice.md",
+        "optimizer": "glTF Transform 4.4.1"
+      },
+      "license": {
+        "status": "verified",
+        "identifier": "CC0-1.0",
+        "evidence": "docs/assets/licenses/medieval-village-megakit-cc0.txt",
+        "evidenceSha256": "ec6fd5004514cb0515a7dc1065f474644d31698861597b32e1745945ffec71de"
+      },
+      "uri": "assets/environment/sherwood-village-slice.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "9af770b514072dd55d13c29ffd95b4e1b39659e8baaf17b68e32ee80f4b150eb",
+      "bytesMax": 3000000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 16230,
+        "uploadVertices": 7601,
+        "triangles": 5410,
+        "uniquePrimitives": 21,
+        "sceneDrawCalls": 23
+      },
+      "materials": {
+        "count": 7,
+        "names": ["MI_WoodTrim", "MI_Plaster", "MI_RockTrim", "MI_Brick", "MI_RoundTiles", "MI_WindowGlass", "MI_Vine"]
+      },
+      "texture": {
+        "count": 16,
+        "format": "webp",
+        "width": 512,
+        "height": 512,
+        "encodedBytes": 262418,
+        "gpuBytesApprox": 22369600
+      },
+      "clips": [],
+      "pivot": {
+        "policy": "bottom at origin ground plane",
+        "passes": true,
+        "evidence": "All 12 direct roots and conservative aggregate bounds have minY=0"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-2.756538152694702, 0, -3.1504321098327637],
+        "boundsMax": [2.756538152694702, 4.249392867088318, 2.8215668201446533]
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": {
+        "type": "runtime-xz-rectangle-union",
+        "reason": "Authored render modules use the shared deterministic client/server level collider contract rather than mesh collision"
+      },
+      "lod": [
+        { "level": 0, "maxDistance": 34, "asset": "self" },
+        { "level": 1, "maxDistance": 58, "asset": "procedural hut and wagon silhouettes" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
+      ]
+    }
+  ],
+  "catalog": {
+    "shipped": ["character.robin.ranger", "environment.sherwood.tree-grove", "prop.sherwood.treasure-chest", "environment.craftpix.medieval-props", "environment.sherwood.village-slice"],
+    "procedural": [
+      "character.marian.scout",
+      "character.little-john.vanguard",
+      "character.much.saboteur",
+      "character.sheriff.guard",
+      "character.villager.captive",
+      "environment.sherwood.common",
+      "prop.tax-cart",
+      "prop.prison-wagon",
+      "prop.wagon-lock",
+      "prop.extraction-beacon",
+      "prop.royal-storehouse",
+      "prop.alarm-bell",
+      "prop.secured-cache",
+      "prop.disguise-rack",
+      "prop.ledger",
+      "prop.reinforcement-signal",
+      "prop.road-snare",
+      "prop.village-fire",
+      "audio.mission.forest-bed",
+      "audio.fx.bow",
+      "audio.fx.impact",
+      "audio.fx.wagon",
+      "audio.fx.lock-break",
+      "audio.fx.alarm-bell",
+      "audio.fx.cache-open",
+      "fx.ping.symbols",
+      "fx.vanguard.oak-sweep",
+      "fx.saboteur.road-snare",
+      "fx.alarm.pulse"
+    ]
+  },
+  "budgets": {
+    "assetCategories": {
+      "hero": {
+        "bytesMax": 2500000,
+        "renderVerticesMax": 200000,
+        "uploadVerticesMax": 50000,
+        "trianglesMax": 100000,
+        "uniquePrimitivesMax": 8,
+        "sceneDrawCallsMax": 8,
+        "materialsMax": 8,
+        "textureEdgeMax": 1024,
+        "textureGpuBytesMax": 6000000
+      },
+      "modular-environment": {
+        "bytesMax": 3000000,
+        "renderVerticesMax": 100000,
+        "uploadVerticesMax": 75000,
+        "trianglesMax": 60000,
+        "uniquePrimitivesMax": 24,
+        "sceneDrawCallsMax": 24,
+        "materialsMax": 8,
+        "textureEdgeMax": 1024,
+        "textureGpuBytesMax": 32000000
+      },
+      "repeated-prop": {
+        "bytesMax": 500000,
+        "renderVerticesMax": 30000,
+        "uploadVerticesMax": 20000,
+        "trianglesMax": 20000,
+        "uniquePrimitivesMax": 4,
+        "sceneDrawCallsMax": 4,
+        "materialsMax": 3,
+        "textureEdgeMax": 512,
+        "textureGpuBytesMax": 1500000
+      },
+      "decorative-environment": {
+        "bytesMax": 500000,
+        "renderVerticesMax": 30000,
+        "uploadVerticesMax": 20000,
+        "trianglesMax": 20000,
+        "uniquePrimitivesMax": 8,
+        "sceneDrawCallsMax": 8,
+        "materialsMax": 8,
+        "textureEdgeMax": 512,
+        "textureGpuBytesMax": 1500000
+      }
+    },
+    "sceneDrawCallsDesktop": 220,
+    "sceneDrawCallsDegraded": 130
+  }
+}

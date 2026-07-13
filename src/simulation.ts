@@ -1,6 +1,10 @@
+import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
+import { resolveSherwoodPlayerMovement } from "../shared/world-collisions"
+import { regionCellIndexAt, regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+
 export interface Vec2 { x: number; z: number }
 
-export type CharacterId = "robin" | "marian"
+export type CharacterId = "robin" | "marian" | "little-john" | "much"
 
 export interface MissionStats {
   elapsedSeconds: number
@@ -22,6 +26,8 @@ export interface GuardState {
 }
 
 export interface GameState {
+  layout: RegionalMissionLayout
+  exploredCellIndices: number[]
   player: {
     characterId: CharacterId
     position: Vec2
@@ -33,7 +39,10 @@ export interface GameState {
     veilFor: number
   }
   guards: GuardState[]
+  traps: Array<{ id: number; position: Vec2; remaining: number }>
   delivered: number
+  objectiveDiscovered: boolean
+  searchPressure: number
   heat: number
   cartCoin: number
   cartRefill: number
@@ -47,21 +56,25 @@ export interface InputState {
   move: Vec2
 }
 
-export const CART_POSITION: Vec2 = { x: 10, z: -8 }
-export const VILLAGE_POSITION: Vec2 = { x: -11, z: 9 }
-export const DELIVERY_TARGET = 300
+const DEFAULT_SOLO_MISSION = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, stableSeed("solo-default"))
+export const CART_POSITION: Vec2 = { ...DEFAULT_SOLO_MISSION.layout.objectivePosition }
+export const VILLAGE_POSITION: Vec2 = { ...DEFAULT_SOLO_MISSION.layout.campfirePosition }
+export const DELIVERY_TARGET = PEOPLES_PURSE_MISSION.rewards.deliveryTarget
 
 const distance = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z)
 
 export function getMaxArrows(characterId: CharacterId): number {
-  return characterId === "robin" ? 6 : 4
+  return characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4
 }
 
-export function createInitialState(characterId: CharacterId = "robin"): GameState {
+export function createInitialState(characterId: CharacterId = "robin", seed = stableSeed("solo-default")): GameState {
+  const regional = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed)
   return {
+    layout: regional.layout,
+    exploredCellIndices: [regional.layout.campfireCell.index],
     player: {
       characterId,
-      position: { x: -8, z: 7 },
+      position: { ...regional.definition.spawns.players[0] },
       health: 3,
       arrows: getMaxArrows(characterId),
       loot: 0,
@@ -69,12 +82,11 @@ export function createInitialState(characterId: CharacterId = "robin"): GameStat
       signatureCooldown: 0,
       veilFor: 0,
     },
-    guards: [
-      { id: 0, position: { x: 7, z: -5 }, home: { x: 7, z: -5 }, patrolAngle: 0, stunnedFor: 0 },
-      { id: 1, position: { x: 13, z: -6 }, home: { x: 13, z: -6 }, patrolAngle: 2, stunnedFor: 0 },
-      { id: 2, position: { x: 9, z: -11 }, home: { x: 9, z: -11 }, patrolAngle: 4, stunnedFor: 0 },
-    ],
+    guards: regional.definition.spawns.guards.map((guard, index) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: index * 2, stunnedFor: 0 })),
+    traps: [],
     delivered: 0,
+    objectiveDiscovered: false,
+    searchPressure: 0,
     heat: 0,
     cartCoin: 120,
     cartRefill: 0,
@@ -110,23 +122,56 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   const events: string[] = []
   const player = state.player
   state.stats.elapsedSeconds += dt
+  const currentCell = regionCellIndexAt(player.position)
+  if (!state.exploredCellIndices.includes(currentCell)) state.exploredCellIndices.push(currentCell)
+
+  if (!state.objectiveDiscovered) {
+    if (distance(player.position, state.layout.objectivePosition) < 13) {
+      state.objectiveDiscovered = true
+      events.push("objective-found")
+    } else {
+      const nextPressure = Math.min(3, Math.floor(Math.max(0, state.stats.elapsedSeconds - 45) / 20))
+      while (state.searchPressure < nextPressure) {
+        state.searchPressure += 1
+        state.heat = Math.min(100, state.heat + 18)
+        const angle = state.searchPressure * 2.2
+        const position = {
+          x: state.layout.objectivePosition.x + Math.cos(angle) * (5 + state.searchPressure),
+          z: state.layout.objectivePosition.z + Math.sin(angle) * (5 + state.searchPressure),
+        }
+        state.guards.push({ id: state.guards.length, position: { ...position }, home: { ...position }, patrolAngle: angle, stunnedFor: 0 })
+        events.push("search-reinforced")
+      }
+    }
+  }
 
   const moveLength = Math.hypot(input.move.x, input.move.z)
+  let playerDisplacement: Vec2 = { x: 0, z: 0 }
   if (moveLength > 0.001) {
-    const speed = player.characterId === "marian" ? 6.75 : 6.2
-    const movement = speed * dt
-    player.position.x += (input.move.x / moveLength) * movement
-    player.position.z += (input.move.z / moveLength) * movement
+    const speed = player.characterId === "marian" ? 6.75 : player.characterId === "little-john" ? 5.9 : 6.2
+    const lootPenalty = player.characterId === "little-john"
+      ? Math.max(0.82, 1 - player.loot / 1_100)
+      : Math.max(0.68, 1 - player.loot / 600)
+    const movement = speed * lootPenalty * dt
+    playerDisplacement = {
+      x: (input.move.x / moveLength) * movement,
+      z: (input.move.z / moveLength) * movement,
+    }
     state.stats.distanceTravelled += movement
-    player.position.x = Math.max(-22, Math.min(22, player.position.x))
-    player.position.z = Math.max(-22, Math.min(22, player.position.z))
   }
+  const resolvedPlayerPosition = resolveSherwoodPlayerMovement(player.position, playerDisplacement, state.layout.worldBounds, undefined, state.layout)
+  player.position.x = resolvedPlayerPosition.x
+  player.position.z = resolvedPlayerPosition.z
 
   player.invulnerableFor = Math.max(0, player.invulnerableFor - dt)
   player.signatureCooldown = Math.max(0, player.signatureCooldown - dt)
   player.veilFor = Math.max(0, player.veilFor - dt)
   state.bowCooldown = Math.max(0, state.bowCooldown - dt)
   state.cartRefill = Math.max(0, state.cartRefill - dt)
+  for (let index = state.traps.length - 1; index >= 0; index -= 1) {
+    state.traps[index].remaining -= dt
+    if (state.traps[index].remaining <= 0) state.traps.splice(index, 1)
+  }
   if (state.cartRefill === 0 && state.cartCoin === 0) {
     state.cartCoin = 120
     events.push("cart-ready")
@@ -138,12 +183,21 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   const veilBonus = player.veilFor > 0 ? 2.4 : 1
   const heatDecay = (hiddenInWoods && nearestGuard > 7 ? 9 : 1.4) * marianBonus * veilBonus
   state.heat = Math.max(0, state.heat - heatDecay * dt)
+  if (!state.objectiveDiscovered && state.searchPressure > 0) state.heat = Math.max(state.heat, state.searchPressure * 18)
   state.stats.peakHeat = Math.max(state.stats.peakHeat, state.heat)
 
   for (const guard of state.guards) {
     guard.stunnedFor = Math.max(0, guard.stunnedFor - dt)
     if (guard.stunnedFor > 0) continue
+    const trapIndex = state.traps.findIndex((trap) => distance(trap.position, guard.position) < 1.35)
+    if (trapIndex >= 0) {
+      state.traps.splice(trapIndex, 1)
+      guard.stunnedFor = 4.5
+      events.push("trap-triggered")
+      continue
+    }
 
+    const guardOrigin = { ...guard.position }
     const detectionRange = player.veilFor > 0 ? 2.4 : 22
     if (state.heat > 8 && distance(guard.position, player.position) < detectionRange) {
       moveToward(guard.position, player.position, 3.35 + state.heat * 0.008, dt)
@@ -155,14 +209,23 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       }
       moveToward(guard.position, patrolTarget, 1.5, dt)
     }
+    const guardResolved = resolveSherwoodPlayerMovement(guardOrigin, {
+      x: guard.position.x - guardOrigin.x,
+      z: guard.position.z - guardOrigin.z,
+    }, state.layout.worldBounds, 0.35, state.layout)
+    guard.position = guardResolved
 
     if (distance(guard.position, player.position) < 1.25 && player.invulnerableFor === 0) {
       player.health -= 1
       state.stats.damageTaken += 1
       player.invulnerableFor = 2
       state.heat = Math.min(100, state.heat + 15)
-      player.position.x -= (guard.position.x - player.position.x) * 1.8
-      player.position.z -= (guard.position.z - player.position.z) * 1.8
+      const knockback = resolveSherwoodPlayerMovement(player.position, {
+        x: -(guard.position.x - player.position.x) * 1.8,
+        z: -(guard.position.z - player.position.z) * 1.8,
+      }, state.layout.worldBounds, undefined, state.layout)
+      player.position.x = knockback.x
+      player.position.z = knockback.z
       events.push("player-hit")
       if (player.health <= 0) {
         state.lost = true
@@ -175,7 +238,14 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
 
 export function interact(state: GameState): string {
   if (state.won || state.lost) return "none"
-  if (distance(state.player.position, CART_POSITION) < 3) {
+  const bowCache = state.layout.bowCachePositions.find((position) => distance(state.player.position, position) < 2.8)
+  if (bowCache) {
+    const maxArrows = getMaxArrows(state.player.characterId)
+    if (state.player.arrows >= maxArrows) return "quiver-full"
+    state.player.arrows = maxArrows
+    return "bow-cache"
+  }
+  if (distance(state.player.position, state.layout.objectivePosition) < 3) {
     if (state.cartCoin === 0) return "cart-empty"
     state.player.loot += state.cartCoin
     state.cartCoin = 0
@@ -185,7 +255,7 @@ export function interact(state: GameState): string {
     state.stats.robberies += 1
     return "robbed-cart"
   }
-  if (distance(state.player.position, VILLAGE_POSITION) < 3.2) {
+  if (distance(state.player.position, state.layout.campfirePosition) < 3.2) {
     if (state.player.loot === 0) {
       const maxArrows = getMaxArrows(state.player.characterId)
       if (state.player.arrows < maxArrows) {
@@ -234,6 +304,36 @@ export function activateSignature(state: GameState): { event: string; guardIds: 
     return { event: "marian-veil", guardIds: [] }
   }
 
+  if (player.characterId === "little-john") {
+    const targets = state.guards
+      .map((guard) => ({ guard, range: distance(guard.position, player.position) }))
+      .filter(({ guard, range }) => guard.stunnedFor <= 0 && range < 6)
+    if (targets.length === 0) {
+      player.signatureCooldown = 0
+      state.stats.signatureUses -= 1
+      return { event: "signature-unavailable", guardIds: [] }
+    }
+    for (const { guard } of targets) guard.stunnedFor = 5
+    player.signatureCooldown = 20
+    return { event: "little-john-sweep", guardIds: targets.map(({ guard }) => guard.id) }
+  }
+
+  if (player.characterId === "much") {
+    const invalidTerrain = Math.abs(player.position.x) > state.layout.worldBounds - 2
+      || Math.abs(player.position.z) > state.layout.worldBounds - 2
+      || (Math.abs(player.position.x) < 3.2 && Math.abs(player.position.z) < 18)
+      || distance(player.position, state.layout.objectivePosition) < 3
+      || distance(player.position, state.layout.campfirePosition) < 3
+    if (invalidTerrain || state.traps.length > 0) {
+      player.signatureCooldown = 0
+      state.stats.signatureUses -= 1
+      return { event: "signature-unavailable", guardIds: [] }
+    }
+    state.traps.push({ id: state.stats.signatureUses, position: { ...player.position }, remaining: 30 })
+    player.signatureCooldown = 18
+    return { event: "much-snare", guardIds: [] }
+  }
+
   const targets = state.guards
     .map((guard) => ({ guard, range: distance(guard.position, player.position) }))
     .filter(({ range }) => range < 11)
@@ -264,12 +364,16 @@ export function calculateMastery(state: GameState): MasteryResult {
 }
 
 export function getContextPrompt(state: GameState): string {
-  if (distance(state.player.position, CART_POSITION) < 3) {
+  if (distance(state.player.position, state.layout.objectivePosition) < 3) {
     return state.cartCoin > 0 ? "E  ROB THE TAX CART" : `Cart returns in ${Math.ceil(state.cartRefill)}s`
   }
-  if (distance(state.player.position, VILLAGE_POSITION) < 3.2) {
+  if (distance(state.player.position, state.layout.campfirePosition) < 3.2) {
     return state.player.loot > 0 ? "E  GIVE COIN TO THE VILLAGE" : "E  RESTOCK ARROWS"
   }
   if (state.heat > 20) return "Lose the guards in the deep woods"
-  return state.player.loot > 0 ? "Carry the coin back to the village fire" : "Find the Sheriff's tax cart"
+  return state.player.loot > 0
+    ? "Carry the coin back to the village fire"
+    : state.objectiveDiscovered
+      ? "Close on the Sheriff's tax cart"
+      : "Search the 25 Sherwood sectors before the Sheriff reinforces"
 }
