@@ -19,6 +19,14 @@ canvas { display: block; width: 100%; height: 100%; outline: none; }
 button { font: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 
+.wallet-dock { position: fixed; z-index: 8; top: 20px; right: 28px; min-height: 42px; display: flex; align-items: center; gap: 10px; padding: 6px 7px 6px 11px; color: var(--cream); background: #07120bef; border: 1px solid #e4b65370; border-radius: 3px; box-shadow: 0 9px 28px #0006; backdrop-filter: blur(10px); }
+.wallet-dock span { color: var(--gold); font-size: 8px; font-weight: 800; letter-spacing: .13em; }
+.wallet-dock span i { width: 19px; height: 19px; margin-right: 5px; display: inline-grid; place-items: center; color: var(--ink); background: var(--gold); border-radius: 50%; font-size: 7px; font-style: normal; letter-spacing: 0; }
+.wallet-dock b { max-width: 120px; overflow: hidden; color: #f7f0d4a5; font: 700 8px Cinzel, serif; text-overflow: ellipsis; white-space: nowrap; }
+.wallet-dock button { min-height: 28px; padding: 0 10px; color: var(--ink); background: var(--gold); border: 0; border-radius: 2px; cursor: pointer; font-size: 8px; font-weight: 900; letter-spacing: .11em; }
+.wallet-dock button:hover { background: #f0ca72; }
+.wallet-dock .hidden { display: none; }
+
 #hud { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
 .brand { position: absolute; top: 24px; left: 28px; display: flex; align-items: center; gap: 10px; text-shadow: 0 2px 10px #0009; }
 .brand-mark { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid #f7f0d488; border-radius: 50%; font-family: Cinzel, serif; font-size: 13px; }
@@ -33,7 +41,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .progress { height: 3px; overflow: hidden; background: #ffffff18; }
 .progress i { display: block; width: 0; height: 100%; background: var(--gold); box-shadow: 0 0 12px #e4b653; transition: width .4s ease; }
 
-.status { position: absolute; top: 24px; right: 28px; display: flex; gap: 8px; }
+.status { position: absolute; top: 76px; right: 28px; display: flex; gap: 8px; }
 .status span { height: 42px; min-width: 58px; padding: 0 12px; display: flex; align-items: center; justify-content: center; gap: 8px; background: #10251dcc; border: 1px solid #f7f0d42a; border-radius: 3px; box-shadow: 0 8px 24px #0004; }
 .status .signature-status { min-width: 90px; }
 .signature-status i { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid #e4b65388; color: var(--gold); font: 700 10px Cinzel, serif; font-style: normal; }
@@ -45,7 +53,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .arrow { color: #f7f0d4; font-style: normal; font-size: 23px; line-height: 1; }
 .coin { width: 14px; height: 14px; border-radius: 50%; background: var(--gold); box-shadow: inset 0 0 0 3px #a9792e; }
 
-.heat { position: absolute; top: 78px; right: 28px; width: 190px; opacity: 0; transform: translateY(-4px); transition: .25s ease; }
+.heat { position: absolute; top: 130px; right: 28px; width: 190px; opacity: 0; transform: translateY(-4px); transition: .25s ease; }
 .heat.visible { opacity: 1; transform: none; }
 .heat span { color: #f2b3a8; font-size: 9px; font-weight: 700; letter-spacing: .2em; }
 .heat div { height: 4px; margin-top: 5px; background: #321511aa; }
@@ -321,7 +329,7 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .hub-panel > small { display: block; margin-top: 10px; color: #f7f0d46e; font-size: 8px; line-height: 1.5; }
 
 body.high-contrast { --cream: #fff; --gold: #ffd84f; --moss: #a6ef57; --red: #ff6b57; }
-body.high-contrast .objective, body.high-contrast .status span, body.high-contrast .party-hud, body.high-contrast .panel, body.high-contrast .prompt { background: #06100bf5; border-color: #fff; }
+body.high-contrast .wallet-dock, body.high-contrast .objective, body.high-contrast .status span, body.high-contrast .party-hud, body.high-contrast .panel, body.high-contrast .prompt { background: #06100bf5; border-color: #fff; }
 body.high-contrast .board-state, body.high-contrast .panel dd, body.high-contrast .settings-note, body.high-contrast .intro p { color: #fff; }
 body.readable-text { font-size: 118%; }
 body.readable-text .objective strong, body.readable-text .prompt, body.readable-text .panel dd, body.readable-text .intro p { font-size: 1rem; }
@@ -341,16 +349,19 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
 }
 
 @media (max-width: 720px) {
+  .wallet-dock { top: 14px; right: 14px; min-height: 42px; padding: 3px; }
+  .wallet-dock span, .wallet-dock b { display: none; }
+  .wallet-dock button { min-height: 34px; }
   .brand { top: 14px; left: 14px; }
   .brand > span:last-child { display: none; }
-  .objective { top: 14px; width: min(290px, 62vw); padding: 9px 12px 10px; }
+  .objective { top: 64px; left: 14px; width: calc(100vw - 28px); padding: 9px 12px 10px; transform: none; }
   .objective strong { font-size: 11px; }
   .objective small { display: none; }
   .status { top: auto; right: 14px; bottom: 76px; flex-direction: column; }
   .status span { min-width: 48px; height: 36px; }
   .status .signature-status { min-width: 72px; }
-  .heat { top: 76px; right: 14px; width: 150px; }
-  .party-hud { top: 64px; left: 14px; width: min(190px, 48vw); }
+  .heat { top: 126px; right: 14px; width: 150px; }
+  .party-hud { top: 126px; left: 14px; width: min(190px, 48vw); }
   .region-map { left: 14px; bottom: 62px; width: 122px; padding: 8px; }
   .intro-card { padding: 28px 24px; }
   .character-select { grid-template-columns: 1fr; }

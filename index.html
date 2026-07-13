@@ -8,6 +8,12 @@
   </head>
   <body>
     <div id="game"></div>
+    <div class="wallet-dock" aria-label="Robinhood Wallet">
+      <span><i>RH</i> ROBINHOOD WALLET</span>
+      <b id="wallet-state">NOT CONNECTED</b>
+      <button id="wallet-sign-in">SIGN IN</button>
+      <button class="hidden" id="wallet-sign-out">SIGN OUT</button>
+    </div>
     <div id="hud">
       <div class="brand">
         <span class="brand-mark">RH</span>
@@ -69,12 +75,10 @@
           <button class="character-option" data-character="much" aria-pressed="false"><b>MUCH</b><span>Saboteur</span><small>Cut signals · Q: Road Snare</small></button>
         </div>
         <section class="access-card" id="access-card" aria-label="Sherwood access">
-          <div><span>ROBINHOOD WALLET</span><b id="wallet-state">NOT CONNECTED</b></div>
+          <div><span>SHERWOOD ACCESS</span><b>WALLET OPTIONAL</b></div>
           <p id="access-copy">Connect Robinhood Wallet to keep your outlaw identity across Sherwood.</p>
           <div class="access-actions">
-            <button id="wallet-sign-in">SIGN IN WITH ROBINHOOD WALLET</button>
             <button class="hidden" id="token-pass-purchase">BUY 30-DAY TOKEN PASS · ≈ $6</button>
-            <button class="hidden quiet" id="wallet-sign-out">SIGN OUT</button>
           </div>
           <small id="access-status" role="status" aria-live="polite"></small>
         </section>
