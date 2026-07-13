@@ -43,6 +43,7 @@ import {
 } from "./input-settings"
 import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, sendMagicLink, signOutSocial, updateSocialPresence, type SocialState } from "./social"
 import { createVillageCottage, createVillageWagonShell } from "./village-assets"
+import { createAuthoredTreePlacements, TREE_VARIANT_NAMES } from "./tree-placements"
 import {
   PUBLIC_HUB_WORLD_BOUNDS,
   resolveSherwoodPlayerMovement,
@@ -308,7 +309,18 @@ const alarmViews = new Map<string, THREE.Group>()
 const lootCacheViews = new Map<string, THREE.Group>()
 const preparationViews = new Map<string, THREE.Group>()
 const villageUpgradeViews = new Map<VoteChoice, THREE.Group>()
-const authoredGroveViews: THREE.Group[] = []
+interface AuthoredTreeInstance {
+  batch: THREE.InstancedMesh
+  instanceId: number
+  visibleMatrix: THREE.Matrix4
+  hiddenMatrix: THREE.Matrix4
+  x: number
+  z: number
+  radius: number
+  hidden: boolean
+}
+
+const authoredTreeInstances: AuthoredTreeInstance[] = []
 const regionFogViews: THREE.Mesh[] = []
 const medievalPropViews: THREE.Object3D[] = []
 const cameraOccluders: Array<{ view: THREE.Group; radius: number; maxDistance?: number }> = []
@@ -320,7 +332,7 @@ const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
-let treeGroveAssetPromise: Promise<THREE.Group> | null = null
+let treeCatalogAssetPromise: Promise<THREE.Group> | null = null
 let villageAssetPromise: Promise<THREE.Group> | null = null
 let medievalPropsPromise: Promise<THREE.Group> | null = null
 let treasureChestPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
@@ -397,7 +409,7 @@ function addLighting(): void {
   scene.add(sun)
 }
 
-function createTree(x: number, z: number, scale = 1): THREE.Group {
+function createFallbackTree(x: number, z: number, scale = 1): THREE.Group {
   const tree = new THREE.Group()
   tree.position.set(x, 0, z)
   const trunk = mesh(new THREE.CylinderGeometry(0.22 * scale, 0.34 * scale, 2.4 * scale, 7), palette.trunk)
@@ -482,8 +494,6 @@ function createWorld(): void {
   missionCampfireView.add(fire)
   missionCampfireView.position.set(state.layout.campfirePosition.x, 0, state.layout.campfirePosition.z)
   scene.add(missionCampfireView)
-
-  for (const tree of SHERWOOD_TREE_LAYOUT) createTree(tree.x, tree.z, tree.scale)
 
   let seed = 7331
   const random = (): number => {
@@ -691,10 +701,10 @@ function loadRobinRanger(): Promise<{ scene: THREE.Group; animations: THREE.Anim
   return rangerAssetPromise
 }
 
-function loadTreeGrove(): Promise<THREE.Group> {
-  treeGroveAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-tree-grove.glb")
+function loadTreeCatalog(): Promise<THREE.Group> {
+  treeCatalogAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-tree-catalog.glb")
     .then((asset) => convertObjectToToon(asset.scene))
-  return treeGroveAssetPromise
+  return treeCatalogAssetPromise
 }
 
 function loadVillageCatalog(): Promise<THREE.Group> {
@@ -765,35 +775,68 @@ function attachVillageSlice(cart: THREE.Group): void {
   })
 }
 
-function attachTreeGroves(): void {
-  const placements = renderProfile.tier === "degraded"
-    ? [{ x: -57, z: -56, scale: 15, rotation: 0.35 }]
-    : [
-        { x: -57, z: -56, scale: 15, rotation: 0.35 },
-        { x: 56, z: 57, scale: 14, rotation: -1.1 },
-        { x: 57, z: -56, scale: 13, rotation: 1.7 },
-      ]
-  void loadTreeGrove().then((source) => {
-    for (const placement of placements) {
-      const grove = source.clone(true)
-      grove.position.set(placement.x, 0, placement.z)
-      grove.rotation.y = placement.rotation
-      grove.scale.setScalar(placement.scale)
-      grove.userData.authoredTreeGrove = true
-      grove.traverse((child) => {
-        if (!(child instanceof THREE.Mesh)) return
-        // The authored grove is scaled as distant perimeter dressing. Casting
-        // that scaled silhouette into the shared shadow map produces enormous
-        // near-black toon bands across the playfield, so only nearby procedural
-        // trees and gameplay actors cast dynamic shadows.
-        child.castShadow = false
-        child.receiveShadow = true
-        child.frustumCulled = true
+function attachStylizedTrees(): void {
+  const placements = createAuthoredTreePlacements(SHERWOOD_TREE_LAYOUT)
+  void loadTreeCatalog().then((catalog) => {
+    const batches: THREE.InstancedMesh[] = []
+    const records: AuthoredTreeInstance[] = []
+    catalog.updateMatrixWorld(true)
+
+    for (const variantName of TREE_VARIANT_NAMES) {
+      const source = catalog.getObjectByName(variantName)
+      if (!source) throw new Error(`Tree catalog is missing ${variantName}`)
+      const sourceMeshes: THREE.Mesh[] = []
+      source.traverse((child) => {
+        if (child instanceof THREE.Mesh) sourceMeshes.push(child)
       })
-      authoredGroveViews.push(grove)
-      scene.add(grove)
+      if (sourceMeshes.length === 0) throw new Error(`Tree catalog variant has no mesh: ${variantName}`)
+      const variantPlacements = placements.filter((placement) => placement.variantName === variantName)
+      sourceMeshes.forEach((sourceMesh, partIndex) => {
+        const batch = new THREE.InstancedMesh(sourceMesh.geometry, sourceMesh.material, variantPlacements.length)
+        batch.name = `${variantName}_Part_${partIndex + 1}_Instances`
+        batch.castShadow = renderProfile.tier !== "degraded"
+        batch.receiveShadow = true
+        batch.frustumCulled = true
+        batch.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+
+        variantPlacements.forEach((placement, instanceId) => {
+          const visibleMatrix = new THREE.Matrix4().compose(
+            new THREE.Vector3(placement.x, 0, placement.z),
+            new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), placement.rotation),
+            new THREE.Vector3(placement.height, placement.height, placement.height),
+          ).multiply(sourceMesh.matrixWorld)
+          const hiddenMatrix = new THREE.Matrix4().compose(
+            new THREE.Vector3(placement.x, -20, placement.z),
+            new THREE.Quaternion(),
+            new THREE.Vector3(0.001, 0.001, 0.001),
+          )
+          batch.setMatrixAt(instanceId, visibleMatrix)
+          records.push({
+            batch,
+            instanceId,
+            visibleMatrix,
+            hiddenMatrix,
+            x: placement.x,
+            z: placement.z,
+            radius: placement.visualRadius,
+            hidden: false,
+          })
+        })
+
+        batch.computeBoundingBox()
+        batch.computeBoundingSphere()
+        batch.instanceMatrix.needsUpdate = true
+        batches.push(batch)
+      })
     }
-  }).catch(() => showToast("The authored tree grove could not be loaded; procedural forest remains active"))
+
+    authoredTreeInstances.push(...records)
+    scene.add(...batches)
+  }).catch((error) => {
+    console.error("Stylized tree catalog failed to initialize", error)
+    for (const tree of SHERWOOD_TREE_LAYOUT) createFallbackTree(tree.x, tree.z, tree.scale)
+    showToast("Stylized trees could not be loaded; simple forest fallback enabled")
+  })
 }
 
 function prepareRangerInstance(source: THREE.Group): THREE.Group {
@@ -982,7 +1025,7 @@ function createDisguiseRack(): THREE.Group {
 
 addLighting()
 createWorld()
-attachTreeGroves()
+attachStylizedTrees()
 attachMedievalProps()
 
 let playerView = createCharacter(selectedCharacter)
@@ -2900,7 +2943,7 @@ function syncViews(elapsed: number, dt: number): void {
   const explored = new Set(latestMissionSnapshot?.exploredCellIndices ?? state.exploredCellIndices)
   explored.add(state.layout.campfireCell.index)
   for (const fogTile of regionFogViews) fogTile.visible = !inHub && !explored.has(Number(fogTile.userData.regionCell))
-  const groveDistance = renderProfile.tier === "degraded" ? 48 : 64
+  const treeDistance = renderProfile.tier === "degraded" ? 34 : 48
   const propDistance = renderProfile.tier === "degraded" ? 34 : 48
   for (const prop of medievalPropViews) prop.visible = Math.hypot(prop.position.x - player.x, prop.position.z - player.z) <= propDistance
   syncVillageLods(player)
@@ -2922,20 +2965,27 @@ function syncViews(elapsed: number, dt: number): void {
       && !(segmentPosition > 0.05 && segmentPosition < 0.95
       && Math.hypot(occluder.view.position.x - sightline.x, occluder.view.position.z - sightline.z) < occluder.radius)
   }
-  for (const grove of authoredGroveViews) {
-    const playerDistance = Math.hypot(grove.position.x - player.x, grove.position.z - player.z)
-    const cameraToGrove = { x: grove.position.x - camera.position.x, z: grove.position.z - camera.position.z }
+  const dirtyTreeBatches = new Set<THREE.InstancedMesh>()
+  for (const tree of authoredTreeInstances) {
+    const playerDistance = Math.hypot(tree.x - player.x, tree.z - player.z)
+    const cameraToTree = { x: tree.x - camera.position.x, z: tree.z - camera.position.z }
+    const cameraDistance = Math.hypot(cameraToTree.x, cameraToTree.z)
     const segmentPosition = cameraToPlayerLengthSquared > 0
-      ? Math.max(0, Math.min(1, (cameraToGrove.x * cameraToPlayer.x + cameraToGrove.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
+      ? Math.max(0, Math.min(1, (cameraToTree.x * cameraToPlayer.x + cameraToTree.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
       : 0
     const sightline = {
       x: camera.position.x + cameraToPlayer.x * segmentPosition,
       z: camera.position.z + cameraToPlayer.z * segmentPosition,
     }
     const blocksCamera = segmentPosition > 0.05 && segmentPosition < 0.95
-      && Math.hypot(grove.position.x - sightline.x, grove.position.z - sightline.z) < grove.scale.x * 0.62
-    grove.visible = playerDistance <= groveDistance && !blocksCamera
+      && Math.hypot(tree.x - sightline.x, tree.z - sightline.z) < tree.radius
+    const hidden = playerDistance > treeDistance || cameraDistance <= tree.radius * 2.35 || blocksCamera
+    if (hidden === tree.hidden) continue
+    tree.hidden = hidden
+    tree.batch.setMatrixAt(tree.instanceId, hidden ? tree.hiddenMatrix : tree.visibleMatrix)
+    dirtyTreeBatches.add(tree.batch)
   }
+  for (const batch of dirtyTreeBatches) batch.instanceMatrix.needsUpdate = true
   for (const view of alarmViews.values()) {
     if (view.userData.alarmStatus !== "triggered") continue
     const pulse = 1 + Math.sin(elapsed * 8) * 0.14 * renderProfile.motionScale

@@ -26,7 +26,7 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "014d13ec7a96657bc6ce3798bae2323a15d770f5de118a87bd6503e90325317b"
+        "evidenceSha256": "0fe4d8f7f3be0b1364ab9589cb2fc7bbf6385c0a53d926422862b37d475e706d"
       },
       "uri": "assets/characters/robin-ranger-rigged.glb",
       "format": "glTF 2.0 GLB",
@@ -74,64 +74,64 @@
       ]
     },
     {
-      "id": "environment.sherwood.tree-grove",
-      "category": "decorative-environment",
+      "id": "environment.sherwood.tree-catalog",
+      "category": "modular-environment",
       "qualityGate": {
         "decision": "accept",
-        "reviewedAt": "2026-07-11",
-        "rationale": "Ground removed, transforms and pivot normalized, meshes consolidated, resources embedded, and decorative collision plus LOD fallbacks defined."
+        "reviewedAt": "2026-07-13",
+        "rationale": "Eight CC0 tree silhouettes are grounded, normalized, texture-limited, simplified, and rendered through deterministic instancing without changing authoritative collision."
       },
       "provenance": {
-        "sourceAsset": "Tree Assets (1).glb",
-        "sourceSha256": "88f82eeeb0f1f3d929df456459b16a2853fc7ba38260a871bee8e154ad15bfdf",
-        "sourceBytes": 410864,
-        "sourceGenerator": "obj2gltf",
+        "sourceAsset": "Stylized Nature MegaKit[Standard]/glTF curated tree subset",
+        "sourceSha256": "f1627c4ee6f49341c0d652426bcac9fc8c50a3a96b173f3edc9b9dcd4ac52fa5",
+        "sourceBytes": 21061635,
+        "sourceGenerator": "Quaternius Blender glTF export",
         "suppliedBy": "project owner",
-        "conversionScript": "tools/normalize-tree-grove.py",
-        "conversionDoc": "docs/assets/authored-tree-grove.md",
-        "optimizer": "Blender glTF 2.0 exporter"
+        "conversionScript": "tools/build-stylized-tree-catalog.py",
+        "conversionDoc": "docs/assets/stylized-nature-trees.md",
+        "optimizer": "Blender glTF 2.0 exporter and glTF Transform simplify/WebP"
       },
       "license": {
-        "status": "project-authorized",
-        "identifier": "LicenseRef-Project-Owner-Authorized",
-        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "014d13ec7a96657bc6ce3798bae2323a15d770f5de118a87bd6503e90325317b"
+        "status": "verified",
+        "identifier": "CC0-1.0",
+        "evidence": "docs/assets/licenses/stylized-nature-megakit-cc0.txt",
+        "evidenceSha256": "5de0412f4f694f3d8cfa2b334a3ddb7ebbdc3ac5b1e9c262ff4870d0564341db"
       },
-      "uri": "assets/environment/sherwood-tree-grove.glb",
+      "uri": "assets/environment/sherwood-tree-catalog.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "b7dda3ea846d5dc3b51e98df4cbeaac7522abe5c415d8f414231e8202fdf4bc8",
-      "bytesMax": 450000,
+      "sha256": "b2799cb1497fea6588a88e4a8775b5e7810ffb4d838fbb21da97e4f7d84cfdc0",
+      "bytesMax": 2500000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
-        "renderVertices": 15264,
-        "uploadVertices": 11107,
-        "triangles": 5088,
-        "uniquePrimitives": 8,
-        "sceneDrawCalls": 8
+        "renderVertices": 98478,
+        "uploadVertices": 50675,
+        "triangles": 32826,
+        "uniquePrimitives": 15,
+        "sceneDrawCalls": 15
       },
       "materials": {
-        "count": 8,
-        "names": ["mat16", "mat17", "mat19", "mat9", "mat10", "mat20", "mat11", "mat21"]
+        "count": 4,
+        "names": ["Bark_NormalTree", "Leaves_NormalTree", "Leaves_Pine", "Bark_DeadTree"]
       },
-      "texture": { "count": 0, "format": "none", "width": 0, "height": 0, "encodedBytes": 0, "gpuBytesApprox": 0 },
+      "texture": { "count": 6, "format": "webp", "width": 512, "height": 512, "encodedBytes": 96294, "gpuBytesApprox": 8388600 },
       "clips": [],
       "pivot": {
         "policy": "bottom center at origin",
         "passes": true,
-        "evidence": "Validated bounds are centered on X/Z with minY=0"
+        "evidence": "Every catalog variant is centered on X/Z, grounded at Y=0, and normalized to one meter before export"
       },
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.4817104191, 0, -0.4750157073],
-        "boundsMax": [0.4817103893, 1.0000000149, 0.4750157222]
+        "boundsMin": [-0.3883, 0, -0.35661],
+        "boundsMax": [0.3883, 1, 0.35661]
       },
       "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
-      "collision": { "type": "none", "reason": "decorative perimeter grove; gameplay bounds remain authoritative" },
+      "collision": { "type": "shared-authoritative-trunk-circles", "reason": "Render variants reuse the existing deterministic client/server tree placement and trunk-collision contract" },
       "lod": [
-        { "level": 0, "maxDistance": 38, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "procedural perimeter trees" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden in fog" }
+        { "level": 0, "maxDistance": 34, "asset": "instanced catalog variants" },
+        { "level": 1, "maxDistance": 48, "asset": "same catalog; standard-profile visibility band" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
       ]
     },
     {
@@ -156,7 +156,7 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "014d13ec7a96657bc6ce3798bae2323a15d770f5de118a87bd6503e90325317b"
+        "evidenceSha256": "0fe4d8f7f3be0b1364ab9589cb2fc7bbf6385c0a53d926422862b37d475e706d"
       },
       "uri": "assets/props/treasure-chest.glb",
       "format": "glTF 2.0 GLB",
@@ -336,7 +336,7 @@
     }
   ],
   "catalog": {
-    "shipped": ["character.robin.ranger", "environment.sherwood.tree-grove", "prop.sherwood.treasure-chest", "environment.craftpix.medieval-props", "environment.sherwood.village-slice"],
+    "shipped": ["character.robin.ranger", "environment.sherwood.tree-catalog", "prop.sherwood.treasure-chest", "environment.craftpix.medieval-props", "environment.sherwood.village-slice"],
     "procedural": [
       "character.marian.scout",
       "character.little-john.vanguard",
