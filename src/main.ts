@@ -53,6 +53,7 @@ import { createSherwoodWater } from "./water"
 import { createArcheryEquipment } from "./archery-equipment"
 import { createHeroCharacter, poseHeroCharacter, type HeroAction } from "./character-visuals"
 import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
+import { syncGuardViewCount } from "./guard-view-pool"
 import { SHERWOOD_CELL_SIZE, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells } from "./region-map"
 
@@ -2868,6 +2869,16 @@ function syncVillageLods(player: Vec2): void {
 }
 
 function syncViews(elapsed: number, dt: number): void {
+  syncGuardViewCount(
+    guardViews,
+    state.guards.length,
+    () => createCharacter("guard"),
+    (view) => scene.add(view),
+    (view) => {
+      scene.remove(view)
+      disposeObjectInstanceMaterials(view)
+    },
+  )
   water.update(elapsed, renderProfile.motionScale)
   if (!multiplayerActive) {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
