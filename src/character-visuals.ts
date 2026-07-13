@@ -107,10 +107,12 @@ function createArm(
   const hand = new THREE.Group()
   hand.name = `${name}Hand`
   hand.position.y = -lowerLength
-  const palm = mesh(`${name}Palm`, new THREE.BoxGeometry(radius * 1.35, radius * 1.55, radius * 0.9), SKIN)
+  const cuff = mesh(`${name}Cuff`, new THREE.CylinderGeometry(radius * 0.82, radius * 0.82, radius * 0.7, 7), DARK_LEATHER)
+  cuff.position.y = -lowerLength + radius * 0.25
+  const palm = mesh(`${name}Palm`, new THREE.BoxGeometry(radius * 1.18, radius * 1.38, radius * 0.78), SKIN)
   palm.position.z = radius * 0.16
   hand.add(palm)
-  lower.add(elbow, forearm, hand)
+  lower.add(elbow, forearm, cuff, hand)
   upper.add(sleeve, lower)
   return { upper, lower, hand }
 }
@@ -132,10 +134,12 @@ function createLeg(
   const knee = mesh(`${name}Knee`, new THREE.SphereGeometry(radius * 1.05, 7, 5), 0x4a4031)
   const shin = mesh(`${name}Lower`, new THREE.CylinderGeometry(radius * 0.72, radius * 0.88, lowerLength, 7), 0x40382d)
   shin.position.y = -lowerLength / 2
-  const boot = mesh(`${name}Boot`, new THREE.BoxGeometry(radius * 1.65, radius * 1.35, radius * 2.5), DARK_LEATHER)
-  boot.position.set(0, -lowerLength, radius * 0.55)
+  const bootCuff = mesh(`${name}BootCuff`, new THREE.CylinderGeometry(radius * 0.98, radius * 0.92, radius * 1.05, 7), LEATHER)
+  bootCuff.position.y = -lowerLength + radius * 1.1
+  const boot = mesh(`${name}Boot`, new THREE.BoxGeometry(radius * 1.55, radius * 1.25, radius * 2.75), DARK_LEATHER)
+  boot.position.set(0, -lowerLength, radius * 0.68)
   boot.rotation.x = -0.08
-  lower.add(knee, shin, boot)
+  lower.add(knee, shin, bootCuff, boot)
   upper.add(thigh, lower)
   return { upper, lower }
 }
@@ -161,6 +165,15 @@ function addRobinDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType<
   cape.scale.z = 0.45
   root.add(cape)
   rig.cape = cape
+  const shoulderCape = mesh("RobinShoulderCape", new THREE.ConeGeometry(0.57, 0.46, 9, 1, true), 0x274c2e)
+  shoulderCape.position.set(0, 1.69, -0.04)
+  shoulderCape.scale.z = 0.72
+  const bracerLeft = mesh("RobinLeftBracer", new THREE.CylinderGeometry(0.13, 0.115, 0.32, 7), 0x70492d)
+  bracerLeft.position.set(-0.41, 1.05, 0)
+  const bracerRight = bracerLeft.clone()
+  bracerRight.name = "RobinRightBracer"
+  bracerRight.position.x = 0.41
+  root.add(shoulderCape, bracerLeft, bracerRight)
 }
 
 function addMarianDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType<typeof createCharacterFactory>["mesh"]): void {
@@ -184,7 +197,13 @@ function addMarianDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType
   rig.cape = mantle
   const brooch = mesh("MarianBrooch", new THREE.SphereGeometry(0.09, 8, 6), 0xc5a65b)
   brooch.position.set(0, 1.75, 0.42)
-  root.add(brooch)
+  const sash = mesh("MarianSash", new THREE.BoxGeometry(0.13, 1.18, 0.055), 0x253449)
+  sash.position.set(0.06, 1.24, 0.42)
+  sash.rotation.z = 0.42
+  const skirtFront = mesh("MarianSkirtFront", new THREE.BoxGeometry(0.58, 0.74, 0.08), 0x596583)
+  skirtFront.position.set(0, 0.78, 0.39)
+  skirtFront.rotation.x = -0.08
+  root.add(brooch, sash, skirtFront)
 }
 
 function addLittleJohnDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType<typeof createCharacterFactory>["mesh"]): void {
@@ -208,7 +227,14 @@ function addLittleJohnDetails(root: THREE.Group, rig: CharacterRig, mesh: Return
   staff.rotation.set(0.08, 0, -0.08)
   rig.rightHand.add(staff)
   rig.staff = staff
-  root.add(shoulderLeft, shoulderRight, chestStrap)
+  const vestLeft = mesh("JohnVestLeft", new THREE.BoxGeometry(0.34, 0.92, 0.08), 0x4d3424)
+  vestLeft.position.set(-0.2, 1.39, 0.49)
+  vestLeft.rotation.z = -0.05
+  const vestRight = vestLeft.clone()
+  vestRight.name = "JohnVestRight"
+  vestRight.position.x = 0.2
+  vestRight.rotation.z = 0.05
+  root.add(shoulderLeft, shoulderRight, chestStrap, vestLeft, vestRight)
 }
 
 function addMuchDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType<typeof createCharacterFactory>["mesh"]): void {
@@ -232,7 +258,13 @@ function addMuchDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType<t
   const patch = mesh("MuchTunicPatch", new THREE.BoxGeometry(0.25, 0.22, 0.025), 0x7b4934)
   patch.position.set(-0.2, 1.25, 0.43)
   patch.rotation.z = 0.14
-  root.add(satchel, rope, patch)
+  const neckerchief = mesh("MuchNeckerchief", new THREE.ConeGeometry(0.24, 0.42, 3), 0xa1503c)
+  neckerchief.position.set(0, 1.55, 0.43)
+  neckerchief.rotation.x = Math.PI / 2
+  const patchedSleeve = mesh("MuchPatchedSleeve", new THREE.BoxGeometry(0.2, 0.26, 0.04), 0x955b3c)
+  patchedSleeve.position.set(0.38, 1.35, 0.13)
+  patchedSleeve.rotation.z = -0.28
+  root.add(satchel, rope, patch, neckerchief, patchedSleeve)
 }
 
 export function createHeroCharacter(characterId: CharacterId): THREE.Group {
@@ -251,8 +283,9 @@ export function createHeroCharacter(characterId: CharacterId): THREE.Group {
 
   const torso = new THREE.Group()
   torso.name = "RigTorso"
-  const chest = mesh("TunicChest", new THREE.CylinderGeometry(0.38 * bodyScale, 0.52 * bodyScale, 1.04 * bodyScale, 8), tunicColor)
+  const chest = mesh("TunicChest", new THREE.BoxGeometry(0.76 * bodyScale, 1.02 * bodyScale, 0.56 * bodyScale), tunicColor)
   chest.position.y = 1.3 * bodyScale
+  chest.scale.set(isJohn ? 1.18 : isMarian ? 0.92 : 1, 1, isJohn ? 1.08 : 1)
   const skirt = mesh("TunicSkirt", new THREE.ConeGeometry(0.54 * bodyScale, 0.72 * bodyScale, 8, 1, true), tunicColor)
   skirt.position.y = 0.88 * bodyScale
   const undershirt = mesh("TunicCollar", new THREE.TorusGeometry(0.25 * bodyScale, 0.045, 6, 12), LINEN)
@@ -262,14 +295,23 @@ export function createHeroCharacter(characterId: CharacterId): THREE.Group {
   belt.position.y = 1.05 * bodyScale
   const buckle = mesh("BeltBuckle", new THREE.BoxGeometry(0.15, 0.13, 0.08), 0xb39755)
   buckle.position.set(0, 1.05 * bodyScale, 0.46 * bodyScale)
-  torso.add(chest, skirt, undershirt, belt, buckle)
+  const jerkin = mesh("TunicJerkin", new THREE.BoxGeometry(0.54 * bodyScale, 0.74 * bodyScale, 0.075), sleeveColor)
+  jerkin.position.set(0, 1.38 * bodyScale, 0.32 * bodyScale)
+  const hemLeft = mesh("TunicSplitHemLeft", new THREE.BoxGeometry(0.28 * bodyScale, 0.5 * bodyScale, 0.08), tunicColor)
+  hemLeft.position.set(-0.16 * bodyScale, 0.77 * bodyScale, 0.34 * bodyScale)
+  hemLeft.rotation.z = 0.08
+  const hemRight = hemLeft.clone()
+  hemRight.name = "TunicSplitHemRight"
+  hemRight.position.x = 0.16 * bodyScale
+  hemRight.rotation.z = -0.08
+  torso.add(chest, skirt, jerkin, hemLeft, hemRight, undershirt, belt, buckle)
   root.add(torso)
 
   const head = new THREE.Group()
   head.name = "RigHead"
   head.position.y = (isJohn ? 2.2 : isMuch ? 1.91 : 2.03)
-  const face = mesh("Face", new THREE.SphereGeometry(isJohn ? 0.35 : 0.32, 12, 8), SKIN)
-  face.scale.set(0.92, 1.08, 0.94)
+  const face = mesh("Face", new THREE.SphereGeometry(isJohn ? 0.34 : 0.295, 12, 8), SKIN)
+  face.scale.set(0.9, 1.12, 0.93)
   head.add(face)
   addFace(head, mesh, 0x25302b, hairColor, isJohn)
   root.add(head)
@@ -278,7 +320,7 @@ export function createHeroCharacter(characterId: CharacterId): THREE.Group {
   const shoulderX = isJohn ? 0.51 : isMarian ? 0.36 : 0.4
   const upperArmLength = isJohn ? 0.48 : isMuch ? 0.38 : 0.42
   const lowerArmLength = isJohn ? 0.46 : isMuch ? 0.36 : 0.4
-  const armRadius = isJohn ? 0.15 : 0.12
+  const armRadius = isJohn ? 0.14 : isMuch ? 0.105 : 0.11
   const leftArmRig = createArm("RigLeftArm", mesh, sleeveColor, upperArmLength, lowerArmLength, armRadius)
   const leftArm = leftArmRig.upper
   leftArm.position.set(-shoulderX, shoulderY, 0)
@@ -290,7 +332,7 @@ export function createHeroCharacter(characterId: CharacterId): THREE.Group {
   const hipY = isJohn ? 0.93 : isMuch ? 0.73 : 0.82
   const upperLegLength = isJohn ? 0.5 : isMuch ? 0.36 : 0.42
   const lowerLegLength = isJohn ? 0.46 : isMuch ? 0.35 : 0.4
-  const legRadius = isJohn ? 0.145 : 0.115
+  const legRadius = isJohn ? 0.135 : isMuch ? 0.102 : 0.108
   const leftLegRig = createLeg("RigLeftLeg", mesh, upperLegLength, lowerLegLength, legRadius)
   const leftLeg = leftLegRig.upper
   leftLeg.position.set(-(isJohn ? 0.23 : 0.19), hipY, 0)
@@ -371,12 +413,12 @@ export function poseHeroCharacter(root: THREE.Group, pose: CharacterPose): void 
   rig.leftForearm.rotation.x = isBowAction ? -0.15 : isStaffAction ? -0.62 : Math.max(0, walk) * 0.18
   rig.rightForearm.rotation.x = isBowAction ? -1.15 : isStaffAction ? -0.78 : Math.max(0, -walk) * 0.18
   rig.rightForearm.rotation.z = isBowAction ? -0.32 : 0
-  rig.torso.position.y = Math.abs(walk) * 0.035 + breathe
+  rig.torso.position.y = Math.abs(walk) * 0.022 + breathe
   rig.torso.rotation.z = pose.moving ? walk * (rig.characterId === "much" ? 0.065 : 0.035) : 0
   rig.torso.rotation.x = rig.characterId === "much" ? 0.08 : rig.characterId === "little-john" ? -0.035 : 0
   if (isStaffAction) rig.torso.rotation.y = Math.sin(pose.elapsed * 13) * 0.42
-  else rig.torso.rotation.y = 0
-  rig.head.rotation.y = isBowAction ? 0.12 : Math.sin(pose.elapsed * 0.85) * 0.045 * motionScale
+  else rig.torso.rotation.y = pose.moving ? walk * 0.1 : 0
+  rig.head.rotation.y = isBowAction ? 0.12 : -rig.torso.rotation.y * 0.65 + Math.sin(pose.elapsed * 0.85) * 0.045 * motionScale
   rig.head.rotation.z = pose.moving ? -walk * 0.025 : 0
   if (rig.bow) {
     rig.bow.rotation.x = isBowAction ? 0.12 : 0

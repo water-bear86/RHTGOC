@@ -56,6 +56,8 @@ import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { syncGuardViewCount } from "./guard-view-pool"
 import { SHERWOOD_CELL_SIZE, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells } from "./region-map"
+import { createForestDressing } from "./forest-dressing"
+import { createSherwoodLandmarks, type SherwoodLandmarks } from "./world-landmarks"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -334,6 +336,8 @@ const water = createSherwoodWater(7, 138)
 const crossingInfrastructure = new THREE.Group()
 const bowCacheInfrastructure = new THREE.Group()
 const missionCampfireView = new THREE.Group()
+let windmillRotor: THREE.Group | null = null
+let landmarkViews: SherwoodLandmarks | null = null
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
@@ -453,13 +457,7 @@ function createWorld(): void {
   groundBase.rotation.x = -Math.PI / 2
   groundBase.position.y = -0.055
   scene.add(groundBase)
-  const regionColors = [palette.grass, palette.grassLight, palette.grassDark]
   for (const cell of sherwoodRegionCells()) {
-    const ground = mesh(new THREE.PlaneGeometry(SHERWOOD_CELL_SIZE - 0.35, SHERWOOD_CELL_SIZE - 0.35), regionColors[(cell.row + cell.column) % regionColors.length], { receive: true, cast: false })
-    ground.rotation.x = -Math.PI / 2
-    ground.position.set(cell.center.x, -0.04, cell.center.z)
-    ground.userData.regionCell = cell.index
-    scene.add(ground)
     const fogTile = new THREE.Mesh(
       new THREE.PlaneGeometry(SHERWOOD_CELL_SIZE - 0.7, SHERWOOD_CELL_SIZE - 0.7),
       new THREE.MeshBasicMaterial({ color: 0x0d211a, transparent: true, opacity: 0.3, depthWrite: false }),
@@ -510,6 +508,19 @@ function createWorld(): void {
     rock.rotation.set(random(), random(), random())
     scene.add(rock)
   }
+
+  const exclusions = sherwoodRegionCells().map((cell) => ({ x: cell.center.x, z: cell.center.z, radius: 8.5 }))
+  const dressing = createForestDressing({ degraded: renderProfile.tier === "degraded", exclusions })
+  scene.add(dressing.group)
+
+  rebuildLandmarks(state.layout)
+}
+
+function rebuildLandmarks(layout: RegionalMissionLayout): void {
+  if (landmarkViews) scene.remove(landmarkViews.group)
+  landmarkViews = createSherwoodLandmarks(layout)
+  windmillRotor = landmarkViews.windmillRotor
+  scene.add(landmarkViews.group)
 }
 
 function addRoadSegment(start: { x: number; z: number }, end: { x: number; z: number }): void {
@@ -1141,6 +1152,7 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
   disguiseRackView.position.set(layout.disguisePosition.x, 0, layout.disguisePosition.z)
   rebuildCrossingInfrastructure(layout)
   rebuildBowCaches(layout)
+  rebuildLandmarks(layout)
   positionVillageUpgrades(layout.campfirePosition)
 }
 
@@ -2880,6 +2892,7 @@ function syncViews(elapsed: number, dt: number): void {
     },
   )
   water.update(elapsed, renderProfile.motionScale)
+  if (windmillRotor) windmillRotor.rotation.z = elapsed * 0.32 * renderProfile.motionScale
   if (!multiplayerActive) {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
   }

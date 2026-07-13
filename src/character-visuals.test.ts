@@ -21,9 +21,13 @@ describe("procedural Merry Band characters", () => {
 
   it("gives every outlaw a role-specific silhouette prop", () => {
     expect(createHeroCharacter("robin").getObjectByName("RobinFeather")).toBeTruthy()
+    expect(createHeroCharacter("robin").getObjectByName("RobinLeftBracer")).toBeTruthy()
     expect(createHeroCharacter("marian").getObjectByName("MarianMantle")).toBeTruthy()
+    expect(createHeroCharacter("marian").getObjectByName("MarianSash")).toBeTruthy()
     expect(createHeroCharacter("little-john").getObjectByName("JohnQuarterstaff")).toBeTruthy()
+    expect(createHeroCharacter("little-john").getObjectByName("JohnVestLeft")).toBeTruthy()
     expect(createHeroCharacter("much").getObjectByName("MuchSatchel")).toBeTruthy()
+    expect(createHeroCharacter("much").getObjectByName("MuchNeckerchief")).toBeTruthy()
   })
 
   it("poses articulated limbs for walking and attacks", () => {

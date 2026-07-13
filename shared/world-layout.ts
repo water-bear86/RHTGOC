@@ -19,13 +19,16 @@ export function createSherwoodTreeLayout(): readonly SherwoodTreePlacement[] {
   const trees: SherwoodTreePlacement[] = []
   const cells = sherwoodRegionCells()
 
-  for (let i = 0; i < 180; i += 1) {
+  for (let i = 0; i < 420; i += 1) {
     const x = random() * SHERWOOD_REGIONAL_BOUNDS * 2 - SHERWOOD_REGIONAL_BOUNDS
     const z = random() * SHERWOOD_REGIONAL_BOUNDS * 2 - SHERWOOD_REGIONAL_BOUNDS
     const nearCellClearing = cells.some((cell) => Math.hypot(x - cell.center.x, z - cell.center.z) < 10)
-    const nearRiver = Math.abs(x - 1 + z * 0.1) < 4.5
+    const nearRiver = Math.abs(x - 1 + z * 0.1) < 9
     const nearRoad = Math.abs(z - x) < 3
-    if (!nearCellClearing && !nearRiver && !nearRoad) {
+    const nearVillageCottage = Math.hypot(x + 10, z - 14) < 9
+    const nearFarmCorner = [[-48, -48], [48, -48], [-48, 48], [48, 48]]
+      .some(([farmX, farmZ]) => Math.hypot(x - farmX, z - farmZ) < 14)
+    if (!nearCellClearing && !nearRiver && !nearRoad && !nearFarmCorner && !nearVillageCottage) {
       trees.push(Object.freeze({ x, z, scale: 0.7 + random() * 0.7 }))
     }
   }
