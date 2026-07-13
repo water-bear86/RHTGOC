@@ -54,10 +54,14 @@ import { createArcheryEquipment } from "./archery-equipment"
 import { createHeroCharacter, poseHeroCharacter, type HeroAction } from "./character-visuals"
 import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { syncGuardViewCount } from "./guard-view-pool"
-import { SHERWOOD_CELL_SIZE, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells } from "./region-map"
 import { createForestDressing } from "./forest-dressing"
 import { createSherwoodLandmarks, type SherwoodLandmarks } from "./world-landmarks"
+import { composeSherwoodWorld } from "../shared/world-composer"
+import { createSherwoodTerrain, sherwoodHeightAt } from "./sherwood-terrain"
+import { createProceduralRoads } from "./procedural-roads"
+import { createSettlementWorld } from "./settlement-renderer"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -338,6 +342,9 @@ const bowCacheInfrastructure = new THREE.Group()
 const missionCampfireView = new THREE.Group()
 let windmillRotor: THREE.Group | null = null
 let landmarkViews: SherwoodLandmarks | null = null
+let composedWorldView: THREE.Group | null = null
+let composedWorldLayoutKey = ""
+let terrainView: THREE.Mesh | null = null
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
@@ -437,7 +444,7 @@ function createFallbackTree(x: number, z: number, scale = 1): THREE.Group {
 
 function createHut(x: number, z: number, rotation = 0): THREE.Group {
   const hut = new THREE.Group()
-  hut.position.set(x, 0, z)
+  hut.position.set(x, sherwoodHeightAt(x, z), z)
   hut.rotation.y = rotation
   const walls = mesh(new THREE.BoxGeometry(3.2, 1.9, 2.6), 0xc5aa74)
   walls.position.y = 0.95
@@ -453,22 +460,8 @@ function createHut(x: number, z: number, rotation = 0): THREE.Group {
 }
 
 function createWorld(): void {
-  const groundBase = mesh(new THREE.PlaneGeometry(134, 134), palette.grassDark, { receive: true, cast: false })
-  groundBase.rotation.x = -Math.PI / 2
-  groundBase.position.y = -0.055
-  scene.add(groundBase)
-  for (const cell of sherwoodRegionCells()) {
-    const fogTile = new THREE.Mesh(
-      new THREE.PlaneGeometry(SHERWOOD_CELL_SIZE - 0.7, SHERWOOD_CELL_SIZE - 0.7),
-      new THREE.MeshBasicMaterial({ color: 0x0d211a, transparent: true, opacity: 0.3, depthWrite: false }),
-    )
-    fogTile.rotation.x = -Math.PI / 2
-    fogTile.position.set(cell.center.x, 0.035, cell.center.z)
-    fogTile.userData.regionCell = cell.index
-    fogTile.renderOrder = 1
-    scene.add(fogTile)
-    regionFogViews.push(fogTile)
-  }
+  terrainView = createSherwoodTerrain()
+  scene.add(terrainView)
 
   water.group.rotation.x = -Math.PI / 2
   water.group.rotation.z = -0.1
@@ -493,7 +486,7 @@ function createWorld(): void {
   const fire = mesh(new THREE.ConeGeometry(0.35, 1, 6), 0xe88032)
   fire.position.set(0, 0.5, 0)
   missionCampfireView.add(fire)
-  missionCampfireView.position.set(state.layout.campfirePosition.x, 0, state.layout.campfirePosition.z)
+  missionCampfireView.position.set(state.layout.campfirePosition.x, sherwoodHeightAt(state.layout.campfirePosition.x, state.layout.campfirePosition.z), state.layout.campfirePosition.z)
   scene.add(missionCampfireView)
 
   let seed = 7331
@@ -504,7 +497,9 @@ function createWorld(): void {
   for (let i = 0; i < 18; i += 1) {
     const rock = mesh(new THREE.DodecahedronGeometry(0.25 + random() * 0.45, 0), 0x687060)
     rock.scale.y = 0.55
-    rock.position.set(random() * 128 - 64, 0.2, random() * 128 - 64)
+    const rockX = random() * 128 - 64
+    const rockZ = random() * 128 - 64
+    rock.position.set(rockX, sherwoodHeightAt(rockX, rockZ) + 0.2, rockZ)
     rock.rotation.set(random(), random(), random())
     scene.add(rock)
   }
@@ -514,6 +509,7 @@ function createWorld(): void {
   scene.add(dressing.group)
 
   rebuildLandmarks(state.layout)
+  rebuildComposedWorld(state.layout)
 }
 
 function rebuildLandmarks(layout: RegionalMissionLayout): void {
@@ -523,15 +519,28 @@ function rebuildLandmarks(layout: RegionalMissionLayout): void {
   scene.add(landmarkViews.group)
 }
 
+function rebuildComposedWorld(layout: RegionalMissionLayout): void {
+  const key = [layout.campfireCell.index, layout.objectiveCell.index, ...layout.crossingPositions.flatMap((point) => [point.x.toFixed(2), point.z.toFixed(2)])].join(":")
+  if (key === composedWorldLayoutKey) return
+  composedWorldLayoutKey = key
+  if (composedWorldView) scene.remove(composedWorldView)
+  const composed = composeSherwoodWorld(layout)
+  composedWorldView = new THREE.Group()
+  composedWorldView.name = "ComposedSherwoodWorld"
+  composedWorldView.add(createProceduralRoads(composed.roads), createSettlementWorld(composed))
+  scene.add(composedWorldView)
+}
+
 function addRoadSegment(start: { x: number; z: number }, end: { x: number; z: number }): void {
   const dx = end.x - start.x
   const dz = end.z - start.z
   const length = Math.hypot(dx, dz)
   if (length < 0.5) return
-  const road = mesh(new THREE.BoxGeometry(3.8, 0.05, length), palette.path, { receive: true, cast: false })
-  road.position.set((start.x + end.x) / 2, 0.005, (start.z + end.z) / 2)
-  road.rotation.y = Math.atan2(dx, dz)
-  crossingInfrastructure.add(road)
+  const points = Array.from({ length: 7 }, (_, index) => {
+    const t = index / 6
+    return { x: start.x + dx * t, z: start.z + dz * t }
+  })
+  crossingInfrastructure.add(createProceduralRoads([{ id: `mission-approach-${start.x}-${start.z}`, width: 3.8, points }]))
 }
 
 function rebuildCrossingInfrastructure(layout: RegionalMissionLayout): void {
@@ -747,12 +756,12 @@ function attachStylizedTrees(): void {
 
         variantPlacements.forEach((placement, instanceId) => {
           const visibleMatrix = new THREE.Matrix4().compose(
-            new THREE.Vector3(placement.x, 0, placement.z),
+            new THREE.Vector3(placement.x, sherwoodHeightAt(placement.x, placement.z), placement.z),
             new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), placement.rotation),
             new THREE.Vector3(placement.height, placement.height, placement.height),
           ).multiply(sourceMesh.matrixWorld)
           const hiddenMatrix = new THREE.Matrix4().compose(
-            new THREE.Vector3(placement.x, -20, placement.z),
+            new THREE.Vector3(placement.x, sherwoodHeightAt(placement.x, placement.z) - 20, placement.z),
             new THREE.Quaternion(),
             new THREE.Vector3(0.001, 0.001, 0.001),
           )
@@ -787,7 +796,7 @@ function attachStylizedTrees(): void {
 
 function createCart(): THREE.Group {
   const cart = new THREE.Group()
-  cart.position.set(state.layout.objectivePosition.x, 0, state.layout.objectivePosition.z)
+  cart.position.set(state.layout.objectivePosition.x, sherwoodHeightAt(state.layout.objectivePosition.x, state.layout.objectivePosition.z), state.layout.objectivePosition.z)
   cart.rotation.y = -0.75
   const proceduralShell = new THREE.Group()
   proceduralShell.name = "ProceduralWagonFallback"
@@ -847,7 +856,7 @@ function createSignalPost(): THREE.Group {
   flag.position.set(0.68, 3.04, 0.04)
   flag.userData.signalFlag = true
   signal.add(pole, arm, flag)
-  signal.position.set(state.layout.reinforcementSignalPosition.x, 0, state.layout.reinforcementSignalPosition.z)
+  signal.position.set(state.layout.reinforcementSignalPosition.x, sherwoodHeightAt(state.layout.reinforcementSignalPosition.x, state.layout.reinforcementSignalPosition.z), state.layout.reinforcementSignalPosition.z)
   scene.add(signal)
   return signal
 }
@@ -1163,13 +1172,14 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
     disguisePosition: { ...layout.disguisePosition },
     playerSpawns: layout.playerSpawns.map((position) => ({ ...position })),
   }
-  missionCampfireView.position.set(layout.campfirePosition.x, 0, layout.campfirePosition.z)
-  signalView.position.set(layout.reinforcementSignalPosition.x, 0, layout.reinforcementSignalPosition.z)
-  storehouseView.position.set(layout.objectivePosition.x, 0, layout.objectivePosition.z)
-  disguiseRackView.position.set(layout.disguisePosition.x, 0, layout.disguisePosition.z)
+  missionCampfireView.position.set(layout.campfirePosition.x, sherwoodHeightAt(layout.campfirePosition.x, layout.campfirePosition.z), layout.campfirePosition.z)
+  signalView.position.set(layout.reinforcementSignalPosition.x, sherwoodHeightAt(layout.reinforcementSignalPosition.x, layout.reinforcementSignalPosition.z), layout.reinforcementSignalPosition.z)
+  storehouseView.position.set(layout.objectivePosition.x, sherwoodHeightAt(layout.objectivePosition.x, layout.objectivePosition.z), layout.objectivePosition.z)
+  disguiseRackView.position.set(layout.disguisePosition.x, sherwoodHeightAt(layout.disguisePosition.x, layout.disguisePosition.z), layout.disguisePosition.z)
   rebuildCrossingInfrastructure(layout)
   rebuildBowCaches(layout)
   rebuildLandmarks(layout)
+  rebuildComposedWorld(layout)
   positionVillageUpgrades(layout.campfirePosition)
 }
 
@@ -1792,16 +1802,16 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   syncAlarmViews(mission.alarms)
   syncLootCacheViews(mission.lootCaches)
   syncPreparationViews(mission.preparations)
-  cartView.position.set(mission.cartPosition.x, 0, mission.cartPosition.z)
-  signalView.position.set(mission.layout.reinforcementSignalPosition.x, 0, mission.layout.reinforcementSignalPosition.z)
+  cartView.position.set(mission.cartPosition.x, sherwoodHeightAt(mission.cartPosition.x, mission.cartPosition.z), mission.cartPosition.z)
+  signalView.position.set(mission.layout.reinforcementSignalPosition.x, sherwoodHeightAt(mission.layout.reinforcementSignalPosition.x, mission.layout.reinforcementSignalPosition.z), mission.layout.reinforcementSignalPosition.z)
   cartView.children.forEach((child) => {
     if (child.userData.prison) child.visible = mission.missionKind === "prison-wagon"
   })
   cartView.visible = mission.missionKind !== "storehouse"
   storehouseView.visible = mission.missionKind === "storehouse"
-  storehouseView.position.set(mission.layout.objectivePosition.x, 0, mission.layout.objectivePosition.z)
+  storehouseView.position.set(mission.layout.objectivePosition.x, sherwoodHeightAt(mission.layout.objectivePosition.x, mission.layout.objectivePosition.z), mission.layout.objectivePosition.z)
   disguiseRackView.visible = mission.missionKind === "storehouse" && mission.disguisePlayerId === null
-  if (definition.scenario?.kind === "storehouse") disguiseRackView.position.set(mission.layout.disguisePosition.x, 0, mission.layout.disguisePosition.z)
+  if (definition.scenario?.kind === "storehouse") disguiseRackView.position.set(mission.layout.disguisePosition.x, sherwoodHeightAt(mission.layout.disguisePosition.x, mission.layout.disguisePosition.z), mission.layout.disguisePosition.z)
   signalView.visible = mission.missionKind !== "storehouse"
   signalView.rotation.z = mission.signalSabotaged ? Math.PI / 2.8 : 0
   signalView.traverse((child) => {
@@ -2921,9 +2931,8 @@ function syncViews(elapsed: number, dt: number): void {
   water.update(elapsed, renderProfile.motionScale)
   const objectiveVisible = !inHub && (latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered)
   objectiveBeacon.visible = objectiveVisible
-  objectiveBeacon.position.set(cartView.position.x, 0, cartView.position.z)
+  objectiveBeacon.position.set(cartView.position.x, sherwoodHeightAt(cartView.position.x, cartView.position.z) + Math.sin(elapsed * 2) * 0.12, cartView.position.z)
   objectiveBeaconRing.rotation.z = elapsed * 0.45
-  objectiveBeacon.position.y = Math.sin(elapsed * 2) * 0.12
   if (windmillRotor) windmillRotor.rotation.z = elapsed * 0.32 * renderProfile.motionScale
   if (!multiplayerActive) {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
@@ -2980,7 +2989,8 @@ function syncViews(elapsed: number, dt: number): void {
     const pulse = 1 + Math.sin(elapsed * 8) * 0.14 * renderProfile.motionScale
     view.scale.setScalar(pulse)
   }
-  playerView.position.set(player.x, Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale, player.z)
+  const playerGroundY = sherwoodHeightAt(player.x, player.z)
+  playerView.position.set(player.x, playerGroundY + Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale, player.z)
   setObjectOpacityFactor(playerView, state.player.veilFor > 0 ? 0.48 : 1)
   const dx = player.x - lastPlayerPosition.x
   const dz = player.z - lastPlayerPosition.z
@@ -2998,7 +3008,8 @@ function syncViews(elapsed: number, dt: number): void {
 
   state.guards.forEach((guard, index) => {
     const view = guardViews[index]
-    view.position.set(guard.position.x, guard.stunnedFor > 0 ? 0.05 : Math.sin(elapsed * 7 + index) * 0.025 * renderProfile.motionScale, guard.position.z)
+    const guardGroundY = sherwoodHeightAt(guard.position.x, guard.position.z)
+    view.position.set(guard.position.x, guardGroundY + (guard.stunnedFor > 0 ? 0.05 : Math.sin(elapsed * 7 + index) * 0.025 * renderProfile.motionScale), guard.position.z)
     if (state.heat > 8) view.rotation.y = Math.atan2(player.x - guard.position.x, player.z - guard.position.z)
     view.rotation.z = guard.stunnedFor > 0 ? Math.sin(elapsed * 14) * 0.1 : 0
   })
@@ -3006,7 +3017,7 @@ function syncViews(elapsed: number, dt: number): void {
   const snapshotNow = performance.now()
   for (const remote of remoteViews.values()) {
     const sampled = remote.snapshots.sample(snapshotNow)
-    if (sampled) remote.view.position.set(sampled.x, 0, sampled.z)
+    if (sampled) remote.view.position.set(sampled.x, sherwoodHeightAt(sampled.x, sampled.z), sampled.z)
     const remoteDx = remote.view.position.x - remote.lastPosition.x
     const remoteDz = remote.view.position.z - remote.lastPosition.z
     const moving = Math.hypot(remoteDx, remoteDz) > 0.0001
@@ -3038,9 +3049,9 @@ function syncViews(elapsed: number, dt: number): void {
   })
 
   const cameraOffset = rotateCameraOffset(BASE_CAMERA_OFFSET, cameraQuarterTurns)
-  const desiredCamera = new THREE.Vector3(player.x + cameraOffset.x, 14.5, player.z + cameraOffset.z)
+  const desiredCamera = new THREE.Vector3(player.x + cameraOffset.x, playerGroundY + 14.5, player.z + cameraOffset.z)
   camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt))
-  camera.lookAt(player.x, 0.75, player.z)
+  camera.lookAt(player.x, playerGroundY + 0.75, player.z)
 
   for (let i = arrowEffects.length - 1; i >= 0; i -= 1) {
     arrowEffects[i].age += dt
@@ -3440,9 +3451,12 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   pointer.x = (event.clientX / window.innerWidth) * 2 - 1
   pointer.y = -(event.clientY / window.innerHeight) * 2 + 1
   raycaster.setFromCamera(pointer, camera)
-  if (raycaster.ray.intersectPlane(groundPlane, clickPoint)) {
-    clickTarget = { x: clickPoint.x, z: clickPoint.z }
-    destinationMarker.position.set(clickPoint.x, 0.08, clickPoint.z)
+  const terrainHit = terrainView ? raycaster.intersectObject(terrainView, false)[0] : undefined
+  const fallbackHit = !terrainHit && raycaster.ray.intersectPlane(groundPlane, clickPoint) ? clickPoint : undefined
+  const hitPoint = terrainHit?.point ?? fallbackHit
+  if (hitPoint) {
+    clickTarget = { x: hitPoint.x, z: hitPoint.z }
+    destinationMarker.position.set(hitPoint.x, hitPoint.y + 0.08, hitPoint.z)
     destinationMarker.visible = true
   }
 })

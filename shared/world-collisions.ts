@@ -1,5 +1,6 @@
 import { SHERWOOD_TREE_LAYOUT } from "./world-layout"
 import { SHERWOOD_REGIONAL_BOUNDS, type RegionalMissionLayout, riverPointAt } from "./regional-layout"
+import { composeSherwoodWorld } from "./world-composer"
 
 export interface XzPoint {
   x: number
@@ -67,6 +68,21 @@ export function createSherwoodRiverColliders(layout: Pick<RegionalMissionLayout,
       rotation: -0.1,
     }]
   })
+}
+
+const settlementColliderCache = new WeakMap<RegionalMissionLayout, OrientedRectangleCollider[]>()
+
+export function createSherwoodSettlementColliders(layout: RegionalMissionLayout): OrientedRectangleCollider[] {
+  const cached = settlementColliderCache.get(layout)
+  if (cached) return cached
+  const colliders = composeSherwoodWorld(layout).settlements.flatMap((settlement) => settlement.buildings.map((building) => ({
+    id: building.id,
+    center: building.position,
+    halfExtents: building.halfExtents,
+    rotation: building.rotation,
+  })))
+  settlementColliderCache.set(layout, colliders)
+  return colliders
 }
 
 export const SHERWOOD_MISSION_WORLD_BOUNDS = 22
@@ -246,12 +262,12 @@ export function resolveSherwoodPlayerMovement(
   displacement: XzPoint,
   worldBounds: number | XzWorldBounds = SHERWOOD_MISSION_WORLD_BOUNDS,
   playerRadius = SHERWOOD_PLAYER_RADIUS,
-  layout?: Pick<RegionalMissionLayout, "crossingPositions">,
+  layout?: RegionalMissionLayout,
 ): XzPoint {
   const bounds = normalizeBounds(worldBounds)
   const radius = Number.isFinite(playerRadius) && playerRadius >= 0 ? playerRadius : SHERWOOD_PLAYER_RADIUS
   const midpoint = { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 }
-  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
+  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout), ...createSherwoodSettlementColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
   let position = depenetrate({
     x: finiteOr(start.x, midpoint.x),
     z: finiteOr(start.z, midpoint.z),
@@ -296,10 +312,10 @@ export function resolveSherwoodPlayerMovement(
 export function isSherwoodPlayerPositionBlocked(
   position: XzPoint,
   playerRadius = SHERWOOD_PLAYER_RADIUS,
-  layout?: Pick<RegionalMissionLayout, "crossingPositions">,
+  layout?: RegionalMissionLayout,
 ): boolean {
   const radius = Number.isFinite(playerRadius) && playerRadius >= 0 ? playerRadius : SHERWOOD_PLAYER_RADIUS
   if (!Number.isFinite(position.x) || !Number.isFinite(position.z)) return true
-  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
+  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout), ...createSherwoodSettlementColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
   return colliders.some((collider) => isInsideCollider(position, collider, radius))
 }

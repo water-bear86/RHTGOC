@@ -1,6 +1,7 @@
 import * as THREE from "three"
 import type { RegionalMissionLayout } from "../shared/regional-layout"
 import { createToonMaterial } from "./toon-materials"
+import { sherwoodHeightAt } from "./sherwood-terrain"
 
 export interface SherwoodLandmarks {
   group: THREE.Group
@@ -139,7 +140,7 @@ export function createSherwoodLandmarks(layout: RegionalMissionLayout): Sherwood
   const farmPosition = chooseFarmPosition(layout)
   const farm = new THREE.Group()
   farm.name = "WindmillFarm"
-  farm.position.set(farmPosition.x, 0, farmPosition.z)
+  farm.position.set(farmPosition.x, sherwoodHeightAt(farmPosition.x, farmPosition.z), farmPosition.z)
   farm.rotation.y = farmPosition.x * farmPosition.z > 0 ? -0.35 : 0.35
 
   const soil = mesh("FarmFieldSoil", new THREE.PlaneGeometry(15, 10), 0x80613d)
@@ -161,7 +162,7 @@ export function createSherwoodLandmarks(layout: RegionalMissionLayout): Sherwood
 
   const stoneCircle = new THREE.Group()
   stoneCircle.name = "AncientStoneCircle"
-  stoneCircle.position.set(-38, 25, -8)
+  stoneCircle.position.set(-38, sherwoodHeightAt(-38, -8), -8)
   for (let index = 0; index < 7; index += 1) {
     const stone = mesh("StandingStone", new THREE.DodecahedronGeometry(0.7, 0), 0x777b6d)
     const angle = index / 7 * Math.PI * 2
@@ -174,7 +175,7 @@ export function createSherwoodLandmarks(layout: RegionalMissionLayout): Sherwood
 
   const logging = new THREE.Group()
   logging.name = "LoggingClearing"
-  logging.position.set(34, 0, -25)
+  logging.position.set(34, sherwoodHeightAt(34, -25), -25)
   for (let index = 0; index < 8; index += 1) {
     const log = mesh("FelldLog", new THREE.CylinderGeometry(0.28, 0.34, 3.1, 8), 0x65472d)
     log.rotation.z = Math.PI / 2
@@ -184,4 +185,3 @@ export function createSherwoodLandmarks(layout: RegionalMissionLayout): Sherwood
   group.add(logging)
   return { group, windmillRotor: rotor, farmPosition, wheatCount }
 }
-

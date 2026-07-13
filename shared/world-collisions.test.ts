@@ -4,6 +4,7 @@ import {
   SHERWOOD_PLAYER_RADIUS,
   SHERWOOD_TREE_COLLIDERS,
   VILLAGE_COTTAGE_COLLIDER,
+  createSherwoodSettlementColliders,
   isSherwoodPlayerPositionBlocked,
   resolveSherwoodPlayerMovement,
 } from "./world-collisions"
@@ -118,5 +119,12 @@ describe("shared Sherwood world collision contract", () => {
     }
     const blocked = resolveSherwoodPlayerMovement({ x: 7, z: 0.6 }, { x: -12, z: -1.2 }, layout.worldBounds, SHERWOOD_PLAYER_RADIUS, layout)
     expect(blocked.x + 0.1 * blocked.z - 1).toBeGreaterThan(0)
+  })
+
+  it("publishes solid deterministic building footprints for composed towns", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 1937).layout
+    const buildings = createSherwoodSettlementColliders(layout)
+    expect(buildings.length).toBeGreaterThanOrEqual(10)
+    expect(isSherwoodPlayerPositionBlocked(buildings[0].center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
   })
 })

@@ -1,5 +1,6 @@
 import * as THREE from "three"
 import { createToonMaterial } from "./toon-materials"
+import { sherwoodHeightAt } from "./sherwood-terrain"
 
 export interface ForestDressing {
   group: THREE.Group
@@ -41,7 +42,7 @@ function scatterMatrices(
     if (nearRiver || nearMainTrail || !outsideExclusions(x, z, exclusions)) continue
     const scale = scaleRange[0] + random() * (scaleRange[1] - scaleRange[0])
     matrices.push(new THREE.Matrix4().compose(
-      new THREE.Vector3(x, 0, z),
+      new THREE.Vector3(x, sherwoodHeightAt(x, z), z),
       new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), random() * Math.PI * 2),
       new THREE.Vector3(scale, scale * (0.84 + random() * 0.35), scale),
     ))
@@ -102,4 +103,3 @@ export function createForestDressing(options: DressingOptions = {}): ForestDress
   )
   return { group, instanceCount: grass.length + ferns.length + shrubs.length + flowers.length + stones.length }
 }
-
