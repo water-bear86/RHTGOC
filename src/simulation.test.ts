@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { SHERWOOD_GUARD_SEPARATION } from "../shared/guard-rules"
+import { SHERWOOD_GUARD_SEPARATION, initialGuardPatrolAngle, stepGuardPatrol } from "../shared/guard-rules"
 import { SHERWOOD_PLAYER_RADIUS, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
 import { CART_POSITION, DELIVERY_TARGET, VILLAGE_POSITION, activateSignature, calculateMastery, createInitialState, getContextPrompt, interact, shoot, updateSimulation } from "./simulation"
 
@@ -73,6 +73,24 @@ describe("Sherwood simulation", () => {
       state.player.position.x - state.guards[0].position.x,
       state.player.position.z - state.guards[0].position.z,
     )).toBeGreaterThanOrEqual(SHERWOOD_GUARD_SEPARATION)
+  })
+
+  it("uses the shared deterministic patrol step in solo play", () => {
+    const state = createInitialState()
+    state.objectiveDiscovered = true
+    state.heat = 0
+    state.player.position = { x: -42, z: -42 }
+    const guard = state.guards[0]
+    state.guards.splice(1)
+    guard.home = { x: 20, z: 20 }
+    guard.position = { ...guard.home }
+    guard.patrolAngle = initialGuardPatrolAngle(guard.id)
+    const expected = stepGuardPatrol(guard.home, guard.id, guard.patrolAngle, 0.25)
+
+    updateSimulation(state, { move: { x: 0, z: 0 } }, 0.25)
+
+    expect(guard.patrolAngle).toBeCloseTo(expected.angle, 8)
+    expect(Math.hypot(guard.position.x - guard.home.x, guard.position.z - guard.home.z)).toBeLessThanOrEqual(expected.moveSpeed * 0.25 + 0.0001)
   })
 
   it("lets a wrong 5x5 search route strengthen the Sheriff before discovery", () => {

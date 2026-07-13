@@ -1,5 +1,11 @@
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
-import { SHERWOOD_GUARD_SEPARATION, activeEscortCount, activeGuardPositions } from "../shared/guard-rules"
+import {
+  SHERWOOD_GUARD_SEPARATION,
+  activeEscortCount,
+  activeGuardPositions,
+  initialGuardPatrolAngle,
+  stepGuardPatrol,
+} from "../shared/guard-rules"
 import { resolveSherwoodCombinedMovement } from "../shared/world-collisions"
 import { regionCellIndexAt, regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 
@@ -83,7 +89,7 @@ export function createInitialState(characterId: CharacterId = "robin", seed = st
       signatureCooldown: 0,
       veilFor: 0,
     },
-    guards: regional.definition.spawns.guards.map((guard, index) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: index * 2, stunnedFor: 0 })),
+    guards: regional.definition.spawns.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: initialGuardPatrolAngle(guard.id), stunnedFor: 0 })),
     traps: [],
     delivered: 0,
     objectiveDiscovered: false,
@@ -140,7 +146,8 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
           x: state.layout.objectivePosition.x + Math.cos(angle) * (5 + state.searchPressure),
           z: state.layout.objectivePosition.z + Math.sin(angle) * (5 + state.searchPressure),
         }
-        state.guards.push({ id: state.guards.length, position: { ...position }, home: { ...position }, patrolAngle: angle, stunnedFor: 0 })
+        const id = Math.max(-1, ...state.guards.map((guard) => guard.id)) + 1
+        state.guards.push({ id, position: { ...position }, home: { ...position }, patrolAngle: initialGuardPatrolAngle(id), stunnedFor: 0 })
         events.push("search-reinforced")
       }
     }
@@ -209,12 +216,9 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
     if (state.heat > 8 && distance(guard.position, player.position) < detectionRange) {
       moveToward(guard.position, player.position, 3.35 + state.heat * 0.008, dt)
     } else {
-      guard.patrolAngle += dt * (0.45 + guard.id * 0.05)
-      const patrolTarget = {
-        x: guard.home.x + Math.cos(guard.patrolAngle) * 2.2,
-        z: guard.home.z + Math.sin(guard.patrolAngle) * 2.2,
-      }
-      moveToward(guard.position, patrolTarget, 1.5, dt)
+      const patrol = stepGuardPatrol(guard.home, guard.id, guard.patrolAngle, dt)
+      guard.patrolAngle = patrol.angle
+      moveToward(guard.position, patrol.target, patrol.moveSpeed, dt)
     }
     guard.position = resolveSherwoodCombinedMovement(guardOrigin, {
       x: guard.position.x - guardOrigin.x,

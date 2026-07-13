@@ -2,10 +2,16 @@ import type { BandContribution, CharacterId, LoadoutId, MissionAlarm, MissionCap
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
-import { SHERWOOD_GUARD_SEPARATION, activeEscortCount, activeGuardPositions } from "../shared/guard-rules"
+import {
+  SHERWOOD_GUARD_SEPARATION,
+  activeEscortCount,
+  activeGuardPositions,
+  initialGuardPatrolAngle,
+  stepGuardPatrol,
+} from "../shared/guard-rules"
 import { missionObjectivePosition } from "../shared/mission-objective"
 import { resolveSherwoodCombinedMovement } from "../shared/world-collisions"
-import { regionCellIndexAt, regionalizeMissionDefinition, seededUnit, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionCellIndexAt, regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 
 export interface MissionOptions {
   rotation?: SheriffRotation | null
@@ -188,7 +194,6 @@ export class Mission {
         rewarded: false,
       })))
     }
-    const random = seededUnit(this.seed)
     const pool: MissionSnapshot["modifiers"] = definition.modifiers.map((modifier) => ({ ...modifier }))
     const firstModifier = this.seed % pool.length
     const secondModifier = (firstModifier + 1 + (this.seed % (pool.length - 1))) % pool.length
@@ -215,7 +220,7 @@ export class Mission {
       for (const player of players.values()) player.arrows = Math.max(1, player.arrows - 1)
     }
     for (const player of players.values()) if (player.loadoutId === "smoke") player.veilFor = Math.max(player.veilFor, 2)
-    const guardStarts = definition.spawns.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: random() * Math.PI * 2, stunnedFor: 0 }))
+    const guardStarts = definition.spawns.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: initialGuardPatrolAngle(guard.id), stunnedFor: 0 }))
     this.guards = guardStarts
     this.record("mission_started")
     for (const preparation of this.preparations.filter((candidate) => candidate.status === "consumed")) this.record("contribution_consumed", undefined, undefined, `${preparation.type}:${preparation.id}`)
@@ -291,7 +296,7 @@ export class Mission {
         this.heat = Math.min(100, this.heat + 18)
         const existing = new Set(this.guards.map((guard) => guard.id))
         const reinforcement = this.definition.spawns.guards.find((guard) => !existing.has(guard.id))
-        if (reinforcement) this.guards.push({ id: reinforcement.id, position: { ...reinforcement.position }, home: { ...reinforcement.position }, patrolAngle: 0, stunnedFor: 0 })
+        if (reinforcement) this.guards.push({ id: reinforcement.id, position: { ...reinforcement.position }, home: { ...reinforcement.position }, patrolAngle: initialGuardPatrolAngle(reinforcement.id), stunnedFor: 0 })
         this.record("reinforcement_arrived", undefined, this.searchPressure, "search-pressure")
       }
     }
@@ -650,7 +655,7 @@ export class Mission {
         this.reinforcementClock = 0
         const existing = new Set(this.guards.map((guard) => guard.id))
         const start = this.definition.spawns.guards.find((guard) => !existing.has(guard.id))
-        if (start) this.guards.push({ id: start.id, position: { ...start.position }, home: { ...start.position }, patrolAngle: 0, stunnedFor: 0 })
+        if (start) this.guards.push({ id: start.id, position: { ...start.position }, home: { ...start.position }, patrolAngle: initialGuardPatrolAngle(start.id), stunnedFor: 0 })
         this.reinforcementWave += 1
         this.heat = Math.min(100, this.heat + 12)
         this.record("reinforcement_arrived", undefined, this.reinforcementWave, `alarm:${this.alarmLevel}`)
@@ -701,7 +706,7 @@ export class Mission {
         const existing = new Set(this.guards.map((guard) => guard.id))
         const start = this.definition.spawns.guards.find((guard) => !existing.has(guard.id))
         if (start) {
-          this.guards.push({ id: start.id, position: { ...start.position }, home: { ...start.position }, patrolAngle: 0, stunnedFor: 0 })
+          this.guards.push({ id: start.id, position: { ...start.position }, home: { ...start.position }, patrolAngle: initialGuardPatrolAngle(start.id), stunnedFor: 0 })
           this.record("reinforcement_arrived", undefined, start.id)
         }
       }
@@ -884,11 +889,9 @@ export class Mission {
       }
       return
     }
-    guard.patrolAngle += dt * (0.45 + guard.id * 0.05)
-    this.moveGuardToward(guard, {
-      x: guard.home.x + Math.cos(guard.patrolAngle) * 2.2,
-      z: guard.home.z + Math.sin(guard.patrolAngle) * 2.2,
-    }, 1.5, dt, players)
+    const patrol = stepGuardPatrol(guard.home, guard.id, guard.patrolAngle, dt)
+    guard.patrolAngle = patrol.angle
+    this.moveGuardToward(guard, patrol.target, patrol.moveSpeed, dt, players)
   }
 
   private moveGuardToward(guard: MissionGuardState, target: { x: number; z: number }, speed: number, dt: number, players: readonly MissionPlayer[]): void {

@@ -56,7 +56,7 @@ import { createArcheryEquipment } from "./archery-equipment"
 import { createHeroCharacter, disposeHeroCharacter, poseHeroCharacter, type HeroAction } from "./character-visuals"
 import { HERO_ACTION_DURATIONS, normalizedHeroActionProgress } from "./character-animation"
 import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
-import { syncGuardViewCount } from "./guard-view-pool"
+import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
 import { sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells, regionMapCellClassName } from "./region-map"
 import { createForestDressing } from "./forest-dressing"
@@ -311,6 +311,8 @@ let localRoleConfirmed = false
 let cameraQuarterTurns = 0
 
 const guardViews: THREE.Group[] = []
+const lastGuardPositions = new Map<number, Vec2>()
+const guardMovingUntil = new Map<number, number>()
 const arrowEffects: { line: THREE.Line; age: number }[] = []
 const vanguardEffects: { ring: THREE.Mesh; age: number }[] = []
 interface RemoteView {
@@ -416,6 +418,8 @@ function resetMissionRuntimeState(): void {
   latestMissionSnapshot = null
   lastMissionEventSequence = 0
   localDownedFor = 0
+  lastGuardPositions.clear()
+  guardMovingUntil.clear()
   for (const remote of remoteViews.values()) {
     remote.action = "idle"
     remote.actionStartedAt = 0
@@ -735,29 +739,8 @@ function openNearbyBowCache(): void {
   nearest.cache.open.reset().play()
 }
 
-function createCharacter(role: CharacterId | "guard"): THREE.Group {
-  if (role !== "guard") return createHeroCharacter(role)
-  const character = new THREE.Group()
-  character.name = "character.sheriff.guard"
-  const tunic = mesh(new THREE.CylinderGeometry(0.38, 0.52, 1.35, 8), palette.red)
-  tunic.position.y = 1.08
-  const belt = mesh(new THREE.CylinderGeometry(0.43, 0.43, 0.14, 8), 0x3e2a21)
-  belt.position.y = 1.15
-  const head = mesh(new THREE.SphereGeometry(0.32, 12, 8), 0xd9b187)
-  head.position.y = 1.96
-  const legLeft = mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.72, 6), 0x493d2d)
-  legLeft.position.set(-0.19, 0.38, 0)
-  const legRight = legLeft.clone()
-  legRight.position.x = 0.19
-  const hat = mesh(new THREE.SphereGeometry(0.39, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0x777d78)
-  hat.position.y = 2.23
-  character.add(tunic, belt, head, legLeft, legRight, hat)
-  const spear = mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.5, 5), 0x3c2c20)
-  spear.position.set(0.48, 1.15, 0)
-  const tip = mesh(new THREE.ConeGeometry(0.12, 0.4, 5), 0xaeb4ae)
-  tip.position.set(0.48, 2.55, 0)
-  character.add(spear, tip)
-  return character
+function createCharacter(role: CharacterId): THREE.Group {
+  return createHeroCharacter(role)
 }
 
 function loadTreeCatalog(): Promise<THREE.Group> {
@@ -1057,8 +1040,8 @@ attachMedievalProps()
 
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
-state.guards.forEach(() => {
-  const guard = createCharacter("guard")
+state.guards.forEach((guardState) => {
+  const guard = createGuardVisual(guardState.id)
   guardViews.push(guard)
   scene.add(guard)
 })
@@ -3049,10 +3032,9 @@ function syncVillageLods(player: Vec2): void {
 }
 
 function syncViews(elapsed: number, dt: number): void {
-  syncGuardViewCount(
+  synchronizeGuardVisualsById(
     guardViews,
-    state.guards.length,
-    () => createCharacter("guard"),
+    state.guards,
     (view) => scene.add(view),
     (view) => {
       scene.remove(view)
@@ -3177,13 +3159,36 @@ function syncViews(elapsed: number, dt: number): void {
   })
   for (const cache of bowCacheAnimations) cache.mixer.update(dt)
 
+  const activeGuardIds = new Set<number>()
   state.guards.forEach((guard, index) => {
     const view = guardViews[index]
+    activeGuardIds.add(guard.id)
+    const previous = lastGuardPositions.get(guard.id)
+    const dx = previous ? guard.position.x - previous.x : 0
+    const dz = previous ? guard.position.z - previous.z : 0
+    if (Math.hypot(dx, dz) > 0.0001) {
+      view.rotation.y = Math.atan2(dx, dz)
+      guardMovingUntil.set(guard.id, elapsed + 0.18)
+    }
+    const stunned = guard.stunnedFor > 0
+    const moving = !stunned && (guardMovingUntil.get(guard.id) ?? 0) > elapsed
     const guardGroundY = sherwoodHeightAt(guard.position.x, guard.position.z)
-    view.position.set(guard.position.x, guardGroundY + (guard.stunnedFor > 0 ? 0.05 : Math.sin(elapsed * 7 + index) * 0.025 * renderProfile.motionScale), guard.position.z)
-    if (state.heat > 8) view.rotation.y = Math.atan2(player.x - guard.position.x, player.z - guard.position.z)
-    view.rotation.z = guard.stunnedFor > 0 ? Math.sin(elapsed * 14) * 0.1 : 0
+    view.position.set(guard.position.x, guardGroundY, guard.position.z)
+    view.rotation.z = 0
+    poseGuardVisual(view, {
+      elapsed,
+      moving,
+      alert: state.heat > 8,
+      stunned,
+      motionScale: renderProfile.motionScale,
+    })
+    lastGuardPositions.set(guard.id, { ...guard.position })
   })
+  for (const id of lastGuardPositions.keys()) {
+    if (activeGuardIds.has(id)) continue
+    lastGuardPositions.delete(id)
+    guardMovingUntil.delete(id)
+  }
 
   const snapshotNow = performance.now()
   for (const remote of remoteViews.values()) {

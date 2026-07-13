@@ -5,7 +5,7 @@ import type { CharacterId } from "../shared/protocol"
 import referencePackage from "../missions/peoples-purse.v1.json"
 import { missionContentHash, parseMissionDefinition } from "../shared/mission-definition"
 import { PRISON_WAGON_MISSION, ROYAL_STOREHOUSE_MISSION } from "../shared/mission-catalog"
-import { SHERWOOD_ESCORT_BLOCK_RADIUS, SHERWOOD_GUARD_SEPARATION } from "../shared/guard-rules"
+import { SHERWOOD_ESCORT_BLOCK_RADIUS, SHERWOOD_GUARD_SEPARATION, initialGuardPatrolAngle, stepGuardPatrol } from "../shared/guard-rules"
 import { SHERWOOD_PLAYER_RADIUS, VILLAGE_COTTAGE_COLLIDER, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
 import { createInitialState, updateSimulation } from "../src/simulation"
 
@@ -235,6 +235,25 @@ describe("authoritative mission", () => {
       robin.position.x - mission.guards[0].position.x,
       robin.position.z - mission.guards[0].position.z,
     )).toBeGreaterThanOrEqual(SHERWOOD_GUARD_SEPARATION)
+  })
+
+  it("uses the shared deterministic patrol step on the authority", () => {
+    const robin = player("robin", "robin")
+    const mission = new Mission("PATROL-SHARED", new Map([[robin.id, robin]]))
+    mission.objectiveDiscovered = true
+    mission.heat = 0
+    robin.position = { x: -42, z: -42 }
+    const guard = mission.guards[0]
+    mission.guards.splice(1)
+    guard.home = { x: 20, z: 20 }
+    guard.position = { ...guard.home }
+    guard.patrolAngle = initialGuardPatrolAngle(guard.id)
+    const expected = stepGuardPatrol(guard.home, guard.id, guard.patrolAngle, 0.25)
+
+    mission.update(0.25)
+
+    expect(guard.patrolAngle).toBeCloseTo(expected.angle, 8)
+    expect(Math.hypot(guard.position.x - guard.home.x, guard.position.z - guard.home.z)).toBeLessThanOrEqual(expected.moveSpeed * 0.25 + 0.0001)
   })
 
   it("requires proximity for revive and loot transfer and scores support", () => {
