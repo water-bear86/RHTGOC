@@ -6,6 +6,19 @@ export interface ObjectivePointerLayout {
   distanceLabel: string
 }
 
+interface CampfireHaloInput {
+  multiplayerActive: boolean
+  loot: number
+  mission: Readonly<{ missionKind: string; phase: string }> | null
+}
+
+/** Keeps the delivery fire readable only while it is the local player's active objective. */
+export function shouldShowMissionCampfireHalo(input: CampfireHaloInput): boolean {
+  if (input.loot <= 0) return false
+  if (!input.multiplayerActive) return true
+  return input.mission?.missionKind === "tax-cart" && input.mission.phase === "escape"
+}
+
 interface PointerInput {
   ndcX: number
   ndcY: number
@@ -37,4 +50,3 @@ export function computeObjectivePointer(input: PointerInput): ObjectivePointerLa
     distanceLabel: `${Math.max(0, Math.round(input.distanceMeters))}m`,
   }
 }
-

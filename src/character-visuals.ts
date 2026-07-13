@@ -1,10 +1,34 @@
 import * as THREE from "three"
 import type { CharacterId } from "./simulation"
-import { createArcheryEquipment, type BowVariant } from "./archery-equipment"
+import { createArcheryEquipment, setBowDraw, type BowVariant } from "./archery-equipment"
+import { sampleHeroAnimation, type HeroAction, type JointRotation } from "./character-animation"
 import { createToonMaterial } from "./toon-materials"
+
+export type { HeroAction } from "./character-animation"
+
+interface CharacterProfile {
+  shoulderWidth: number
+  waistWidth: number
+  torsoDepth: number
+  torsoHeight: number
+  skirtLength: number
+  upperArmLength: number
+  lowerArmLength: number
+  armRadius: number
+  upperLegLength: number
+  lowerLegLength: number
+  legRadius: number
+  headRadius: number
+  tunic: number
+  sleeve: number
+  trousers: number
+  hair: number
+}
 
 interface CharacterRig {
   characterId: CharacterId
+  bodyRoot: THREE.Group
+  pelvis: THREE.Group
   torso: THREE.Group
   head: THREE.Group
   leftArm: THREE.Group
@@ -17,17 +41,21 @@ interface CharacterRig {
   rightLeg: THREE.Group
   leftShin: THREE.Group
   rightShin: THREE.Group
-  bow: THREE.Group | null
-  cape: THREE.Object3D | null
-  staff: THREE.Object3D | null
+  bow: THREE.Group
+  quiver: THREE.Group
+  capeHinge: THREE.Group | null
+  staffHand: THREE.Group | null
+  staffBack: THREE.Group | null
+  signatureProp: THREE.Object3D | null
+  volleyArrow: THREE.Object3D | null
+  groundOffset: number
 }
-
-export type HeroAction = "idle" | "attack" | "signature"
 
 export interface CharacterPose {
   elapsed: number
   moving: boolean
   action?: HeroAction
+  actionProgress?: number
   downed?: boolean
   motionScale?: number
 }
@@ -39,394 +67,500 @@ const DARK_LEATHER = 0x2e211c
 const LINEN = 0xd6c7a2
 const IRON = 0x858b86
 
+const CHARACTER_PROFILES: Readonly<Record<CharacterId, CharacterProfile>> = Object.freeze({
+  robin: {
+    shoulderWidth: 0.82, waistWidth: 0.57, torsoDepth: 0.52, torsoHeight: 0.94, skirtLength: 0.42,
+    upperArmLength: 0.44, lowerArmLength: 0.42, armRadius: 0.112,
+    upperLegLength: 0.45, lowerLegLength: 0.43, legRadius: 0.11, headRadius: 0.3,
+    tunic: 0x2f6337, sleeve: 0x31593a, trousers: 0x423a2f, hair: 0x4d2d1d,
+  },
+  marian: {
+    shoulderWidth: 0.73, waistWidth: 0.51, torsoDepth: 0.46, torsoHeight: 0.98, skirtLength: 0.56,
+    upperArmLength: 0.43, lowerArmLength: 0.41, armRadius: 0.105,
+    upperLegLength: 0.49, lowerLegLength: 0.46, legRadius: 0.102, headRadius: 0.292,
+    tunic: 0x4e5878, sleeve: 0x68708b, trousers: 0x3f455c, hair: 0x4a2a1e,
+  },
+  "little-john": {
+    shoulderWidth: 1.08, waistWidth: 0.76, torsoDepth: 0.65, torsoHeight: 1.04, skirtLength: 0.38,
+    upperArmLength: 0.54, lowerArmLength: 0.52, armRadius: 0.155,
+    upperLegLength: 0.49, lowerLegLength: 0.47, legRadius: 0.15, headRadius: 0.34,
+    tunic: 0x765332, sleeve: 0x634328, trousers: 0x453b30, hair: 0x553523,
+  },
+  much: {
+    shoulderWidth: 0.65, waistWidth: 0.49, torsoDepth: 0.46, torsoHeight: 0.78, skirtLength: 0.34,
+    upperArmLength: 0.36, lowerArmLength: 0.34, armRadius: 0.1,
+    upperLegLength: 0.34, lowerLegLength: 0.33, legRadius: 0.098, headRadius: 0.285,
+    tunic: 0x6b5a39, sleeve: 0x7a6842, trousers: 0x443c31, hair: 0x8a5b32,
+  },
+})
+
+interface MeshOptions {
+  castShadow?: boolean
+  receiveShadow?: boolean
+}
+
 function createCharacterFactory() {
   const materials = new Map<number, THREE.MeshToonMaterial>()
   const material = (color: number): THREE.MeshToonMaterial => {
-    let result = materials.get(color)
-    if (!result) {
-      result = createToonMaterial({ color })
-      materials.set(color, result)
-    }
+    const cached = materials.get(color)
+    if (cached) return cached
+    const result = createToonMaterial({ color })
+    result.flatShading = true
+    result.needsUpdate = true
+    materials.set(color, result)
     return result
   }
-  const mesh = (name: string, geometry: THREE.BufferGeometry, color: number): THREE.Mesh => {
+  const mesh = (name: string, geometry: THREE.BufferGeometry, color: number, options: MeshOptions = {}): THREE.Mesh => {
     const result = new THREE.Mesh(geometry, material(color))
     result.name = name
-    result.castShadow = true
-    result.receiveShadow = true
+    result.castShadow = options.castShadow ?? true
+    result.receiveShadow = options.receiveShadow ?? result.castShadow
     return result
   }
   return { mesh }
 }
 
-function addFace(head: THREE.Group, mesh: ReturnType<typeof createCharacterFactory>["mesh"], eyeColor: number, hairColor: number, beard = false): void {
-  const leftEye = mesh("FaceLeftEye", new THREE.SphereGeometry(0.038, 6, 5), eyeColor)
-  leftEye.position.set(-0.105, 0.035, 0.292)
+type MeshFactory = ReturnType<typeof createCharacterFactory>["mesh"]
+
+function addFace(head: THREE.Group, mesh: MeshFactory, profile: CharacterProfile): void {
+  const radius = profile.headRadius
+  const featureOptions = { castShadow: false, receiveShadow: false }
+  const eyeZ = radius * 0.94
+  const eyeX = radius * 0.35
+  const leftEye = mesh("FaceLeftEye", new THREE.SphereGeometry(radius * 0.13, 6, 5), 0x25302b, featureOptions)
+  leftEye.position.set(-eyeX, radius * 0.12, eyeZ)
   const rightEye = leftEye.clone()
   rightEye.name = "FaceRightEye"
-  rightEye.position.x = 0.105
-  const browLeft = mesh("FaceLeftBrow", new THREE.BoxGeometry(0.13, 0.025, 0.025), hairColor)
-  browLeft.position.set(-0.105, 0.115, 0.294)
+  rightEye.position.x = eyeX
+  const browLeft = mesh("FaceLeftBrow", new THREE.BoxGeometry(radius * 0.44, radius * 0.08, radius * 0.08), profile.hair, featureOptions)
+  browLeft.position.set(-eyeX, radius * 0.38, eyeZ + radius * 0.015)
   browLeft.rotation.z = -0.08
   const browRight = browLeft.clone()
   browRight.name = "FaceRightBrow"
-  browRight.position.x = 0.105
+  browRight.position.x = eyeX
   browRight.rotation.z = 0.08
-  const nose = mesh("FaceNose", new THREE.ConeGeometry(0.055, 0.16, 5), SKIN_SHADOW)
-  nose.position.set(0, -0.01, 0.335)
+  const nose = mesh("FaceNose", new THREE.ConeGeometry(radius * 0.19, radius * 0.53, 5), SKIN_SHADOW, featureOptions)
+  nose.position.set(0, -radius * 0.04, radius * 1.08)
   nose.rotation.x = Math.PI / 2
-  const mouth = mesh("FaceMouth", new THREE.BoxGeometry(0.13, 0.024, 0.018), 0x7c433b)
-  mouth.position.set(0, -0.13, 0.304)
+  const mouth = mesh("FaceMouth", new THREE.BoxGeometry(radius * 0.45, radius * 0.08, radius * 0.06), 0x7c433b, featureOptions)
+  mouth.position.set(0, -radius * 0.43, eyeZ + radius * 0.04)
   head.add(leftEye, rightEye, browLeft, browRight, nose, mouth)
-  if (beard) {
-    const beardMesh = mesh("FaceBeard", new THREE.ConeGeometry(0.25, 0.45, 8), hairColor)
-    beardMesh.position.set(0, -0.24, 0.08)
-    beardMesh.rotation.x = -0.08
-    head.add(beardMesh)
-  }
 }
 
-function createArm(
-  name: string,
-  mesh: ReturnType<typeof createCharacterFactory>["mesh"],
-  color: number,
-  upperLength: number,
-  lowerLength: number,
-  radius: number,
-): { upper: THREE.Group; lower: THREE.Group; hand: THREE.Group } {
+function createArm(name: string, mesh: MeshFactory, profile: CharacterProfile): { upper: THREE.Group; lower: THREE.Group; hand: THREE.Group } {
+  const { upperArmLength, lowerArmLength, armRadius } = profile
   const upper = new THREE.Group()
   upper.name = name
-  const sleeve = mesh(`${name}Upper`, new THREE.CylinderGeometry(radius * 0.9, radius, upperLength, 7), color)
-  sleeve.position.y = -upperLength / 2
+  const shoulder = mesh(`${name}Shoulder`, new THREE.SphereGeometry(armRadius * 1.08, 7, 5), profile.sleeve)
+  const sleeve = mesh(`${name}Upper`, new THREE.CylinderGeometry(armRadius * 0.86, armRadius, upperArmLength, 7), profile.sleeve)
+  sleeve.position.y = -upperArmLength / 2
   const lower = new THREE.Group()
   lower.name = `${name}Forearm`
-  lower.position.y = -upperLength
-  const elbow = mesh(`${name}Elbow`, new THREE.SphereGeometry(radius * 1.04, 7, 5), color)
-  const forearm = mesh(`${name}Lower`, new THREE.CylinderGeometry(radius * 0.74, radius * 0.88, lowerLength, 7), color)
-  forearm.position.y = -lowerLength / 2
+  lower.position.y = -upperArmLength
+  const elbow = mesh(`${name}Elbow`, new THREE.SphereGeometry(armRadius * 0.98, 7, 5), profile.sleeve, { castShadow: false })
+  const forearm = mesh(`${name}Lower`, new THREE.CylinderGeometry(armRadius * 0.72, armRadius * 0.86, lowerArmLength, 7), profile.sleeve)
+  forearm.position.y = -lowerArmLength / 2
+  const cuff = mesh(`${name}Cuff`, new THREE.CylinderGeometry(armRadius * 0.82, armRadius * 0.82, armRadius * 0.68, 7), DARK_LEATHER, { castShadow: false })
+  cuff.position.y = -lowerArmLength + armRadius * 0.22
   const hand = new THREE.Group()
   hand.name = `${name}Hand`
-  hand.position.y = -lowerLength
-  const cuff = mesh(`${name}Cuff`, new THREE.CylinderGeometry(radius * 0.82, radius * 0.82, radius * 0.7, 7), DARK_LEATHER)
-  cuff.position.y = -lowerLength + radius * 0.25
-  const palm = mesh(`${name}Palm`, new THREE.BoxGeometry(radius * 1.18, radius * 1.38, radius * 0.78), SKIN)
-  palm.position.z = radius * 0.16
+  hand.position.y = -lowerArmLength
+  const palm = mesh(`${name}Palm`, new THREE.BoxGeometry(armRadius * 1.18, armRadius * 1.38, armRadius * 0.82), SKIN)
+  palm.position.z = armRadius * 0.18
   hand.add(palm)
   lower.add(elbow, forearm, cuff, hand)
-  upper.add(sleeve, lower)
+  upper.add(shoulder, sleeve, lower)
   return { upper, lower, hand }
 }
 
-function createLeg(
-  name: string,
-  mesh: ReturnType<typeof createCharacterFactory>["mesh"],
-  upperLength: number,
-  lowerLength: number,
-  radius: number,
-): { upper: THREE.Group; lower: THREE.Group } {
+function createLeg(name: string, mesh: MeshFactory, profile: CharacterProfile): { upper: THREE.Group; lower: THREE.Group } {
+  const { upperLegLength, lowerLegLength, legRadius } = profile
   const upper = new THREE.Group()
   upper.name = name
-  const thigh = mesh(`${name}Upper`, new THREE.CylinderGeometry(radius * 0.9, radius, upperLength, 7), 0x4a4031)
-  thigh.position.y = -upperLength / 2
+  const thigh = mesh(`${name}Upper`, new THREE.CylinderGeometry(legRadius * 0.88, legRadius, upperLegLength, 7), profile.trousers)
+  thigh.position.y = -upperLegLength / 2
   const lower = new THREE.Group()
   lower.name = `${name}Shin`
-  lower.position.y = -upperLength
-  const knee = mesh(`${name}Knee`, new THREE.SphereGeometry(radius * 1.05, 7, 5), 0x4a4031)
-  const shin = mesh(`${name}Lower`, new THREE.CylinderGeometry(radius * 0.72, radius * 0.88, lowerLength, 7), 0x40382d)
-  shin.position.y = -lowerLength / 2
-  const bootCuff = mesh(`${name}BootCuff`, new THREE.CylinderGeometry(radius * 0.98, radius * 0.92, radius * 1.05, 7), LEATHER)
-  bootCuff.position.y = -lowerLength + radius * 1.1
-  const boot = mesh(`${name}Boot`, new THREE.BoxGeometry(radius * 1.55, radius * 1.25, radius * 2.75), DARK_LEATHER)
-  boot.position.set(0, -lowerLength, radius * 0.68)
+  lower.position.y = -upperLegLength
+  const knee = mesh(`${name}Knee`, new THREE.SphereGeometry(legRadius, 7, 5), profile.trousers, { castShadow: false })
+  const shin = mesh(`${name}Lower`, new THREE.CylinderGeometry(legRadius * 0.72, legRadius * 0.88, lowerLegLength, 7), profile.trousers)
+  shin.position.y = -lowerLegLength / 2
+  const bootCuff = mesh(`${name}BootCuff`, new THREE.CylinderGeometry(legRadius * 0.98, legRadius * 0.92, legRadius, 7), LEATHER, { castShadow: false })
+  bootCuff.position.y = -lowerLegLength + legRadius
+  const boot = mesh(`${name}Boot`, new THREE.BoxGeometry(legRadius * 1.55, legRadius * 1.2, legRadius * 2.7), DARK_LEATHER)
+  boot.position.set(0, -lowerLegLength, legRadius * 0.66)
   boot.rotation.x = -0.08
   lower.add(knee, shin, bootCuff, boot)
   upper.add(thigh, lower)
   return { upper, lower }
 }
 
-function addRobinDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType<typeof createCharacterFactory>["mesh"]): void {
-  const hood = mesh("RobinHood", new THREE.SphereGeometry(0.37, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.72), 0x244b2d)
-  hood.position.set(0, 0.07, -0.035)
-  const cap = mesh("RobinBycocket", new THREE.ConeGeometry(0.42, 0.62, 7), 0x2d6038)
-  cap.position.set(0, 0.3, -0.02)
-  cap.rotation.z = -0.42
-  cap.scale.set(1.15, 0.92, 0.82)
-  const brim = mesh("RobinHatBrim", new THREE.TorusGeometry(0.31, 0.045, 6, 12, Math.PI * 1.55), 0x1d3f27)
-  brim.position.set(0, 0.12, 0.06)
-  brim.rotation.set(Math.PI / 2, 0, 0.25)
-  const feather = mesh("RobinFeather", new THREE.ConeGeometry(0.055, 0.62, 6), 0xc74635)
-  feather.position.set(0.26, 0.42, 0)
-  feather.rotation.z = -0.58
-  rig.head.add(hood, cap, brim, feather)
-
-  const cape = mesh("RobinCape", new THREE.ConeGeometry(0.54, 1.25, 8, 1, true), 0x1f3d28)
-  cape.position.set(0, 1.27, -0.19)
-  cape.rotation.x = -0.1
-  cape.scale.z = 0.45
-  root.add(cape)
-  rig.cape = cape
-  const shoulderCape = mesh("RobinShoulderCape", new THREE.ConeGeometry(0.57, 0.46, 9, 1, true), 0x274c2e)
-  shoulderCape.position.set(0, 1.69, -0.04)
-  shoulderCape.scale.z = 0.72
-  const bracerLeft = mesh("RobinLeftBracer", new THREE.CylinderGeometry(0.13, 0.115, 0.32, 7), 0x70492d)
-  bracerLeft.position.set(-0.41, 1.05, 0)
-  const bracerRight = bracerLeft.clone()
-  bracerRight.name = "RobinRightBracer"
-  bracerRight.position.x = 0.41
-  root.add(shoulderCape, bracerLeft, bracerRight)
+function createCape(rig: CharacterRig, mesh: MeshFactory, name: string, color: number, length: number, width: number): void {
+  const hinge = new THREE.Group()
+  hinge.name = `${name}Hinge`
+  hinge.position.set(0, CHARACTER_PROFILES[rig.characterId].torsoHeight * 0.84, -CHARACTER_PROFILES[rig.characterId].torsoDepth * 0.45)
+  for (const side of [-1, 0, 1]) {
+    const panelWidth = width * (side === 0 ? 0.38 : 0.31)
+    const panel = mesh(`${name}Panel${side + 2}`, new THREE.BoxGeometry(panelWidth, length, 0.045), color)
+    panel.position.set(side * width * 0.31, -length / 2 + 0.02, -0.02)
+    panel.rotation.z = side * -0.08
+    hinge.add(panel)
+  }
+  rig.torso.add(hinge)
+  rig.capeHinge = hinge
 }
 
-function addMarianDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType<typeof createCharacterFactory>["mesh"]): void {
-  const hairBack = mesh("MarianHairBack", new THREE.CapsuleGeometry(0.3, 0.54, 4, 8), 0x4a2a1e)
+function createStaff(mesh: MeshFactory, name: string): THREE.Group {
+  const staff = new THREE.Group()
+  staff.name = name
+  const shaft = mesh(`${name}Shaft`, new THREE.CylinderGeometry(0.055, 0.068, 2.45, 8), 0x664326)
+  const upperBand = mesh(`${name}UpperBand`, new THREE.CylinderGeometry(0.08, 0.08, 0.18, 8), IRON, { castShadow: false })
+  upperBand.position.y = 0.94
+  const lowerBand = upperBand.clone()
+  lowerBand.name = `${name}LowerBand`
+  lowerBand.position.y = -0.94
+  staff.add(shaft, upperBand, lowerBand)
+  return staff
+}
+
+function addRobinDetails(rig: CharacterRig, mesh: MeshFactory): void {
+  const hoodCollar = mesh("RobinHood", new THREE.TorusGeometry(0.32, 0.09, 6, 12), 0x244b2d)
+  hoodCollar.rotation.x = Math.PI / 2
+  hoodCollar.position.y = -0.14
+  const crown = mesh("RobinBycocketCrown", new THREE.SphereGeometry(0.33, 9, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), 0x2d6038)
+  crown.position.y = 0.08
+  const point = mesh("RobinBycocket", new THREE.ConeGeometry(0.15, 0.62, 7), 0x2d6038)
+  point.position.set(0.25, 0.25, -0.06)
+  point.rotation.z = -1.03
+  point.scale.z = 0.72
+  const brim = mesh("RobinHatBrim", new THREE.TorusGeometry(0.3, 0.04, 6, 12, Math.PI * 1.55), 0x1d3f27, { castShadow: false })
+  brim.position.set(0, 0.08, 0.03)
+  brim.rotation.set(Math.PI / 2, 0, 0.25)
+  const feather = mesh("RobinFeather", new THREE.ConeGeometry(0.052, 0.58, 6), 0xc74635)
+  feather.position.set(0.29, 0.38, 0)
+  feather.rotation.z = -0.58
+  rig.head.add(hoodCollar, crown, point, brim, feather)
+  createCape(rig, mesh, "RobinCape", 0x1f3d28, 0.82, 0.86)
+
+  for (const [side, forearm] of [["Left", rig.leftForearm], ["Right", rig.rightForearm]] as const) {
+    const bracer = mesh(`Robin${side}Bracer`, new THREE.CylinderGeometry(0.13, 0.115, 0.28, 7), 0x70492d)
+    bracer.position.y = -CHARACTER_PROFILES.robin.lowerArmLength * 0.58
+    forearm.add(bracer)
+  }
+  const volleyArrow = rig.bow.getObjectByName("BowNockedArrow")?.clone(true) ?? null
+  if (volleyArrow) {
+    volleyArrow.name = "RobinVolleyArrow"
+    volleyArrow.position.z = 0.045
+    volleyArrow.visible = false
+    rig.bow.add(volleyArrow)
+    rig.volleyArrow = volleyArrow
+  }
+}
+
+function addMarianDetails(rig: CharacterRig, mesh: MeshFactory): void {
+  const hairBack = mesh("MarianHairBack", new THREE.CapsuleGeometry(0.28, 0.48, 4, 8), 0x4a2a1e)
   hairBack.position.set(0, -0.18, -0.13)
   rig.head.add(hairBack)
   for (const side of [-1, 1]) {
-    const braid = mesh(`MarianBraid${side}`, new THREE.CylinderGeometry(0.055, 0.035, 0.62, 7), 0x5a3423)
-    braid.position.set(side * 0.27, -0.2, 0)
+    const braid = mesh(`MarianBraid${side}`, new THREE.CylinderGeometry(0.052, 0.033, 0.58, 7), 0x5a3423)
+    braid.position.set(side * 0.25, -0.2, 0)
     braid.rotation.z = side * 0.12
     rig.head.add(braid)
   }
-  const circlet = mesh("MarianCirclet", new THREE.TorusGeometry(0.31, 0.022, 5, 16, Math.PI * 1.45), 0xb99b52)
+  const circlet = mesh("MarianCirclet", new THREE.TorusGeometry(0.3, 0.022, 5, 16, Math.PI * 1.45), 0xb99b52, { castShadow: false })
   circlet.position.set(0, 0.13, 0.02)
   circlet.rotation.set(Math.PI / 2, 0, -0.72)
   rig.head.add(circlet)
-  const mantle = mesh("MarianMantle", new THREE.ConeGeometry(0.61, 1.42, 9, 1, true), 0x39465d)
-  mantle.position.set(0, 1.29, -0.16)
-  mantle.scale.z = 0.48
-  root.add(mantle)
-  rig.cape = mantle
-  const brooch = mesh("MarianBrooch", new THREE.SphereGeometry(0.09, 8, 6), 0xc5a65b)
-  brooch.position.set(0, 1.75, 0.42)
-  const sash = mesh("MarianSash", new THREE.BoxGeometry(0.13, 1.18, 0.055), 0x253449)
-  sash.position.set(0.06, 1.24, 0.42)
+  createCape(rig, mesh, "MarianMantle", 0x39465d, 1.02, 0.94)
+
+  const brooch = mesh("MarianBrooch", new THREE.SphereGeometry(0.085, 8, 6), 0xc5a65b, { castShadow: false })
+  brooch.position.set(0, CHARACTER_PROFILES.marian.torsoHeight * 0.82, 0.25)
+  const sash = mesh("MarianSash", new THREE.BoxGeometry(0.12, 0.92, 0.05), 0x253449)
+  sash.name = "MarianSash"
+  sash.position.set(0.07, 0.46, CHARACTER_PROFILES.marian.torsoDepth * 0.52)
   sash.rotation.z = 0.42
-  const skirtFront = mesh("MarianSkirtFront", new THREE.BoxGeometry(0.58, 0.74, 0.08), 0x596583)
-  skirtFront.position.set(0, 0.78, 0.39)
-  skirtFront.rotation.x = -0.08
-  root.add(brooch, sash, skirtFront)
+  rig.torso.add(brooch, sash)
 }
 
-function addLittleJohnDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType<typeof createCharacterFactory>["mesh"]): void {
-  const hair = mesh("JohnHair", new THREE.SphereGeometry(0.35, 9, 6, 0, Math.PI * 2, 0, Math.PI * 0.62), 0x553523)
-  hair.position.set(0, 0.08, -0.03)
-  rig.head.add(hair)
-  const shoulderLeft = mesh("JohnShoulderLeft", new THREE.SphereGeometry(0.26, 8, 6), LEATHER)
-  shoulderLeft.scale.set(1.25, 0.7, 1)
-  shoulderLeft.position.set(-0.5, 1.7, 0)
-  const shoulderRight = shoulderLeft.clone()
-  shoulderRight.name = "JohnShoulderRight"
-  shoulderRight.position.x = 0.5
-  const chestStrap = mesh("JohnChestStrap", new THREE.BoxGeometry(0.13, 1.35, 0.08), DARK_LEATHER)
-  chestStrap.position.set(0, 1.34, 0.42)
+function addLittleJohnDetails(rig: CharacterRig, mesh: MeshFactory): void {
+  const hair = mesh("JohnHair", new THREE.SphereGeometry(0.36, 9, 6, 0, Math.PI * 2, 0, Math.PI * 0.53), 0x553523)
+  hair.position.set(0, 0.08, -0.04)
+  const beard = mesh("JohnBeard", new THREE.CapsuleGeometry(0.18, 0.16, 3, 7), 0x553523)
+  beard.position.set(0, -0.25, 0.13)
+  beard.scale.set(1.18, 1, 0.52)
+  rig.head.add(hair, beard)
+
+  for (const [side, arm] of [["Left", rig.leftArm], ["Right", rig.rightArm]] as const) {
+    const shoulder = mesh(`JohnShoulder${side}`, new THREE.SphereGeometry(0.24, 8, 6), LEATHER)
+    shoulder.scale.set(1.25, 0.72, 1)
+    shoulder.position.y = -0.02
+    arm.add(shoulder)
+  }
+  const chestStrap = mesh("JohnChestStrap", new THREE.BoxGeometry(0.13, 1.25, 0.07), DARK_LEATHER)
+  chestStrap.position.set(0, 0.55, CHARACTER_PROFILES["little-john"].torsoDepth * 0.52)
   chestStrap.rotation.z = -0.48
-  const staff = mesh("JohnQuarterstaff", new THREE.CylinderGeometry(0.055, 0.068, 2.75, 8), 0x664326)
-  const staffBand = mesh("JohnStaffBand", new THREE.CylinderGeometry(0.082, 0.082, 0.2, 8), IRON)
-  staffBand.position.y = 1.22
-  staff.add(staffBand)
-  staff.position.set(0, -0.45, 0.16)
-  staff.rotation.set(0.08, 0, -0.08)
-  rig.rightHand.add(staff)
-  rig.staff = staff
-  const vestLeft = mesh("JohnVestLeft", new THREE.BoxGeometry(0.34, 0.92, 0.08), 0x4d3424)
-  vestLeft.position.set(-0.2, 1.39, 0.49)
+  const vestLeft = mesh("JohnVestLeft", new THREE.BoxGeometry(0.38, 0.84, 0.07), 0x4d3424)
+  vestLeft.position.set(-0.22, 0.53, CHARACTER_PROFILES["little-john"].torsoDepth * 0.53)
   vestLeft.rotation.z = -0.05
   const vestRight = vestLeft.clone()
   vestRight.name = "JohnVestRight"
-  vestRight.position.x = 0.2
+  vestRight.position.x = 0.22
   vestRight.rotation.z = 0.05
-  root.add(shoulderLeft, shoulderRight, chestStrap, vestLeft, vestRight)
+  rig.torso.add(chestStrap, vestLeft, vestRight)
+
+  const backStaff = createStaff(mesh, "JohnQuarterstaffBack")
+  backStaff.position.set(-0.1, 0.18, -0.02)
+  backStaff.rotation.set(0.08, 0, 0.28)
+  rig.torso.getObjectByName("RigBackSocket")!.add(backStaff)
+  const handStaff = createStaff(mesh, "JohnQuarterstaff")
+  handStaff.position.set(0, 0.46, 0.14)
+  handStaff.rotation.set(0.08, 0, -0.08)
+  handStaff.visible = false
+  rig.rightHand.add(handStaff)
+  rig.staffBack = backStaff
+  rig.staffHand = handStaff
 }
 
-function addMuchDetails(root: THREE.Group, rig: CharacterRig, mesh: ReturnType<typeof createCharacterFactory>["mesh"]): void {
-  const hair = mesh("MuchHair", new THREE.SphereGeometry(0.32, 9, 6, 0, Math.PI * 2, 0, Math.PI * 0.58), 0x8a5b32)
-  hair.position.set(0, 0.1, -0.03)
-  const cap = mesh("MuchCap", new THREE.SphereGeometry(0.36, 9, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0x53603b)
-  cap.position.y = 0.17
-  const capTail = mesh("MuchCapTail", new THREE.ConeGeometry(0.11, 0.5, 7), 0x53603b)
-  capTail.position.set(0.25, 0.18, -0.08)
-  capTail.rotation.z = -0.75
+function addMuchDetails(rig: CharacterRig, mesh: MeshFactory): void {
+  const hair = mesh("MuchHair", new THREE.SphereGeometry(0.3, 9, 6, 0, Math.PI * 2, 0, Math.PI * 0.54), 0x8a5b32)
+  hair.position.set(0, 0.08, -0.04)
+  const cap = mesh("MuchCap", new THREE.SphereGeometry(0.34, 9, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0x53603b)
+  cap.position.y = 0.16
+  const capTail = mesh("MuchCapTail", new THREE.ConeGeometry(0.1, 0.48, 7), 0x53603b)
+  capTail.position.set(0.24, 0.18, -0.08)
+  capTail.rotation.z = -0.82
   rig.head.add(hair, cap, capTail)
-  const satchel = mesh("MuchSatchel", new THREE.BoxGeometry(0.46, 0.48, 0.25), 0x8b6234)
-  satchel.position.set(0.48, 1.02, 0.16)
+
+  const satchel = new THREE.Group()
+  satchel.name = "MuchSatchel"
+  satchel.position.set(0.42, 0.16, 0.08)
   satchel.rotation.z = -0.16
-  const satchelFlap = mesh("MuchSatchelFlap", new THREE.BoxGeometry(0.48, 0.18, 0.28), 0x684425)
-  satchelFlap.position.set(0, 0.18, 0.02)
-  satchel.add(satchelFlap)
-  const rope = mesh("MuchRope", new THREE.TorusGeometry(0.24, 0.035, 6, 16), 0xb58a4b)
-  rope.position.set(-0.38, 1.02, -0.22)
+  const bag = mesh("MuchSatchelBag", new THREE.BoxGeometry(0.43, 0.44, 0.23), 0x8b6234)
+  const flap = mesh("MuchSatchelFlap", new THREE.BoxGeometry(0.45, 0.16, 0.25), 0x684425, { castShadow: false })
+  flap.position.set(0, 0.17, 0.02)
+  satchel.add(bag, flap)
+  const rope = mesh("MuchRope", new THREE.TorusGeometry(0.22, 0.033, 6, 16), 0xb58a4b)
+  rope.position.set(-0.32, 0.12, -CHARACTER_PROFILES.much.torsoDepth * 0.48)
   rope.rotation.y = Math.PI / 2
-  const patch = mesh("MuchTunicPatch", new THREE.BoxGeometry(0.25, 0.22, 0.025), 0x7b4934)
-  patch.position.set(-0.2, 1.25, 0.43)
+  const patch = mesh("MuchTunicPatch", new THREE.BoxGeometry(0.24, 0.2, 0.024), 0x7b4934, { castShadow: false })
+  patch.position.set(-0.18, 0.44, CHARACTER_PROFILES.much.torsoDepth * 0.53)
   patch.rotation.z = 0.14
-  const neckerchief = mesh("MuchNeckerchief", new THREE.ConeGeometry(0.24, 0.42, 3), 0xa1503c)
-  neckerchief.position.set(0, 1.55, 0.43)
+  const neckerchief = mesh("MuchNeckerchief", new THREE.ConeGeometry(0.22, 0.38, 3), 0xa1503c)
+  neckerchief.position.set(0, CHARACTER_PROFILES.much.torsoHeight * 0.83, CHARACTER_PROFILES.much.torsoDepth * 0.52)
   neckerchief.rotation.x = Math.PI / 2
-  const patchedSleeve = mesh("MuchPatchedSleeve", new THREE.BoxGeometry(0.2, 0.26, 0.04), 0x955b3c)
-  patchedSleeve.position.set(0.38, 1.35, 0.13)
-  patchedSleeve.rotation.z = -0.28
-  root.add(satchel, rope, patch, neckerchief, patchedSleeve)
+  rig.torso.add(satchel, rope, patch, neckerchief)
+
+  const sleevePatch = mesh("MuchPatchedSleeve", new THREE.BoxGeometry(0.19, 0.24, 0.04), 0x955b3c, { castShadow: false })
+  sleevePatch.position.y = -CHARACTER_PROFILES.much.upperArmLength * 0.5
+  sleevePatch.position.z = CHARACTER_PROFILES.much.armRadius
+  rig.rightArm.add(sleevePatch)
+  const snare = mesh("MuchHandSnare", new THREE.TorusGeometry(0.18, 0.028, 6, 14), 0xb58a4b)
+  snare.rotation.x = Math.PI / 2
+  snare.position.set(0, -0.03, 0.12)
+  snare.visible = false
+  rig.rightHand.add(snare)
+  rig.signatureProp = snare
+}
+
+function isEffectivelyVisible(object: THREE.Object3D, root: THREE.Object3D): boolean {
+  let current: THREE.Object3D | null = object
+  while (current) {
+    if (!current.visible) return false
+    if (current === root) return true
+    current = current.parent
+  }
+  return false
+}
+
+function visibleBounds(root: THREE.Object3D): THREE.Box3 {
+  root.updateMatrixWorld(true)
+  const bounds = new THREE.Box3()
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) || !isEffectivelyVisible(object, root)) return
+    bounds.expandByObject(object, true)
+  })
+  return bounds
 }
 
 export function createHeroCharacter(characterId: CharacterId): THREE.Group {
+  const profile = CHARACTER_PROFILES[characterId]
   const { mesh } = createCharacterFactory()
   const root = new THREE.Group()
   root.name = `character.${characterId}.procedural`
   root.userData.characterId = characterId
+  const bodyRoot = new THREE.Group()
+  bodyRoot.name = "RigBodyRoot"
+  root.add(bodyRoot)
 
-  const isJohn = characterId === "little-john"
-  const isMarian = characterId === "marian"
-  const isMuch = characterId === "much"
-  const bodyScale = isJohn ? 1.13 : isMarian ? 0.94 : isMuch ? 0.9 : 1
-  const tunicColor = characterId === "robin" ? 0x2f6337 : isMarian ? 0x4e5878 : isJohn ? 0x765332 : 0x6b5a39
-  const sleeveColor = characterId === "robin" ? 0x31593a : isMarian ? 0x68708b : isJohn ? 0x634328 : 0x7a6842
-  const hairColor = characterId === "robin" ? 0x4d2d1d : isMarian ? 0x4a2a1e : isJohn ? 0x553523 : 0x8a5b32
+  const pelvis = new THREE.Group()
+  pelvis.name = "RigPelvis"
+  const hipY = profile.upperLegLength + profile.lowerLegLength + profile.legRadius * 0.7
+  pelvis.position.y = hipY
+  bodyRoot.add(pelvis)
 
   const torso = new THREE.Group()
   torso.name = "RigTorso"
-  const chest = mesh("TunicChest", new THREE.BoxGeometry(0.76 * bodyScale, 1.02 * bodyScale, 0.56 * bodyScale), tunicColor)
-  chest.position.y = 1.3 * bodyScale
-  chest.scale.set(isJohn ? 1.18 : isMarian ? 0.92 : 1, 1, isJohn ? 1.08 : 1)
-  const skirt = mesh("TunicSkirt", new THREE.ConeGeometry(0.54 * bodyScale, 0.72 * bodyScale, 8, 1, true), tunicColor)
-  skirt.position.y = 0.88 * bodyScale
-  const undershirt = mesh("TunicCollar", new THREE.TorusGeometry(0.25 * bodyScale, 0.045, 6, 12), LINEN)
-  undershirt.position.set(0, 1.78 * bodyScale, 0)
-  undershirt.rotation.x = Math.PI / 2
-  const belt = mesh("LeatherBelt", new THREE.CylinderGeometry(0.45 * bodyScale, 0.45 * bodyScale, 0.13, 8), LEATHER)
-  belt.position.y = 1.05 * bodyScale
-  const buckle = mesh("BeltBuckle", new THREE.BoxGeometry(0.15, 0.13, 0.08), 0xb39755)
-  buckle.position.set(0, 1.05 * bodyScale, 0.46 * bodyScale)
-  const jerkin = mesh("TunicJerkin", new THREE.BoxGeometry(0.54 * bodyScale, 0.74 * bodyScale, 0.075), sleeveColor)
-  jerkin.position.set(0, 1.38 * bodyScale, 0.32 * bodyScale)
-  const hemLeft = mesh("TunicSplitHemLeft", new THREE.BoxGeometry(0.28 * bodyScale, 0.5 * bodyScale, 0.08), tunicColor)
-  hemLeft.position.set(-0.16 * bodyScale, 0.77 * bodyScale, 0.34 * bodyScale)
-  hemLeft.rotation.z = 0.08
-  const hemRight = hemLeft.clone()
-  hemRight.name = "TunicSplitHemRight"
-  hemRight.position.x = 0.16 * bodyScale
-  hemRight.rotation.z = -0.08
-  torso.add(chest, skirt, jerkin, hemLeft, hemRight, undershirt, belt, buckle)
-  root.add(torso)
+  pelvis.add(torso)
+  const chest = mesh("TunicChest", new THREE.CylinderGeometry(profile.shoulderWidth / 2, profile.waistWidth / 2, profile.torsoHeight, 6), profile.tunic)
+  chest.position.y = profile.torsoHeight / 2
+  chest.scale.z = profile.torsoDepth / profile.shoulderWidth
+  const belt = mesh("LeatherBelt", new THREE.CylinderGeometry(profile.waistWidth * 0.54, profile.waistWidth * 0.54, 0.12, 8), LEATHER)
+  belt.position.y = 0.08
+  belt.scale.z = profile.torsoDepth / profile.waistWidth
+  const buckle = mesh("BeltBuckle", new THREE.BoxGeometry(0.15, 0.13, 0.075), 0xb39755, { castShadow: false })
+  buckle.position.set(0, 0.08, profile.torsoDepth * 0.52)
+  const jerkin = mesh("TunicJerkin", new THREE.BoxGeometry(profile.waistWidth * 0.72, profile.torsoHeight * 0.64, 0.06), profile.sleeve)
+  jerkin.position.set(0, profile.torsoHeight * 0.56, profile.torsoDepth * 0.51)
+  const collar = mesh("TunicCollar", new THREE.TorusGeometry(profile.headRadius * 0.78, 0.042, 6, 12), LINEN, { castShadow: false })
+  collar.position.set(0, profile.torsoHeight, 0)
+  collar.rotation.x = Math.PI / 2
+  const neck = mesh("RigNeck", new THREE.CylinderGeometry(profile.headRadius * 0.34, profile.headRadius * 0.38, 0.18, 7), SKIN, { castShadow: false })
+  neck.position.y = profile.torsoHeight + 0.06
+  torso.add(chest, belt, buckle, jerkin, collar, neck)
+
+  for (const side of [-1, 1]) {
+    const front = mesh(`TunicFrontPanel${side < 0 ? "Left" : "Right"}`, new THREE.BoxGeometry(profile.waistWidth * 0.48, profile.skirtLength, 0.055), profile.tunic)
+    front.position.set(side * profile.waistWidth * 0.24, -profile.skirtLength * 0.38, profile.torsoDepth * 0.45)
+    front.rotation.z = side * -0.07
+    pelvis.add(front)
+  }
+  const backPanel = mesh("TunicBackPanel", new THREE.BoxGeometry(profile.waistWidth * 0.9, profile.skirtLength * 0.9, 0.055), profile.tunic)
+  backPanel.position.set(0, -profile.skirtLength * 0.34, -profile.torsoDepth * 0.43)
+  pelvis.add(backPanel)
+
+  const backSocket = new THREE.Group()
+  backSocket.name = "RigBackSocket"
+  backSocket.position.set(0, profile.torsoHeight * 0.55, -profile.torsoDepth * 0.48)
+  torso.add(backSocket)
 
   const head = new THREE.Group()
   head.name = "RigHead"
-  head.position.y = (isJohn ? 2.2 : isMuch ? 1.91 : 2.03)
-  const face = mesh("Face", new THREE.SphereGeometry(isJohn ? 0.34 : 0.295, 12, 8), SKIN)
-  face.scale.set(0.9, 1.12, 0.93)
+  head.position.y = profile.torsoHeight + profile.headRadius * 1.12
+  const face = mesh("Face", new THREE.SphereGeometry(profile.headRadius, 12, 8), SKIN)
+  face.scale.set(characterId === "little-john" ? 0.96 : 0.9, 1.1, 0.93)
   head.add(face)
-  addFace(head, mesh, 0x25302b, hairColor, isJohn)
-  root.add(head)
+  addFace(head, mesh, profile)
+  torso.add(head)
 
-  const shoulderY = isJohn ? 1.72 : isMuch ? 1.48 : 1.59
-  const shoulderX = isJohn ? 0.51 : isMarian ? 0.36 : 0.4
-  const upperArmLength = isJohn ? 0.48 : isMuch ? 0.38 : 0.42
-  const lowerArmLength = isJohn ? 0.46 : isMuch ? 0.36 : 0.4
-  const armRadius = isJohn ? 0.14 : isMuch ? 0.105 : 0.11
-  const leftArmRig = createArm("RigLeftArm", mesh, sleeveColor, upperArmLength, lowerArmLength, armRadius)
-  const leftArm = leftArmRig.upper
-  leftArm.position.set(-shoulderX, shoulderY, 0)
-  const rightArmRig = createArm("RigRightArm", mesh, sleeveColor, upperArmLength, lowerArmLength, armRadius)
-  const rightArm = rightArmRig.upper
-  rightArm.position.set(shoulderX, shoulderY, 0)
-  root.add(leftArm, rightArm)
+  const shoulderY = profile.torsoHeight * 0.82
+  const shoulderX = profile.shoulderWidth * 0.48
+  const leftArmRig = createArm("RigLeftArm", mesh, profile)
+  leftArmRig.upper.position.set(-shoulderX, shoulderY, 0)
+  const rightArmRig = createArm("RigRightArm", mesh, profile)
+  rightArmRig.upper.position.set(shoulderX, shoulderY, 0)
+  torso.add(leftArmRig.upper, rightArmRig.upper)
 
-  const hipY = isJohn ? 0.93 : isMuch ? 0.73 : 0.82
-  const upperLegLength = isJohn ? 0.5 : isMuch ? 0.36 : 0.42
-  const lowerLegLength = isJohn ? 0.46 : isMuch ? 0.35 : 0.4
-  const legRadius = isJohn ? 0.135 : isMuch ? 0.102 : 0.108
-  const leftLegRig = createLeg("RigLeftLeg", mesh, upperLegLength, lowerLegLength, legRadius)
-  const leftLeg = leftLegRig.upper
-  leftLeg.position.set(-(isJohn ? 0.23 : 0.19), hipY, 0)
-  const rightLegRig = createLeg("RigRightLeg", mesh, upperLegLength, lowerLegLength, legRadius)
-  const rightLeg = rightLegRig.upper
-  rightLeg.position.set(isJohn ? 0.23 : 0.19, hipY, 0)
-  root.add(leftLeg, rightLeg)
+  const leftLegRig = createLeg("RigLeftLeg", mesh, profile)
+  leftLegRig.upper.position.x = -profile.waistWidth * 0.28
+  const rightLegRig = createLeg("RigRightLeg", mesh, profile)
+  rightLegRig.upper.position.x = profile.waistWidth * 0.28
+  pelvis.add(leftLegRig.upper, rightLegRig.upper)
 
   const rig: CharacterRig = {
     characterId,
+    bodyRoot,
+    pelvis,
     torso,
     head,
-    leftArm,
-    rightArm,
+    leftArm: leftArmRig.upper,
+    rightArm: rightArmRig.upper,
     leftForearm: leftArmRig.lower,
     rightForearm: rightArmRig.lower,
     leftHand: leftArmRig.hand,
     rightHand: rightArmRig.hand,
-    leftLeg,
-    rightLeg,
+    leftLeg: leftLegRig.upper,
+    rightLeg: rightLegRig.upper,
     leftShin: leftLegRig.lower,
     rightShin: rightLegRig.lower,
-    bow: null,
-    cape: null,
-    staff: null,
-  }
-  if (!isJohn) {
-    const bowVariant: BowVariant = characterId === "robin" ? "longbow" : isMarian ? "recurve" : "shortbow"
-    const { bow, quiver } = createArcheryEquipment(bowVariant, isMuch ? 0.82 : isMarian ? 0.9 : 1)
-    bow.position.set(0, -0.04, 0.1)
-    bow.rotation.set(0, 0, Math.PI / 2)
-    leftArmRig.hand.add(bow)
-    quiver.position.set(0.27, 1.36, -0.26)
-    quiver.rotation.set(-0.18, 0, -0.2)
-    root.add(quiver)
-    rig.bow = bow
+    bow: new THREE.Group(),
+    quiver: new THREE.Group(),
+    capeHinge: null,
+    staffHand: null,
+    staffBack: null,
+    signatureProp: null,
+    volleyArrow: null,
+    groundOffset: 0,
   }
 
-  if (characterId === "robin") addRobinDetails(root, rig, mesh)
-  else if (isMarian) addMarianDetails(root, rig, mesh)
-  else if (isJohn) addLittleJohnDetails(root, rig, mesh)
-  else addMuchDetails(root, rig, mesh)
+  const bowVariant: BowVariant = characterId === "robin" ? "longbow" : characterId === "marian" ? "recurve" : "shortbow"
+  const equipmentScale = characterId === "much" ? 0.82 : characterId === "marian" ? 0.9 : characterId === "little-john" ? 1.02 : 1
+  const { bow, quiver } = createArcheryEquipment(bowVariant, equipmentScale)
+  bow.position.set(0, -0.04, 0.1)
+  // The rig faces +Z; rotating the bow this way keeps its arrowhead aimed forward.
+  bow.rotation.set(0, 0, -Math.PI / 2)
+  leftArmRig.hand.add(bow)
+  quiver.position.set(0.2, 0, -0.06)
+  quiver.rotation.set(-0.18, 0, -0.2)
+  backSocket.add(quiver)
+  rig.bow = bow
+  rig.quiver = quiver
+
+  if (characterId === "robin") addRobinDetails(rig, mesh)
+  else if (characterId === "marian") addMarianDetails(rig, mesh)
+  else if (characterId === "little-john") addLittleJohnDetails(rig, mesh)
+  else addMuchDetails(rig, mesh)
 
   root.userData.rig = rig
   root.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return
-    child.castShadow = true
-    child.receiveShadow = true
-    child.frustumCulled = true
+    if (child instanceof THREE.Mesh) child.frustumCulled = true
   })
+  const neutralBounds = visibleBounds(root)
+  rig.groundOffset = neutralBounds.isEmpty() ? 0 : -neutralBounds.min.y
+  bodyRoot.position.y = rig.groundOffset
+  root.updateMatrixWorld(true)
   return root
+}
+
+function applyRotation(object: THREE.Object3D, value: JointRotation): void {
+  object.rotation.set(value.x, value.y, value.z)
 }
 
 export function poseHeroCharacter(root: THREE.Group, pose: CharacterPose): void {
   const rig = root.userData.rig as CharacterRig | undefined
   if (!rig) return
-  const motionScale = pose.motionScale ?? 1
-  const action = pose.action ?? "idle"
-  const cadence = rig.characterId === "little-john" ? 8.2 : rig.characterId === "marian" ? 11.5 : rig.characterId === "much" ? 10.8 : 10
-  const stride = rig.characterId === "little-john" ? 0.48 : rig.characterId === "marian" ? 0.68 : rig.characterId === "much" ? 0.58 : 0.62
-  const walk = pose.moving && !pose.downed ? Math.sin(pose.elapsed * cadence) * stride * motionScale : 0
-  const breathe = Math.sin(pose.elapsed * 2.6) * 0.025 * motionScale
-  const leftStep = Math.max(0, -walk)
-  const rightStep = Math.max(0, walk)
-  const isBowAction = action !== "idle" && rig.characterId !== "little-john"
-  const isStaffAction = action !== "idle" && rig.characterId === "little-john"
+  const sample = sampleHeroAnimation({
+    characterId: rig.characterId,
+    elapsed: pose.elapsed,
+    moving: pose.moving,
+    action: pose.action,
+    actionProgress: pose.actionProgress,
+    downed: pose.downed,
+    motionScale: pose.motionScale,
+  })
+  rig.bodyRoot.position.y = rig.groundOffset + sample.bodyY
+  applyRotation(rig.bodyRoot, sample.body)
+  applyRotation(rig.pelvis, sample.pelvis)
+  applyRotation(rig.torso, sample.torso)
+  applyRotation(rig.head, sample.head)
+  applyRotation(rig.leftArm, sample.leftArm)
+  applyRotation(rig.rightArm, sample.rightArm)
+  applyRotation(rig.leftForearm, sample.leftForearm)
+  applyRotation(rig.rightForearm, sample.rightForearm)
+  applyRotation(rig.leftLeg, sample.leftLeg)
+  applyRotation(rig.rightLeg, sample.rightLeg)
+  applyRotation(rig.leftShin, sample.leftShin)
+  applyRotation(rig.rightShin, sample.rightShin)
+  if (rig.capeHinge) rig.capeHinge.rotation.set(sample.capePitch, 0, sample.capeRoll)
+  rig.bow.visible = sample.showBow
+  setBowDraw(rig.bow, sample.bowDraw, sample.showBow && sample.bowDraw > 0.04)
+  if (rig.staffHand) rig.staffHand.visible = sample.showHandStaff
+  if (rig.staffBack) rig.staffBack.visible = sample.showBackStaff
+  if (rig.signatureProp) rig.signatureProp.visible = sample.showSignatureProp
+  if (rig.volleyArrow) rig.volleyArrow.visible = sample.showVolleyArrow
+}
 
-  rig.leftLeg.rotation.x = walk
-  rig.rightLeg.rotation.x = -walk
-  rig.leftShin.rotation.x = leftStep * 0.72
-  rig.rightShin.rotation.x = rightStep * 0.72
-  rig.leftArm.rotation.x = isBowAction ? -1.48 : isStaffAction ? -1.05 : -walk * 0.62
-  rig.rightArm.rotation.x = isBowAction ? -1.25 : isStaffAction ? -0.92 : walk * 0.62
-  rig.leftArm.rotation.z = isBowAction ? 0.22 : isStaffAction ? 0.38 : 0.08
-  rig.rightArm.rotation.z = isBowAction ? -0.72 : isStaffAction ? -0.34 : -0.08
-  rig.leftArm.rotation.y = isBowAction ? 0.08 : isStaffAction ? -0.28 : 0
-  rig.rightArm.rotation.y = isBowAction ? -0.58 : isStaffAction ? 0.35 : 0
-  rig.leftForearm.rotation.x = isBowAction ? -0.15 : isStaffAction ? -0.62 : Math.max(0, walk) * 0.18
-  rig.rightForearm.rotation.x = isBowAction ? -1.15 : isStaffAction ? -0.78 : Math.max(0, -walk) * 0.18
-  rig.rightForearm.rotation.z = isBowAction ? -0.32 : 0
-  rig.torso.position.y = Math.abs(walk) * 0.022 + breathe
-  rig.torso.rotation.z = pose.moving ? walk * (rig.characterId === "much" ? 0.065 : 0.035) : 0
-  rig.torso.rotation.x = rig.characterId === "much" ? 0.08 : rig.characterId === "little-john" ? -0.035 : 0
-  if (isStaffAction) rig.torso.rotation.y = Math.sin(pose.elapsed * 13) * 0.42
-  else rig.torso.rotation.y = pose.moving ? walk * 0.1 : 0
-  rig.head.rotation.y = isBowAction ? 0.12 : -rig.torso.rotation.y * 0.65 + Math.sin(pose.elapsed * 0.85) * 0.045 * motionScale
-  rig.head.rotation.z = pose.moving ? -walk * 0.025 : 0
-  if (rig.bow) {
-    rig.bow.rotation.x = isBowAction ? 0.12 : 0
-    rig.bow.rotation.y = isBowAction ? -0.18 : 0
-  }
-  if (rig.staff) rig.staff.rotation.z = isStaffAction ? Math.sin(pose.elapsed * 13) * 0.52 : -0.08
-  if (rig.cape) {
-    rig.cape.rotation.x = -0.1 - Math.abs(walk) * 0.11
-    rig.cape.rotation.z = pose.moving ? -walk * 0.025 : Math.sin(pose.elapsed * 1.8) * 0.012 * motionScale
-  }
+/** Releases the procedural hero's owned geometry and materials exactly once. */
+export function disposeHeroCharacter(root: THREE.Group): void {
+  if (root.userData.heroResourcesDisposed === true) return
+  root.userData.heroResourcesDisposed = true
+  const geometries = new Set<THREE.BufferGeometry>()
+  const materials = new Set<THREE.Material>()
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return
+    geometries.add(object.geometry)
+    const meshMaterials = Array.isArray(object.material) ? object.material : [object.material]
+    meshMaterials.forEach((material) => materials.add(material))
+  })
+  geometries.forEach((geometry) => geometry.dispose())
+  materials.forEach((material) => material.dispose())
 }

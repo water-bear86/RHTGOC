@@ -34,9 +34,17 @@
         <ul id="mission-party-list"></ul>
       </aside>
       <aside class="region-map hidden" id="region-map" aria-label="Sherwood map">
-        <span>SHERWOOD MAP <b id="region-map-count">1/25</b></span>
+        <span class="region-map-heading">
+          <b class="region-map-title">SHERWOOD MAP</b>
+          <i class="region-map-north" aria-label="Map north">N↑</i>
+          <b id="region-map-count">1/25</b>
+        </span>
         <div class="region-map-grid" id="region-map-grid" role="img" aria-label="One of 25 regions explored"></div>
-        <small>FOG CLEARS ONLY WHERE YOU HAVE TRAVELLED</small>
+        <small class="region-map-legend" aria-label="Map legend: you, search area, target">
+          <span><i class="region-map-legend-you" aria-hidden="true">▲</i>YOU</span>
+          <span><i class="region-map-legend-search" aria-hidden="true">?</i>SEARCH</span>
+          <span><i class="region-map-legend-target" aria-hidden="true">◆</i>TARGET</span>
+        </small>
       </aside>
       <button class="help-button" id="help-button" aria-label="Open controls">?</button>
       <button class="leaderboard-button" id="leaderboard-button" aria-label="Open leaderboard">♜</button>

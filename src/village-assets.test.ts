@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import * as THREE from "three"
 import {
   VILLAGE_COTTAGE_DRAW_CALL_BUDGET,
@@ -6,7 +6,9 @@ import {
   cloneVillageModule,
   countVillageDrawCalls,
   createVillageCottage,
+  createVillageCottageBatch,
   createVillageWagonShell,
+  disposeVillageCottageBatch,
   indexVillageModules,
   type VillageCottageRole,
   type VillageModuleName,
@@ -46,7 +48,9 @@ function syntheticCatalog(): SyntheticCatalog {
     root.position.set(0.01, 0.02, 0.03)
     root.userData = { sourceMarker: name }
     for (let draw = 0; draw < MODULE_DRAWS[name]; draw += 1) {
-      root.add(new THREE.Mesh(geometry, material))
+      const child = new THREE.Mesh(geometry, material)
+      child.name = `${name}:mesh:${draw}`
+      root.add(child)
     }
     scene.add(root)
   }
@@ -192,6 +196,68 @@ describe("village runtime composition", () => {
 
     expect(countVillageDrawCalls(cottage)).toBe(21)
     expect(countVillageDrawCalls(cottage)).toBeLessThanOrEqual(VILLAGE_COTTAGE_DRAW_CALL_BUDGET)
+  })
+
+  it("batches many authored cottages by source primitive at constant draw cost", () => {
+    const { scene, geometry, material } = syntheticCatalog()
+    const cottage = createVillageCottage(scene)
+    const batch = createVillageCottageBatch(scene, [
+      { id: "greenwood-a", position: { x: -8, y: 0, z: 2 }, rotation: 0.2 },
+      { id: "greenwood-b", position: { x: 1, y: 0.5, z: -4 }, rotation: -0.4 },
+      { id: "greenwood-c", position: { x: 9, y: 1, z: 6 }, rotation: 1.1 },
+    ])
+
+    expect(batch.userData.sherwoodVillageCottageCount).toBe(3)
+    expect(countVillageDrawCalls(batch)).toBe(17)
+    expect(countVillageDrawCalls(batch)).toBeLessThan(countVillageDrawCalls(cottage))
+    const instances = batch.children.filter((child): child is THREE.InstancedMesh => child instanceof THREE.InstancedMesh)
+    expect(instances).toHaveLength(17)
+    expect(instances.reduce((sum, instance) => sum + instance.count, 0)).toBe(63)
+    expect(instances.every((instance) => instance.geometry === geometry)).toBe(true)
+    expect(instances.every((instance) => instance.material === material)).toBe(true)
+  })
+
+  it("deterministically mirrors authored front facades without negative instance scales", () => {
+    const { scene } = syntheticCatalog()
+    const batch = createVillageCottageBatch(scene, [
+      { id: "cottage-a", position: { x: 0, y: 0, z: 0 }, rotation: 0 },
+      { id: "cottage-b", position: { x: 0, y: 0, z: 0 }, rotation: 0 },
+    ])
+    const doorWall = batch.children.find((child) => (
+      child.userData.sherwoodVillageSourceMesh === "Wall_Plaster_Door_Round:mesh:0"
+    ))
+    expect(doorWall).toBeInstanceOf(THREE.InstancedMesh)
+    const left = new THREE.Matrix4()
+    const right = new THREE.Matrix4()
+    ;(doorWall as THREE.InstancedMesh).getMatrixAt(0, left)
+    ;(doorWall as THREE.InstancedMesh).getMatrixAt(1, right)
+    const leftX = new THREE.Vector3().setFromMatrixPosition(left).x
+    const rightX = new THREE.Vector3().setFromMatrixPosition(right).x
+    expect(leftX).toBeLessThan(0)
+    expect(rightX).toBeGreaterThan(0)
+    // The authored module's own +X root offset remains intact rather than
+    // negatively scaling its geometry; only its facade placement is mirrored.
+    expect(Math.abs(Math.abs(leftX) - Math.abs(rightX))).toBeLessThan(0.03)
+    expect(left.determinant()).toBeGreaterThan(0)
+    expect(right.determinant()).toBeGreaterThan(0)
+  })
+
+  it("disposes only cottage-batch instance buffers", () => {
+    const { scene, geometry, material } = syntheticCatalog()
+    const geometryDispose = vi.spyOn(geometry, "dispose")
+    const materialDispose = vi.spyOn(material, "dispose")
+    const batch = createVillageCottageBatch(scene, [
+      { id: "dispose-cottage", position: { x: 0, y: 0, z: 0 }, rotation: 0 },
+    ])
+    const firstInstance = batch.children.find((child): child is THREE.InstancedMesh => child instanceof THREE.InstancedMesh)!
+    const disposed = vi.fn()
+    firstInstance.addEventListener("dispose", disposed)
+
+    disposeVillageCottageBatch(batch)
+
+    expect(disposed).toHaveBeenCalledOnce()
+    expect(geometryDispose).not.toHaveBeenCalled()
+    expect(materialDispose).not.toHaveBeenCalled()
   })
 
   it("counts Three.js double-sided transparent passes unless single-pass is explicit", () => {

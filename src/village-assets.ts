@@ -25,6 +25,17 @@ export type VillageModuleCatalog = Readonly<Record<VillageModuleName, THREE.Obje
 
 export const VILLAGE_COTTAGE_DRAW_CALL_BUDGET = 24
 
+export interface VillageCottageInstance {
+  id: string
+  position: Readonly<{ x: number; y: number; z: number }>
+  rotation: number
+  scale?: Readonly<{ x: number; y: number; z: number }>
+}
+
+export interface VillageCottageBatchOptions {
+  castShadow?: boolean
+}
+
 export type VillageCottageRole =
   | "roof"
   | "front-door-wall"
@@ -209,6 +220,123 @@ export function countVillageDrawCalls(root: THREE.Object3D): number {
   }
 
   return count(root)
+}
+
+interface VillageMeshBucket {
+  source: THREE.Mesh
+  matrices: THREE.Matrix4[]
+}
+
+function cottageVariant(id: string): number {
+  let hash = 2166136261
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+function placementMatrix(spec: PlacementSpec, mirrored = false): THREE.Matrix4 {
+  const mirrorFacade = mirrored && [
+    "front-door-wall", "front-window-wall", "door", "window", "steps", "vine",
+  ].includes(spec.role)
+  return new THREE.Matrix4().compose(
+    new THREE.Vector3(mirrorFacade ? -spec.position[0] : spec.position[0], spec.position[1], spec.position[2]),
+    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), spec.rotationY ?? 0),
+    new THREE.Vector3(...(spec.scale ?? [1, 1, 1])),
+  )
+}
+
+function cottageMatrix(cottage: VillageCottageInstance): THREE.Matrix4 {
+  const scale = cottage.scale ?? { x: 1, y: 1, z: 1 }
+  return new THREE.Matrix4().compose(
+    new THREE.Vector3(cottage.position.x, cottage.position.y, cottage.position.z),
+    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), cottage.rotation),
+    new THREE.Vector3(scale.x, scale.y, scale.z),
+  )
+}
+
+/**
+ * Instances every authored cottage module by source primitive. The number of
+ * render submissions therefore remains constant as cottage count grows, while
+ * geometry, materials, and textures stay owned by the loaded catalog.
+ */
+export function createVillageCottageBatch(
+  source: THREE.Object3D,
+  cottages: readonly VillageCottageInstance[],
+  options: VillageCottageBatchOptions = {},
+): THREE.Group {
+  const catalog = indexVillageModules(source)
+  source.updateMatrixWorld(true)
+  const buckets = new Map<THREE.Mesh, VillageMeshBucket>()
+
+  for (const spec of COTTAGE_PLACEMENTS) {
+    const module = catalog[spec.module]
+    const parentInverse = module.parent?.matrixWorld.clone().invert() ?? new THREE.Matrix4()
+    module.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return
+      const relativeMeshMatrix = parentInverse.clone().multiply(object.matrixWorld)
+      let bucket = buckets.get(object)
+      if (!bucket) {
+        bucket = { source: object, matrices: [] }
+        buckets.set(object, bucket)
+      }
+      for (const cottage of cottages) {
+        const mirrored = (cottageVariant(cottage.id) & 1) !== 0
+        bucket.matrices.push(cottageMatrix(cottage).multiply(placementMatrix(spec, mirrored)).multiply(relativeMeshMatrix))
+      }
+    })
+  }
+
+  const group = new THREE.Group()
+  group.name = "SherwoodVillageCottageBatch"
+  group.userData = {
+    sherwoodVillageKind: "cottage-batch",
+    sherwoodVillageCottageCount: cottages.length,
+    sherwoodVillageCottageIds: cottages.map((cottage) => cottage.id),
+    sherwoodSharedResources: true,
+  }
+  const castShadow = options.castShadow ?? true
+  let batchIndex = 0
+  for (const bucket of buckets.values()) {
+    if (bucket.matrices.length === 0) continue
+    const instances = new THREE.InstancedMesh(
+      bucket.source.geometry,
+      bucket.source.material,
+      bucket.matrices.length,
+    )
+    instances.name = `VillageCottageInstances:${bucket.source.name || ++batchIndex}`
+    instances.userData = {
+      sherwoodVillageKind: "cottage-instances",
+      sherwoodVillageSourceMesh: bucket.source.name,
+      sherwoodOwnedInstanceBuffer: true,
+    }
+    instances.castShadow = castShadow
+    instances.receiveShadow = true
+    bucket.matrices.forEach((matrix, index) => instances.setMatrixAt(index, matrix))
+    instances.instanceMatrix.needsUpdate = true
+    instances.computeBoundingBox()
+    instances.computeBoundingSphere()
+    group.add(instances)
+  }
+  const drawCalls = countVillageDrawCalls(group)
+  if (drawCalls > VILLAGE_COTTAGE_DRAW_CALL_BUDGET) {
+    for (const child of group.children) {
+      if (child instanceof THREE.InstancedMesh) child.dispose()
+    }
+    throw new Error(
+      `Village cottage batch uses ${drawCalls} draw calls; budget is ${VILLAGE_COTTAGE_DRAW_CALL_BUDGET}`,
+    )
+  }
+  group.userData.sherwoodVillageDrawCalls = drawCalls
+  return group
+}
+
+/** Releases only batch-owned instance buffers; catalog resources stay shared. */
+export function disposeVillageCottageBatch(root: THREE.Object3D): void {
+  root.traverse((object) => {
+    if (object instanceof THREE.InstancedMesh && object.userData.sherwoodOwnedInstanceBuffer === true) object.dispose()
+  })
 }
 
 /** Builds the one-off LOD0 cottage used to replace a procedural village hut. */

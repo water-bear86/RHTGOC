@@ -1,5 +1,6 @@
 import * as THREE from "three"
 import type { RegionalMissionLayout } from "../shared/regional-layout"
+import { createStylizedBuildingVisual, disposeStylizedBuildingVisuals } from "./building-visuals"
 import { createToonMaterial } from "./toon-materials"
 import { sherwoodHeightAt } from "./sherwood-terrain"
 
@@ -8,6 +9,7 @@ export interface SherwoodLandmarks {
   windmillRotor: THREE.Group
   farmPosition: Readonly<{ x: number; z: number }>
   wheatCount: number
+  dispose(): void
 }
 
 const materialCache = new Map<number, THREE.MeshToonMaterial>()
@@ -121,17 +123,13 @@ function createWindmill(): { group: THREE.Group; rotor: THREE.Group } {
 }
 
 function createFarmhouse(): THREE.Group {
-  const house = new THREE.Group()
-  house.name = "FarmhouseLandmark"
-  const walls = mesh("FarmhouseWalls", new THREE.BoxGeometry(4.7, 2.35, 3.5), 0xc9b17f)
-  walls.position.y = 1.18
-  const beams = mesh("FarmhouseCrossbeam", new THREE.BoxGeometry(4.9, 0.2, 0.18), 0x583d28)
-  beams.position.set(0, 1.55, 1.82)
-  const roof = mesh("FarmhouseRoof", new THREE.ConeGeometry(3.65, 2.1, 4), 0x6a402c)
-  roof.position.y = 3.25
-  roof.rotation.y = Math.PI / 4
-  house.add(walls, beams, roof)
-  return house
+  return createStylizedBuildingVisual({
+    id: "FarmhouseLandmark",
+    kind: "farmhouse",
+    palette: "farm",
+    width: 4.7,
+    depth: 3.5,
+  })
 }
 
 export function createSherwoodLandmarks(layout: RegionalMissionLayout): SherwoodLandmarks {
@@ -183,5 +181,26 @@ export function createSherwoodLandmarks(layout: RegionalMissionLayout): Sherwood
     logging.add(log)
   }
   group.add(logging)
-  return { group, windmillRotor: rotor, farmPosition, wheatCount }
+  let disposed = false
+  return {
+    group,
+    windmillRotor: rotor,
+    farmPosition,
+    wheatCount,
+    dispose: () => {
+      if (disposed) return
+      disposed = true
+      disposeStylizedBuildingVisuals(farmhouse)
+
+      const farmhouseObjects = new Set<THREE.Object3D>()
+      farmhouse.traverse((object) => farmhouseObjects.add(object))
+      const ownedGeometries = new Set<THREE.BufferGeometry>()
+      group.traverse((object) => {
+        if (!(object instanceof THREE.Mesh) || farmhouseObjects.has(object)) return
+        ownedGeometries.add(object.geometry)
+        if (object instanceof THREE.InstancedMesh) object.dispose()
+      })
+      ownedGeometries.forEach((geometry) => geometry.dispose())
+    },
+  }
 }

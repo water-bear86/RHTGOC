@@ -1,10 +1,20 @@
 import { describe, expect, it } from "vitest"
-import { regionalizeMissionDefinition, stableSeed } from "../shared/regional-layout"
+import { regionalizeMissionDefinition, sherwoodRegionCells, stableSeed } from "../shared/regional-layout"
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } from "./region-map"
 
 describe("region map fog of war", () => {
   const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, stableSeed("map-test")).layout
+  const regionCells = sherwoodRegionCells()
+  const objectiveCorner = regionCells[0]
+  const playerCorner = regionCells[24]
+  const cornerLayout = {
+    ...layout,
+    campfireCell: playerCorner,
+    campfirePosition: playerCorner.center,
+    objectiveCell: objectiveCorner,
+    objectivePosition: objectiveCorner.center,
+  }
 
   it("renders all 25 cells while keeping unexplored cells fogged", () => {
     const cells = buildRegionMapCells(layout, [], layout.campfirePosition, false)
@@ -31,10 +41,30 @@ describe("region map fog of war", () => {
   })
 
   it("narrows the Sheriff activity area as search pressure rises", () => {
-    const broad = buildRegionMapCells(layout, [], layout.campfirePosition, false, 0)
-    const narrow = buildRegionMapCells(layout, [], layout.campfirePosition, false, 2)
-    expect(narrow.filter((cell) => cell.activity)).toHaveLength(1)
-    expect(narrow.filter((cell) => cell.activity).length).toBeLessThan(broad.filter((cell) => cell.activity).length)
+    const activityIndices = (pressure: number) => buildRegionMapCells(cornerLayout, [], playerCorner.center, false, pressure)
+      .filter((cell) => cell.activity)
+      .map((cell) => cell.index)
+
+    expect(activityIndices(0)).toEqual([0, 1, 2, 5, 6, 10])
+    expect(activityIndices(1)).toEqual([0, 1, 5])
+    expect(activityIndices(2)).toEqual([0])
+  })
+
+  it("keeps corner search candidates fogged until they are explored", () => {
+    const cells = buildRegionMapCells(cornerLayout, [], playerCorner.center, false, 0)
+    const activityCells = cells.filter((cell) => cell.activity)
+
+    expect(activityCells).toHaveLength(6)
+    expect(activityCells.every((cell) => !cell.explored)).toBe(true)
+    expect(activityCells.every((cell) => regionMapCellClassName(cell).includes("region-map-cell--fogged"))).toBe(true)
+    expect(cells[playerCorner.index]).toMatchObject({ explored: true, current: true, activity: false })
+  })
+
+  it("replaces every search candidate with one target marker after discovery", () => {
+    const cells = buildRegionMapCells(cornerLayout, [], playerCorner.center, true, 0)
+
+    expect(cells.every((cell) => !cell.activity)).toBe(true)
+    expect(cells.filter((cell) => cell.objective).map((cell) => cell.index)).toEqual([objectiveCorner.index])
   })
 
   it("uses component-scoped class names for every rendered map state", () => {

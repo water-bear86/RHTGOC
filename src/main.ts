@@ -53,7 +53,8 @@ import { SHERWOOD_GUARD_SEPARATION, activeGuardPositions } from "../shared/guard
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
 import { createArcheryEquipment } from "./archery-equipment"
-import { createHeroCharacter, poseHeroCharacter, type HeroAction } from "./character-visuals"
+import { createHeroCharacter, disposeHeroCharacter, poseHeroCharacter, type HeroAction } from "./character-visuals"
+import { HERO_ACTION_DURATIONS, normalizedHeroActionProgress } from "./character-animation"
 import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { syncGuardViewCount } from "./guard-view-pool"
 import { sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
@@ -63,11 +64,13 @@ import { createSherwoodLandmarks, type SherwoodLandmarks } from "./world-landmar
 import { composeSherwoodWorld } from "../shared/world-composer"
 import { createSherwoodTerrain, sherwoodHeightAt } from "./sherwood-terrain"
 import { createProceduralRoads } from "./procedural-roads"
-import { createSettlementWorld } from "./settlement-renderer"
+import { createSettlementWorld, disposeSettlementWorld } from "./settlement-renderer"
 import { animateObjectiveMarker, createObjectiveMarker, setObjectiveMarkerLabel } from "./objective-marker"
-import { computeObjectivePointer } from "./objective-guidance"
+import { computeObjectivePointer, shouldShowMissionCampfireHalo } from "./objective-guidance"
 import { missionObjectivePosition } from "../shared/mission-objective"
 import { selectRegionalMissionLayout, synchronizeMissionGuards } from "./mission-snapshot-state"
+import { createCampfireVisuals } from "./campfire-visuals"
+import { createStylizedBuildingVisual } from "./building-visuals"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -318,7 +321,10 @@ interface RemoteView {
   characterId: CharacterId
   downedFor: number
   action: HeroAction
+  actionStartedAt: number
   actionUntil: number
+  lastArrows: number
+  lastSignatureCooldown: number
 }
 
 const remoteViews = new Map<string, RemoteView>()
@@ -348,9 +354,13 @@ const water = createSherwoodWater(7, 138)
 const crossingInfrastructure = new THREE.Group()
 const bowCacheInfrastructure = new THREE.Group()
 const missionCampfireView = new THREE.Group()
+const missionCampfire = createCampfireVisuals({ degraded: renderProfile.tier === "degraded" })
+let missionCampfireHalo: THREE.Mesh | null = null
 let windmillRotor: THREE.Group | null = null
 let landmarkViews: SherwoodLandmarks | null = null
 let composedWorldView: THREE.Group | null = null
+let composedRoadView: THREE.Group | null = null
+let settlementWorldView: THREE.Group | null = null
 let composedWorldLayoutKey = ""
 let terrainView: THREE.Mesh | null = null
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
@@ -358,6 +368,7 @@ const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let treeCatalogAssetPromise: Promise<THREE.Group> | null = null
 let villageAssetPromise: Promise<THREE.Group> | null = null
+let villageCatalogSource: THREE.Group | null = null
 let medievalPropsPromise: Promise<THREE.Group> | null = null
 let treasureChestPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
 let bowCacheLoadGeneration = 0
@@ -368,6 +379,49 @@ let proceduralWagonShellView: THREE.Group | null = null
 let villageWagonShellView: THREE.Group | null = null
 let heroAttackUntil = 0
 let heroSignatureUntil = 0
+let heroAttackStartedAt = 0
+let heroSignatureStartedAt = 0
+
+function beginLocalHeroAction(action: Exclude<HeroAction, "idle">): void {
+  const now = clock.elapsedTime
+  if (action === "attack") {
+    heroAttackStartedAt = now
+    heroAttackUntil = now + HERO_ACTION_DURATIONS.attack
+    return
+  }
+  heroSignatureStartedAt = now
+  heroSignatureUntil = now + HERO_ACTION_DURATIONS.signature
+}
+
+function beginRemoteHeroAction(remote: RemoteView, action: Exclude<HeroAction, "idle">): void {
+  const now = clock.elapsedTime
+  remote.action = action
+  remote.actionStartedAt = now
+  remote.actionUntil = now + HERO_ACTION_DURATIONS[action]
+}
+
+function ensureRemoteHeroAction(remote: RemoteView, action: Exclude<HeroAction, "idle">): void {
+  if (remote.action === action && clock.elapsedTime < remote.actionUntil) return
+  beginRemoteHeroAction(remote, action)
+}
+
+function resetLocalHeroActions(): void {
+  heroAttackStartedAt = 0
+  heroAttackUntil = 0
+  heroSignatureStartedAt = 0
+  heroSignatureUntil = 0
+}
+
+function resetMissionRuntimeState(): void {
+  latestMissionSnapshot = null
+  lastMissionEventSequence = 0
+  localDownedFor = 0
+  for (const remote of remoteViews.values()) {
+    remote.action = "idle"
+    remote.actionStartedAt = 0
+    remote.actionUntil = 0
+  }
+}
 
 const palette = {
   grass: 0x506e40,
@@ -451,20 +505,22 @@ function createFallbackTree(x: number, z: number, scale = 1): THREE.Group {
 }
 
 function createHut(x: number, z: number, rotation = 0): THREE.Group {
-  const hut = new THREE.Group()
+  const hut = createStylizedBuildingVisual({
+    id: `CampCottage:${x}:${z}`,
+    kind: "cottage",
+    palette: "village",
+    width: 3.2,
+    depth: 2.6,
+  }, { castShadow: renderProfile.shadows })
   hut.position.set(x, sherwoodHeightAt(x, z), z)
   hut.rotation.y = rotation
-  const walls = mesh(new THREE.BoxGeometry(3.2, 1.9, 2.6), 0xc5aa74)
-  walls.position.y = 0.95
-  const roof = mesh(new THREE.ConeGeometry(2.65, 1.6, 4), 0x6d4931)
-  roof.position.y = 2.4
-  roof.rotation.y = Math.PI / 4
-  const door = mesh(new THREE.BoxGeometry(0.7, 1.25, 0.08), 0x4e3628)
-  door.position.set(0, 0.65, 1.34)
-  hut.add(walls, roof, door)
   scene.add(hut)
   cameraOccluders.push({ view: hut, radius: 2.2 })
   return hut
+}
+
+function positionMissionCampfire(anchor: Vec2): void {
+  missionCampfireView.position.set(anchor.x, sherwoodHeightAt(anchor.x, anchor.z), anchor.z)
 }
 
 function createWorld(): void {
@@ -484,17 +540,13 @@ function createWorld(): void {
   villageCottageFallback = createHut(-10, 14, -0.55)
   createHut(-15, 6, 1.1)
   const villageCircle = mesh(new THREE.TorusGeometry(2.35, 0.08, 6, 48), palette.gold, { cast: false })
+  villageCircle.name = "MissionCampfireHalo"
   villageCircle.position.set(0, 0.06, 0)
   villageCircle.rotation.x = Math.PI / 2
-  missionCampfireView.add(villageCircle)
-
-  const fireLight = new THREE.PointLight(0xf39a43, 4, 14, 2)
-  fireLight.position.set(0, 1.2, 0)
-  missionCampfireView.add(fireLight)
-  const fire = mesh(new THREE.ConeGeometry(0.35, 1, 6), 0xe88032)
-  fire.position.set(0, 0.5, 0)
-  missionCampfireView.add(fire)
-  missionCampfireView.position.set(state.layout.campfirePosition.x, sherwoodHeightAt(state.layout.campfirePosition.x, state.layout.campfirePosition.z), state.layout.campfirePosition.z)
+  villageCircle.visible = false
+  missionCampfireHalo = villageCircle
+  missionCampfireView.add(villageCircle, missionCampfire.group)
+  positionMissionCampfire(state.layout.campfirePosition)
   scene.add(missionCampfireView)
 
   let seed = 7331
@@ -521,22 +573,52 @@ function createWorld(): void {
 }
 
 function rebuildLandmarks(layout: RegionalMissionLayout): void {
-  if (landmarkViews) scene.remove(landmarkViews.group)
+  if (landmarkViews) {
+    landmarkViews.dispose()
+    scene.remove(landmarkViews.group)
+  }
   landmarkViews = createSherwoodLandmarks(layout)
   windmillRotor = landmarkViews.windmillRotor
   scene.add(landmarkViews.group)
 }
 
-function rebuildComposedWorld(layout: RegionalMissionLayout): void {
-  const key = [layout.campfireCell.index, layout.objectiveCell.index, ...layout.crossingPositions.flatMap((point) => [point.x.toFixed(2), point.z.toFixed(2)])].join(":")
-  if (key === composedWorldLayoutKey) return
-  composedWorldLayoutKey = key
-  if (composedWorldView) scene.remove(composedWorldView)
+function disposeOwnedMeshResources(view: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>()
+  view.traverse((object) => {
+    if (object instanceof THREE.Mesh) geometries.add(object.geometry)
+  })
+  geometries.forEach((geometry) => geometry.dispose())
+  disposeObjectInstanceMaterials(view)
+}
+
+function rebuildComposedWorld(layout: RegionalMissionLayout, force = false): void {
+  const pointKey = (point: Vec2): string => `${point.x}:${point.z}`
+  const key = [layout.campfirePosition, layout.objectivePosition, ...layout.crossingPositions].map(pointKey).join("|")
+  if (!force && key === composedWorldLayoutKey) return
   const composed = composeSherwoodWorld(layout)
-  composedWorldView = new THREE.Group()
-  composedWorldView.name = "ComposedSherwoodWorld"
-  composedWorldView.add(createProceduralRoads(composed.roads), createSettlementWorld(composed))
-  scene.add(composedWorldView)
+  const nextRoadView = createProceduralRoads(composed.roads)
+  let nextSettlementView: THREE.Group
+  try {
+    nextSettlementView = createSettlementWorld(composed, {
+      villageCatalog: villageCatalogSource ?? undefined,
+      castShadow: renderProfile.shadows,
+    })
+  } catch (error) {
+    disposeOwnedMeshResources(nextRoadView)
+    throw error
+  }
+  const nextWorldView = new THREE.Group()
+  nextWorldView.name = "ComposedSherwoodWorld"
+  nextWorldView.add(nextRoadView, nextSettlementView)
+
+  if (composedWorldView) scene.remove(composedWorldView)
+  if (settlementWorldView) disposeSettlementWorld(settlementWorldView)
+  if (composedRoadView) disposeOwnedMeshResources(composedRoadView)
+  composedWorldLayoutKey = key
+  composedWorldView = nextWorldView
+  composedRoadView = nextRoadView
+  settlementWorldView = nextSettlementView
+  scene.add(nextWorldView)
 }
 
 function addRoadSegment(start: { x: number; z: number }, end: { x: number; z: number }): void {
@@ -552,6 +634,7 @@ function addRoadSegment(start: { x: number; z: number }, end: { x: number; z: nu
 }
 
 function rebuildCrossingInfrastructure(layout: RegionalMissionLayout): void {
+  disposeOwnedMeshResources(crossingInfrastructure)
   crossingInfrastructure.clear()
   const riverNormal = { x: Math.cos(0.1), z: Math.sin(0.1) }
   for (const crossing of layout.crossingPositions) {
@@ -574,12 +657,25 @@ function rebuildCrossingInfrastructure(layout: RegionalMissionLayout): void {
   }
 }
 
+function clearBowCacheInfrastructure(): void {
+  for (const animation of bowCacheAnimations) {
+    animation.mixer.stopAllAction()
+    animation.mixer.uncacheRoot(animation.view)
+  }
+  bowCacheAnimations.length = 0
+  for (const child of bowCacheInfrastructure.children) {
+    if (child.userData.sherwoodSharedGeometry === true) disposeObjectInstanceMaterials(child)
+    else disposeOwnedMeshResources(child)
+  }
+  bowCacheInfrastructure.clear()
+}
+
 function rebuildBowCaches(layout: RegionalMissionLayout): void {
   const generation = ++bowCacheLoadGeneration
-  bowCacheInfrastructure.clear()
-  bowCacheAnimations.length = 0
+  clearBowCacheInfrastructure()
   for (const [index, position] of layout.bowCachePositions.entries()) {
     const cache = new THREE.Group()
+    cache.userData.sherwoodOwnedGeometry = true
     const crate = mesh(new THREE.BoxGeometry(1.4, 0.62, 0.85), 0x6d4b2c)
     crate.position.y = 0.32
     const band = mesh(new THREE.BoxGeometry(1.48, 0.1, 0.92), 0xd1a94b)
@@ -588,7 +684,7 @@ function rebuildBowCaches(layout: RegionalMissionLayout): void {
     bow.position.set(0, 0.9, 0)
     bow.rotation.set(Math.PI / 2, 0, Math.PI / 2)
     cache.add(crate, band, bow)
-    cache.position.set(position.x, 0, position.z)
+    cache.position.set(position.x, sherwoodHeightAt(position.x, position.z), position.z)
     cache.rotation.y = index * 1.3
     bowCacheInfrastructure.add(cache)
   }
@@ -597,20 +693,20 @@ function rebuildBowCaches(layout: RegionalMissionLayout): void {
     .then((asset) => ({ scene: convertObjectToToon(asset.scene), animations: asset.animations }))
   void treasureChestPromise.then((asset) => {
     if (generation !== bowCacheLoadGeneration) return
-    bowCacheInfrastructure.clear()
-    bowCacheAnimations.length = 0
+    clearBowCacheInfrastructure()
     const openClip = asset.animations.find((clip) => clip.name.includes("burst_open"))
       ?? asset.animations.find((clip) => clip.name.includes("open_anim"))
     for (const [index, position] of layout.bowCachePositions.entries()) {
       const chest = cloneSkeleton(asset.scene) as THREE.Group
       cloneObjectMaterialsForInstance(chest)
+      chest.userData.sherwoodSharedGeometry = true
       chest.updateMatrixWorld(true)
       const bounds = new THREE.Box3().setFromObject(chest)
       const largestDimension = Math.max(0.001, bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z)
       chest.scale.setScalar(1.65 / largestDimension)
       chest.updateMatrixWorld(true)
       const grounded = new THREE.Box3().setFromObject(chest)
-      chest.position.set(position.x, -grounded.min.y, position.z)
+      chest.position.set(position.x, sherwoodHeightAt(position.x, position.z) - grounded.min.y, position.z)
       chest.rotation.y = index * 1.3
       chest.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return
@@ -695,7 +791,7 @@ function attachMedievalProps(): void {
       const source = catalog.getObjectByName(name)
       if (!source) continue
       const prop = source.clone(true)
-      prop.position.set(x, 0, z)
+      prop.position.set(x, sherwoodHeightAt(x, z), z)
       prop.rotation.y = rotation
       prop.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return
@@ -721,18 +817,27 @@ function prepareVillageRuntimeObject<T extends THREE.Object3D>(root: T): T {
 function attachVillageSlice(cart: THREE.Group): void {
   void loadVillageCatalog().then((source) => {
     const cottage = prepareVillageRuntimeObject(createVillageCottage(source))
-    cottage.position.set(-10, 0, 14)
+    cottage.position.set(-10, sherwoodHeightAt(-10, 14), 14)
     cottage.rotation.y = -0.55
     cottage.visible = false
+    const wagonShell = prepareVillageRuntimeObject(createVillageWagonShell(source))
+    wagonShell.visible = false
+
+    villageCatalogSource = source
+    try {
+      rebuildComposedWorld(state.layout, true)
+    } catch (error) {
+      villageCatalogSource = null
+      throw error
+    }
+
     villageCottageView = cottage
     cameraOccluders.push({ view: cottage, radius: 3.2 })
     scene.add(cottage)
-
-    const wagonShell = prepareVillageRuntimeObject(createVillageWagonShell(source))
-    wagonShell.visible = false
     villageWagonShellView = wagonShell
     cart.add(wagonShell)
   }).catch((error) => {
+    villageCatalogSource = null
     console.error("Authored village kit failed to initialize", error)
     showToast("The authored village kit could not be loaded; procedural fallbacks remain active")
   })
@@ -881,7 +986,9 @@ function createMissionBoard(): THREE.Group {
   const crest = mesh(new THREE.CircleGeometry(0.24, 18), palette.gold, { cast: false })
   crest.position.set(0, 1.72, 0.1)
   board.add(face, crest)
-  board.position.set(HUB_CAMPFIRE_POSITION.x + 3.4, 0, HUB_CAMPFIRE_POSITION.z - 0.4)
+  const x = HUB_CAMPFIRE_POSITION.x + 3.4
+  const z = HUB_CAMPFIRE_POSITION.z - 0.4
+  board.position.set(x, sherwoodHeightAt(x, z), z)
   scene.add(board)
   return board
 }
@@ -1062,7 +1169,13 @@ const multiplayer = new MultiplayerClient({
       } else {
         const remote = remoteViews.get(player.id)
         remote?.snapshots.push(player.position, receivedAt)
-        if (remote) remote.downedFor = player.downedFor
+        if (remote) {
+          remote.downedFor = player.downedFor
+          if (player.arrows < remote.lastArrows) beginRemoteHeroAction(remote, "attack")
+          if (player.signatureCooldown > remote.lastSignatureCooldown + 0.25) beginRemoteHeroAction(remote, "signature")
+          remote.lastArrows = player.arrows
+          remote.lastSignatureCooldown = player.signatureCooldown
+        }
       }
     }
     currentRoomPlayers = currentRoomPlayers.map((roomPlayer) => {
@@ -1093,7 +1206,11 @@ const multiplayer = new MultiplayerClient({
     hubPanel.classList.add("hidden")
     publicHubPanel.classList.remove("hidden")
     partyHud.classList.add("hidden")
+    resetMissionRuntimeState()
+    resetLocalHeroActions()
     setMissionWorldVisible(false)
+    positionMissionCampfire(HUB_CAMPFIRE_POSITION)
+    positionVillageUpgrades(HUB_CAMPFIRE_POSITION)
     objectiveElement.textContent = "Meet outlaws and form a private band"
     missionModifiers.textContent = `OPT-IN PUBLIC CAMP · CAP ${capacity} · NO PUBLIC CHAT`
     void syncPresence("available", null)
@@ -1168,7 +1285,7 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
     disguisePosition: { ...layout.disguisePosition },
     playerSpawns: layout.playerSpawns.map((position) => ({ ...position })),
   }
-  missionCampfireView.position.set(layout.campfirePosition.x, sherwoodHeightAt(layout.campfirePosition.x, layout.campfirePosition.z), layout.campfirePosition.z)
+  positionMissionCampfire(layout.campfirePosition)
   cartView.position.set(layout.objectivePosition.x, sherwoodHeightAt(layout.objectivePosition.x, layout.objectivePosition.z), layout.objectivePosition.z)
   signalView.position.set(layout.reinforcementSignalPosition.x, sherwoodHeightAt(layout.reinforcementSignalPosition.x, layout.reinforcementSignalPosition.z), layout.reinforcementSignalPosition.z)
   storehouseView.position.set(layout.objectivePosition.x, sherwoodHeightAt(layout.objectivePosition.x, layout.objectivePosition.z), layout.objectivePosition.z)
@@ -1436,6 +1553,8 @@ function enterHub(online: boolean): void {
   roomConnected = online
   running = true
   ended = false
+  resetMissionRuntimeState()
+  resetLocalHeroActions()
   state.won = false
   state.lost = false
   intro.scrollTop = 0
@@ -1445,7 +1564,7 @@ function enterHub(online: boolean): void {
   hubPanel.classList.remove("hidden")
   partyHud.classList.toggle("hidden", !online)
   setMissionWorldVisible(false)
-  missionCampfireView.position.set(HUB_CAMPFIRE_POSITION.x, 0, HUB_CAMPFIRE_POSITION.z)
+  positionMissionCampfire(HUB_CAMPFIRE_POSITION)
   positionVillageUpgrades(HUB_CAMPFIRE_POSITION)
   objectiveElement.textContent = "Choose the band's next target"
   missionModifiers.textContent = `${MISSION_CATALOG.size} TRUSTED MISSION${MISSION_CATALOG.size === 1 ? "" : "S"} ON THE BOARD`
@@ -1462,8 +1581,9 @@ function startSoloMission(): void {
   setMissionWorldVisible(true)
   soloRunSequence += 1
   state = createInitialState(selectedCharacter, stableSeed(`solo:${Date.now()}:${soloRunSequence}`))
+  resetMissionRuntimeState()
   applyRegionalLayout(state.layout)
-  localDownedFor = 0
+  resetLocalHeroActions()
   ended = false
   resultSubmitted = false
   missionTarget = DELIVERY_TARGET
@@ -1724,6 +1844,12 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   latestMissionSnapshot = mission
   const nextLayout = selectRegionalMissionLayout(state.layout, mission.layout)
   if (nextLayout !== state.layout) applyRegionalLayout(nextLayout)
+  else {
+    // Hub scenes share these views; authoritative mission snapshots must always
+    // put them back even when the seeded layout itself has not changed.
+    positionMissionCampfire(nextLayout.campfirePosition)
+    positionVillageUpgrades(nextLayout.campfirePosition)
+  }
   const definition = getMissionDefinition(currentMissionSlug)
   const packageMatches = mission.missionId === definition.id
     && mission.missionVersion === definition.missionVersion
@@ -1844,22 +1970,15 @@ function showMissionEvent(event: MissionEvent): void {
     mission_failed: "THE BAND HAS FALLEN",
   }
   if (event.type === "signature_used") {
-    if (event.playerId === multiplayer.playerId) heroSignatureUntil = clock.elapsedTime + 0.9
-    else if (event.playerId) {
+    if (event.playerId && event.playerId !== multiplayer.playerId) {
       const remote = remoteViews.get(event.playerId)
-      if (remote) {
-        remote.action = "signature"
-        remote.actionUntil = clock.elapsedTime + 0.9
-      }
+      if (remote) ensureRemoteHeroAction(remote, "signature")
     }
   } else if (event.type === "guard_stunned" && event.playerId && event.playerId !== multiplayer.playerId) {
     const remote = remoteViews.get(event.playerId)
-    if (remote) {
-      remote.action = "attack"
-      remote.actionUntil = clock.elapsedTime + 0.8
-    }
+    if (remote) ensureRemoteHeroAction(remote, "attack")
   }
-  if (event.type === "signature_used" && event.detail === "little-john-sweep") showVanguardImpact(event.playerId)
+  if (event.type === "signature_used" && event.detail === "little-john-sweep" && event.playerId !== multiplayer.playerId) showVanguardImpact(event.playerId)
   const message = event.type === "signature_used" && event.detail === "little-john-sweep"
     ? "OAK SWEEP — HOLD THE LINE"
     : event.type === "signature_used" && event.detail === "much-snare"
@@ -2418,7 +2537,9 @@ function applyVillageState(village: VillageState): void {
     }
     villageUpgradeViews.set(choice, view)
     const offset = view.userData.campOffset as { x: number; z: number }
-    view.position.set(campfire.x + offset.x, 0, campfire.z + offset.z)
+    const x = campfire.x + offset.x
+    const z = campfire.z + offset.z
+    view.position.set(x, sherwoodHeightAt(x, z), z)
     scene.add(view)
     updateVillageUpgradeTier(view, village[choice])
   }
@@ -2427,7 +2548,11 @@ function applyVillageState(village: VillageState): void {
 function positionVillageUpgrades(campfire: { x: number; z: number }): void {
   for (const view of villageUpgradeViews.values()) {
     const offset = view.userData.campOffset as { x: number; z: number } | undefined
-    if (offset) view.position.set(campfire.x + offset.x, 0, campfire.z + offset.z)
+    if (offset) {
+      const x = campfire.x + offset.x
+      const z = campfire.z + offset.z
+      view.position.set(x, sherwoodHeightAt(x, z), z)
+    }
   }
 }
 
@@ -2511,11 +2636,17 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
     if (existing) {
       existing.downedFor = player.downedFor
       if (existing.characterId !== player.characterId) {
-        disposeObjectInstanceMaterials(existing.fallback)
+        disposeHeroCharacter(existing.fallback)
         existing.view.remove(existing.fallback)
         existing.fallback = createCharacter(player.characterId)
         existing.characterId = player.characterId
         existing.view.add(existing.fallback)
+        existing.lastArrows = player.arrows
+        existing.lastSignatureCooldown = player.signatureCooldown
+      }
+      if (!multiplayerActive) {
+        existing.lastArrows = player.arrows
+        existing.lastSignatureCooldown = player.signatureCooldown
       }
       continue
     }
@@ -2532,14 +2663,17 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
       characterId: player.characterId,
       downedFor: player.downedFor,
       action: "idle",
+      actionStartedAt: 0,
       actionUntil: 0,
+      lastArrows: player.arrows,
+      lastSignatureCooldown: player.signatureCooldown,
     }
     remote.snapshots.push(player.position, performance.now())
     remoteViews.set(player.id, remote)
   }
   for (const [id, remote] of remoteViews) {
     if (activeIds.has(id)) continue
-    disposeObjectInstanceMaterials(remote.view)
+    disposeHeroCharacter(remote.fallback)
     scene.remove(remote.view)
     remoteViews.delete(id)
   }
@@ -2618,12 +2752,13 @@ function fireArrow(): void {
     return
   }
   if (multiplayerActive) {
+    if (clock.elapsedTime < heroAttackUntil) return
     if (state.player.arrows <= 0) {
       showToast("Your quiver is empty")
       return
     }
     multiplayer.sendAction("shoot")
-    heroAttackUntil = clock.elapsedTime + 0.8
+    beginLocalHeroAction("attack")
     return
   }
   const guardId = shoot(state)
@@ -2637,7 +2772,7 @@ function fireArrow(): void {
   const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffe3a0 }))
   scene.add(line)
   arrowEffects.push({ line, age: 0 })
-  heroAttackUntil = clock.elapsedTime + 0.8
+  beginLocalHeroAction("attack")
   showToast("Guard stunned")
 }
 
@@ -2662,8 +2797,12 @@ function useSignature(): void {
     return
   }
   if (multiplayerActive) {
+    if (clock.elapsedTime < heroSignatureUntil || state.player.signatureCooldown > 0) {
+      showToast(`Signature ready in ${Math.max(1, Math.ceil(state.player.signatureCooldown))}s`)
+      return
+    }
     multiplayer.sendAction("signature")
-    heroSignatureUntil = clock.elapsedTime + 0.9
+    beginLocalHeroAction("signature")
     return
   }
   const result = activateSignature(state)
@@ -2679,7 +2818,7 @@ function useSignature(): void {
   if (result.event === "much-snare") {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
   }
-  if (result.event !== "signature-unavailable" && result.event !== "volley-missed") heroSignatureUntil = clock.elapsedTime + 0.9
+  if (result.event !== "signature-unavailable" && result.event !== "volley-missed") beginLocalHeroAction("signature")
   showToast(messages[result.event] ?? result.event)
 }
 
@@ -2917,10 +3056,20 @@ function syncViews(elapsed: number, dt: number): void {
     (view) => scene.add(view),
     (view) => {
       scene.remove(view)
-      disposeObjectInstanceMaterials(view)
+      disposeOwnedMeshResources(view)
     },
   )
   water.update(elapsed, renderProfile.motionScale)
+  missionCampfire.update(elapsed, renderProfile.motionScale)
+  if (missionCampfireHalo) {
+    missionCampfireHalo.visible = !inHub
+      && !inPublicHub
+      && shouldShowMissionCampfireHalo({
+        multiplayerActive,
+        loot: state.player.loot,
+        mission: latestMissionSnapshot,
+      })
+  }
   const objectiveDiscovered = latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered
   const objectiveStillActive = multiplayerActive
     ? latestMissionSnapshot !== null && ["scout", "ambush", "robbery"].includes(latestMissionSnapshot.phase)
@@ -3000,17 +3149,29 @@ function syncViews(elapsed: number, dt: number): void {
     view.scale.setScalar(pulse)
   }
   const playerGroundY = sherwoodHeightAt(player.x, player.z)
-  playerView.position.set(player.x, playerGroundY + Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale, player.z)
+  const playerRootBob = localDownedFor > 0 ? 0 : Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale
+  playerView.position.set(player.x, playerGroundY + playerRootBob, player.z)
   setObjectOpacityFactor(playerView, state.player.veilFor > 0 ? 0.48 : 1)
   const dx = player.x - lastPlayerPosition.x
   const dz = player.z - lastPlayerPosition.z
   const playerMoving = Math.hypot(dx, dz) > 0.001
   if (playerMoving) playerView.rotation.y = Math.atan2(dx, dz)
   lastPlayerPosition = { ...player }
+  const playerAction: HeroAction = elapsed < heroSignatureUntil
+    ? "signature"
+    : elapsed < heroAttackUntil
+      ? "attack"
+      : "idle"
+  const playerActionStartedAt = playerAction === "signature"
+    ? heroSignatureStartedAt
+    : playerAction === "attack"
+      ? heroAttackStartedAt
+      : elapsed
   poseHeroCharacter(playerView, {
     elapsed,
     moving: playerMoving,
-    action: elapsed < heroSignatureUntil ? "signature" : elapsed < heroAttackUntil ? "attack" : "idle",
+    action: playerAction,
+    actionProgress: normalizedHeroActionProgress(elapsed, playerActionStartedAt, playerAction),
     downed: localDownedFor > 0,
     motionScale: renderProfile.motionScale,
   })
@@ -3034,12 +3195,13 @@ function syncViews(elapsed: number, dt: number): void {
     const cameraDistance = camera.position.distanceTo(remote.view.position)
     remote.fallback.visible = cameraDistance <= 48
     if (moving) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
-    remote.view.rotation.z = remote.downedFor > 0 ? Math.PI / 2.7 : 0
+    remote.view.rotation.z = 0
     if (elapsed >= remote.actionUntil) remote.action = "idle"
     poseHeroCharacter(remote.fallback, {
       elapsed,
       moving,
       action: remote.action,
+      actionProgress: normalizedHeroActionProgress(elapsed, remote.actionStartedAt, remote.action),
       downed: remote.downedFor > 0,
       motionScale: renderProfile.motionScale,
     })
@@ -3335,7 +3497,7 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   })
   state = createInitialState(selectedCharacter)
   lastPlayerPosition = { ...state.player.position }
-  disposeObjectInstanceMaterials(playerView)
+  disposeHeroCharacter(playerView)
   scene.remove(playerView)
   playerView = createCharacter(selectedCharacter)
   scene.add(playerView)

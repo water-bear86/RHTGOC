@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { computeObjectivePointer } from "./objective-guidance"
+import { computeObjectivePointer, shouldShowMissionCampfireHalo } from "./objective-guidance"
 
 describe("objective screen-edge guidance", () => {
   it("hides when the discovered objective marker is already in the safe playfield", () => {
@@ -17,5 +17,30 @@ describe("objective screen-edge guidance", () => {
   it("keeps targets behind the camera visible on an edge", () => {
     const result = computeObjectivePointer({ ndcX: 0.1, ndcY: 0, ndcZ: 1.4, viewportWidth: 900, viewportHeight: 700, distanceMeters: 9 })
     expect(result.visible).toBe(true)
+  })
+})
+
+describe("mission campfire guidance", () => {
+  it("marks a solo delivery whenever the local outlaw carries coin", () => {
+    expect(shouldShowMissionCampfireHalo({ multiplayerActive: false, loot: 40, mission: null })).toBe(true)
+    expect(shouldShowMissionCampfireHalo({ multiplayerActive: false, loot: 0, mission: null })).toBe(false)
+  })
+
+  it("marks only an active multiplayer tax-cart escape", () => {
+    expect(shouldShowMissionCampfireHalo({
+      multiplayerActive: true,
+      loot: 40,
+      mission: { missionKind: "tax-cart", phase: "escape" },
+    })).toBe(true)
+    expect(shouldShowMissionCampfireHalo({
+      multiplayerActive: true,
+      loot: 40,
+      mission: { missionKind: "storehouse", phase: "escape" },
+    })).toBe(false)
+    expect(shouldShowMissionCampfireHalo({
+      multiplayerActive: true,
+      loot: 40,
+      mission: { missionKind: "tax-cart", phase: "pursuit" },
+    })).toBe(false)
   })
 })
