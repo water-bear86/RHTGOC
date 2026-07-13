@@ -674,7 +674,7 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
 }
 
 function loadRobinRanger(): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
-  rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb?v=relaxed-pose-2")
+  rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb?v=clean-rig-3")
     .then((asset) => {
       const clipNames: Record<string, string> = {
         Ranger_Idle: "Robin_Idle",
