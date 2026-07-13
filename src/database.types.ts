@@ -583,6 +583,63 @@ export type Database = {
         }
         Relationships: []
       }
+      player_token_access: {
+        Row: {
+          access_expires_at: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_expires_at: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_expires_at?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      token_access_payments: {
+        Row: {
+          access_expires_at: string
+          amount_base_units: number
+          chain_id: number
+          created_at: string
+          paid_at: string
+          token_contract: string
+          treasury_address: string
+          tx_hash: string
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          access_expires_at: string
+          amount_base_units: number
+          chain_id: number
+          created_at?: string
+          paid_at: string
+          token_contract: string
+          treasury_address: string
+          tx_hash: string
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          access_expires_at?: string
+          amount_base_units?: number
+          chain_id?: number
+          created_at?: string
+          paid_at?: string
+          token_contract?: string
+          treasury_address?: string
+          tx_hash?: string
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
       player_social_profiles: {
         Row: {
           active_room_code: string | null
@@ -950,6 +1007,20 @@ export type Database = {
           p_season_slug?: string
         }
         Returns: Json
+      }
+      record_token_access_payment: {
+        Args: {
+          p_amount_base_units: string
+          p_chain_id: number
+          p_paid_at: string
+          p_pass_days: number
+          p_token_contract: string
+          p_treasury_address: string
+          p_tx_hash: string
+          p_user_id: string
+          p_wallet_address: string
+        }
+        Returns: string
       }
       record_band_contribution_transition: {
         Args: {

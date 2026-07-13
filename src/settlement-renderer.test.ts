@@ -7,7 +7,8 @@ import {
   regionalizeMissionDefinition,
 } from "../shared/regional-layout"
 import { composeSherwoodWorld } from "../shared/world-composer"
-import { SHERWOOD_RIVER_HALF_WIDTH } from "../shared/world-obstacles"
+import { SHERWOOD_RIVER_HALF_WIDTH, selectSherwoodRidgeRockObstaclesForRoads } from "../shared/world-obstacles"
+import { SHERWOOD_RIDGE_ROCK_LAYOUT } from "../shared/world-layout"
 import { SHERWOOD_SETTLEMENT_SITES } from "../shared/world-topology"
 import { sherwoodHeightAt } from "./sherwood-terrain"
 import {
@@ -68,9 +69,33 @@ describe("settlement renderer", () => {
     expect(rendered.userData.sherwoodSettlementDrawCalls).toBe(5)
     expect(rendered.userData.sherwoodSettlementBuildingCount).toBe(composed.buildingCount)
     expect(details.count).toBeGreaterThan(composed.buildingCount * 20)
-    expect(ridges.count).toBe(22)
+    expect(ridges.count).toBe(selectSherwoodRidgeRockObstaclesForRoads(composed.roads).length)
     expect(hedges.count).toBe(18)
     expect(greens.count).toBe(3)
+  })
+
+  it("renders ridge boulders from the authoritative shared layout", () => {
+    const rendered = createSettlementWorld(composed)
+    const ridges = rendered.getObjectByName("RidgeRockInstances") as THREE.InstancedMesh
+    const matrix = new THREE.Matrix4()
+    const position = new THREE.Vector3()
+    const rotation = new THREE.Quaternion()
+    const scale = new THREE.Vector3()
+
+    const visibleRockIds = new Set(selectSherwoodRidgeRockObstaclesForRoads(composed.roads).map((rock) => rock.id))
+    const visibleRocks = SHERWOOD_RIDGE_ROCK_LAYOUT.filter((_, index) => visibleRockIds.has(`sherwood-ridge-rock-${index}`))
+    visibleRocks.forEach((rock, index) => {
+      ridges.getMatrixAt(index, matrix)
+      matrix.decompose(position, rotation, scale)
+      expect(position.x).toBeCloseTo(rock.x)
+      expect(position.z).toBeCloseTo(rock.z)
+      expect(scale.x).toBeCloseTo(rock.scale.x)
+      expect(scale.y).toBeCloseTo(rock.scale.y)
+      expect(scale.z).toBeCloseTo(rock.scale.z)
+      expect(rotation.angleTo(
+        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rock.rotation),
+      )).toBeCloseTo(0)
+    })
   })
 
   it("renders irregular settlement commons entirely outside the river", () => {

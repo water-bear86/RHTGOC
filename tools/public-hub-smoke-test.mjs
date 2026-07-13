@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs"
 import { WebSocket } from "ws"
 
 const { version: protocolVersion } = JSON.parse(readFileSync(new URL("../shared/protocol-version.json", import.meta.url), "utf8"))
+const handshake = { version: protocolVersion, buildId: process.env.BUILD_ID ?? "dev", productAnalytics: false }
 const roomPort = 18_788
 const authPort = 19_999
 const roomEndpoint = `ws://127.0.0.1:${roomPort}/rooms`
@@ -75,8 +76,8 @@ try {
   const second = await connect(); sockets.push(second)
   const firstWelcomePromise = waitForMessage(first, (message) => message.type === "hub_welcome")
   const secondWelcomePromise = waitForMessage(second, (message) => message.type === "hub_welcome")
-  first.send(JSON.stringify({ type: "join_public_hub", version: protocolVersion, displayName: "Oakheart", characterId: "robin", accessToken: "token-a-header.payload.signature-long" }))
-  second.send(JSON.stringify({ type: "join_public_hub", version: protocolVersion, displayName: "Willow", characterId: "marian", accessToken: "token-b-header.payload.signature-long" }))
+  first.send(JSON.stringify({ type: "join_public_hub", ...handshake, displayName: "Oakheart", characterId: "robin", accessToken: "token-a-header.payload.signature-long" }))
+  second.send(JSON.stringify({ type: "join_public_hub", ...handshake, displayName: "Willow", characterId: "marian", accessToken: "token-b-header.payload.signature-long" }))
   const [firstWelcome, secondWelcome] = await Promise.all([firstWelcomePromise, secondWelcomePromise])
 
   const firstAssignmentPromise = waitForMessage(first, (message) => message.type === "hub_band_ready")
@@ -87,11 +88,11 @@ try {
 
   const firstRoomWelcome = waitForMessage(first, (message) => message.type === "welcome")
   const firstProvisionalState = waitForMessage(first, (message) => message.type === "room_state" && message.players.length === 1 && message.players.every((player) => !player.roleConfirmed))
-  first.send(JSON.stringify({ type: "join_room", version: protocolVersion, roomCode: firstAssignment.roomCode, displayName: "Oakheart", characterId: "robin", accessToken: "token-a-header.payload.signature-long" }))
+  first.send(JSON.stringify({ type: "join_room", ...handshake, roomCode: firstAssignment.roomCode, displayName: "Oakheart", characterId: "robin", accessToken: "token-a-header.payload.signature-long" }))
   await Promise.all([firstRoomWelcome, firstProvisionalState])
   const secondRoomWelcome = waitForMessage(second, (message) => message.type === "welcome")
   const twoPlayerState = waitForMessage(first, (message) => message.type === "room_state" && message.players.length === 2 && message.players.every((player) => !player.roleConfirmed))
-  second.send(JSON.stringify({ type: "join_room", version: protocolVersion, roomCode: secondAssignment.roomCode, displayName: "Willow", characterId: "marian", accessToken: "token-b-header.payload.signature-long" }))
+  second.send(JSON.stringify({ type: "join_room", ...handshake, roomCode: secondAssignment.roomCode, displayName: "Willow", characterId: "marian", accessToken: "token-b-header.payload.signature-long" }))
   await secondRoomWelcome
   await twoPlayerState
   const confirmedState = waitForMessage(first, (message) => message.type === "room_state" && message.players.length === 2 && message.players.every((player) => player.roleConfirmed))

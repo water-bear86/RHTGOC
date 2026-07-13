@@ -1,0 +1,636 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Private client origins, CloudFront canary, Lightsail room routing, and rhtgoc.site records.
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: rhtgoc.site
+    AllowedPattern: "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+    Description: Lowercase domain name delegated to the supplied Route 53 hosted zone.
+  HostedZoneId:
+    Type: String
+    AllowedPattern: "^Z[A-Z0-9]+$"
+    Description: HostedZoneId output from the rhtgoc-dns stack.
+  LightsailOriginDomain:
+    Type: String
+    Default: sherwood-rebellion.16h6bw5cfk6jc.ca-central-1.cs.amazonlightsail.com
+    AllowedPattern: "^[a-zA-Z0-9.-]+\\.amazonlightsail\\.com$"
+    Description: Lightsail container hostname only, without a scheme, port, or path.
+  CanaryEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Routes weighted production traffic to the staging client when true.
+  CanaryWeight:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 0.15
+    Description: Fraction of production traffic sent to staging. CloudFront permits at most 0.15.
+  SessionIdleTTL:
+    Type: Number
+    Default: 900
+    MinValue: 300
+    MaxValue: 3600
+    Description: Seconds of inactivity before CloudFront canary stickiness expires.
+  SessionMaximumTTL:
+    Type: Number
+    Default: 3600
+    MinValue: 300
+    MaxValue: 3600
+    Description: Maximum seconds a viewer remains assigned to one release.
+  PriceClass:
+    Type: String
+    Default: PriceClass_100
+    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+    Description: CloudFront edge footprint.
+
+Rules:
+  DeployInUsEast1:
+    Assertions:
+      - Assert: !Equals [!Ref AWS::Region, us-east-1]
+        AssertDescription: ACM certificates for CloudFront must be created in us-east-1.
+
+Conditions:
+  CanaryIsEnabled: !Equals [!Ref CanaryEnabled, "true"]
+
+Resources:
+  ViewerCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      SubjectAlternativeNames:
+        - !Sub www.${DomainName}
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+        - DomainName: !Sub www.${DomainName}
+          HostedZoneId: !Ref HostedZoneId
+      Tags:
+        - Key: application
+          Value: sherwood-rebellion
+
+  PrimaryClientBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: application
+          Value: sherwood-rebellion
+        - Key: release-channel
+          Value: primary
+
+  StagingClientBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: application
+          Value: sherwood-rebellion
+        - Key: release-channel
+          Value: staging
+
+  ClientOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Description: Signed CloudFront reads for the private Sherwood client buckets.
+        Name: !Sub ${AWS::StackName}-client-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  DynamicCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub ${AWS::StackName}-dynamic-no-cache
+        Comment: Never cache rooms, health, metrics, auth, or gameplay APIs.
+        DefaultTTL: 0
+        MaxTTL: 0
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: none
+          EnableAcceptEncodingBrotli: false
+          EnableAcceptEncodingGzip: false
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+  ClientHtmlCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub ${AWS::StackName}-client-html-no-cache
+        Comment: Revalidate the entry document so release/build checks reach every viewer.
+        DefaultTTL: 0
+        MaxTTL: 0
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: none
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+  VersionedAssetCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub ${AWS::StackName}-versioned-assets
+        Comment: Cache hashed or build-query-versioned assets while keeping releases isolated.
+        DefaultTTL: 3600
+        MaxTTL: 31536000
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: none
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: all
+
+  DynamicOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub ${AWS::StackName}-dynamic-all-viewer-except-host
+        Comment: Forward WebSocket, auth, cookies, and query data while preserving the Lightsail origin Host.
+        CookiesConfig:
+          CookieBehavior: all
+        HeadersConfig:
+          HeaderBehavior: allExcept
+          Headers:
+            - Host
+        QueryStringsConfig:
+          QueryStringBehavior: all
+
+  WwwRedirectFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      AutoPublish: true
+      Name: !Sub ${AWS::StackName}-www-to-apex
+      FunctionConfig:
+        Comment: Preserve path and query while redirecting www to the canonical apex.
+        Runtime: cloudfront-js-2.0
+      FunctionCode: !Sub |
+        function handler(event) {
+          var request = event.request;
+          var params = request.querystring || {};
+          var pairs = [];
+          for (var key in params) {
+            if (!Object.prototype.hasOwnProperty.call(params, key)) continue;
+            var values = params[key].multiValue || [params[key]];
+            for (var index = 0; index < values.length; index += 1) {
+              pairs.push(encodeURIComponent(key) + '=' + encodeURIComponent(values[index].value || ''));
+            }
+          }
+          var location = 'https://${DomainName}' + request.uri;
+          if (pairs.length > 0) location += '?' + pairs.join('&');
+          return {
+            statusCode: 308,
+            statusDescription: 'Permanent Redirect',
+            headers: {
+              location: { value: location },
+              'cache-control': { value: 'public, max-age=300' }
+            }
+          };
+        }
+
+  StagingDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: Sherwood staging client; reachable only through the primary continuous deployment policy.
+        DefaultRootObject: index.html
+        Enabled: true
+        HttpVersion: http2
+        IPV6Enabled: true
+        PriceClass: !Ref PriceClass
+        Staging: true
+        ViewerCertificate:
+          AcmCertificateArn: !Ref ViewerCertificate
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
+        Origins:
+          - Id: staging-client
+            DomainName: !GetAtt StagingClientBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt ClientOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - Id: room-backend
+            DomainName: !Ref LightsailOriginDomain
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginKeepaliveTimeout: 60
+              OriginProtocolPolicy: https-only
+              OriginReadTimeout: 60
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachePolicyId: !Ref ClientHtmlCachePolicy
+          Compress: true
+          TargetOriginId: staging-client
+          ViewerProtocolPolicy: redirect-to-https
+        CacheBehaviors:
+          - PathPattern: /assets/*
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref VersionedAssetCachePolicy
+            Compress: true
+            TargetOriginId: staging-client
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /rooms*
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: false
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /access*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /rotations*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /season*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /admin/*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /health*
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /ready*
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /metrics*
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /analytics*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /api/*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+      Tags:
+        - Key: application
+          Value: sherwood-rebellion
+        - Key: release-channel
+          Value: staging
+
+  ContinuousDeploymentPolicy:
+    Type: AWS::CloudFront::ContinuousDeploymentPolicy
+    Properties:
+      ContinuousDeploymentPolicyConfig:
+        Enabled: !If [CanaryIsEnabled, true, false]
+        StagingDistributionDnsNames:
+          - !GetAtt StagingDistribution.DomainName
+        TrafficConfig:
+          Type: SingleWeight
+          SingleWeightConfig:
+            Weight: !Ref CanaryWeight
+            SessionStickinessConfig:
+              IdleTTL: !Ref SessionIdleTTL
+              MaximumTTL: !Ref SessionMaximumTTL
+        Type: SingleWeight
+
+  PrimaryDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Ref DomainName
+        Comment: Sherwood production client with a shared authoritative Lightsail room backend.
+        ContinuousDeploymentPolicyId: !GetAtt ContinuousDeploymentPolicy.Id
+        DefaultRootObject: index.html
+        Enabled: true
+        HttpVersion: http2
+        IPV6Enabled: true
+        PriceClass: !Ref PriceClass
+        ViewerCertificate:
+          AcmCertificateArn: !Ref ViewerCertificate
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
+        Origins:
+          - Id: primary-client
+            DomainName: !GetAtt PrimaryClientBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt ClientOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - Id: room-backend
+            DomainName: !Ref LightsailOriginDomain
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginKeepaliveTimeout: 60
+              OriginProtocolPolicy: https-only
+              OriginReadTimeout: 60
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachePolicyId: !Ref ClientHtmlCachePolicy
+          Compress: true
+          TargetOriginId: primary-client
+          ViewerProtocolPolicy: redirect-to-https
+        CacheBehaviors:
+          - PathPattern: /assets/*
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref VersionedAssetCachePolicy
+            Compress: true
+            TargetOriginId: primary-client
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /rooms*
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: false
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /access*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /rotations*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /season*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /admin/*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /health*
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /ready*
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /metrics*
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /analytics*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+          - PathPattern: /api/*
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: !Ref DynamicCachePolicy
+            Compress: true
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            TargetOriginId: room-backend
+            ViewerProtocolPolicy: redirect-to-https
+      Tags:
+        - Key: application
+          Value: sherwood-rebellion
+        - Key: release-channel
+          Value: primary
+
+  WwwRedirectDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Sub www.${DomainName}
+        Comment: Canonical www redirect for Sherwood.
+        DefaultRootObject: index.html
+        Enabled: true
+        HttpVersion: http2
+        IPV6Enabled: true
+        PriceClass: !Ref PriceClass
+        ViewerCertificate:
+          AcmCertificateArn: !Ref ViewerCertificate
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
+        Origins:
+          - Id: redirect-fallback
+            DomainName: !GetAtt PrimaryClientBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt ClientOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachePolicyId: !Ref ClientHtmlCachePolicy
+          Compress: true
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt WwwRedirectFunction.FunctionARN
+          TargetOriginId: redirect-fallback
+          ViewerProtocolPolicy: redirect-to-https
+      Tags:
+        - Key: application
+          Value: sherwood-rebellion
+        - Key: purpose
+          Value: canonical-redirect
+
+  PrimaryClientBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PrimaryClientBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowKnownCloudFrontDistributions
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${PrimaryClientBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+                AWS:SourceArn:
+                  - !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${PrimaryDistribution}
+                  - !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${StagingDistribution}
+                  - !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WwwRedirectDistribution}
+
+  StagingClientBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StagingClientBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowContinuousDeploymentDistributions
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${StagingClientBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+                AWS:SourceArn:
+                  - !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${PrimaryDistribution}
+                  - !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${StagingDistribution}
+
+  ApexARecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt PrimaryDistribution.DomainName
+        EvaluateTargetHealth: false
+        HostedZoneId: Z2FDTNDATAQYW2
+
+  ApexAAAARecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt PrimaryDistribution.DomainName
+        EvaluateTargetHealth: false
+        HostedZoneId: Z2FDTNDATAQYW2
+
+  WwwARecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub www.${DomainName}
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt WwwRedirectDistribution.DomainName
+        EvaluateTargetHealth: false
+        HostedZoneId: Z2FDTNDATAQYW2
+
+  WwwAAAARecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub www.${DomainName}
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt WwwRedirectDistribution.DomainName
+        EvaluateTargetHealth: false
+        HostedZoneId: Z2FDTNDATAQYW2
+
+Outputs:
+  CanonicalUrl:
+    Value: !Sub https://${DomainName}
+  HostedZoneId:
+    Value: !Ref HostedZoneId
+  CertificateArn:
+    Value: !Ref ViewerCertificate
+  PrimaryClientBucketName:
+    Value: !Ref PrimaryClientBucket
+  StagingClientBucketName:
+    Value: !Ref StagingClientBucket
+  PrimaryDistributionId:
+    Value: !Ref PrimaryDistribution
+  PrimaryDistributionDomainName:
+    Value: !GetAtt PrimaryDistribution.DomainName
+  StagingDistributionId:
+    Value: !Ref StagingDistribution
+  StagingDistributionDomainName:
+    Value: !GetAtt StagingDistribution.DomainName
+  ContinuousDeploymentPolicyId:
+    Value: !GetAtt ContinuousDeploymentPolicy.Id
+  WwwRedirectDistributionId:
+    Value: !Ref WwwRedirectDistribution

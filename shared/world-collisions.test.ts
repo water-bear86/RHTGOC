@@ -3,6 +3,7 @@ import {
   PUBLIC_HUB_WORLD_BOUNDS,
   SHERWOOD_CROSSING_HALF_LENGTH,
   SHERWOOD_PLAYER_RADIUS,
+  SHERWOOD_RIDGE_ROCK_COLLIDERS,
   SHERWOOD_TREE_COLLIDERS,
   VILLAGE_COTTAGE_COLLIDER,
   createSherwoodSettlementColliders,
@@ -63,6 +64,19 @@ describe("shared Sherwood world collision contract", () => {
     expect(isSherwoodPlayerPositionBlocked(resolved)).toBe(false)
   })
 
+  it("makes every large rendered ridge boulder authoritative and solid", () => {
+    expect(SHERWOOD_RIDGE_ROCK_COLLIDERS).toHaveLength(22)
+    for (const rock of SHERWOOD_RIDGE_ROCK_COLLIDERS) {
+      expect(isSherwoodPlayerPositionBlocked(rock.center)).toBe(true)
+    }
+
+    const rock = SHERWOOD_RIDGE_ROCK_COLLIDERS[0]
+    const start = { x: rock.center.x - 5, z: rock.center.z }
+    const resolved = resolveSherwoodPlayerMovement(start, { x: 10, z: 0 }, 64)
+    expect(resolved.x).toBeLessThan(rock.center.x)
+    expect(isSherwoodPlayerPositionBlocked(resolved)).toBe(false)
+  })
+
   it("sweeps against the full cottage so a long normal tick cannot tunnel through", () => {
     const start = localPoint(-5, 0)
     const displacement = localVector(10, 0)
@@ -116,8 +130,8 @@ describe("shared Sherwood world collision contract", () => {
   })
 
   it("evaluates the footprint in its authored rotation rather than as an axis-aligned box", () => {
-    const rotatedInside = localPoint(0, VILLAGE_COTTAGE_COLLIDER.halfExtents.z + SHERWOOD_PLAYER_RADIUS - 0.05)
-    const rotatedOutside = localPoint(0, VILLAGE_COTTAGE_COLLIDER.halfExtents.z + SHERWOOD_PLAYER_RADIUS + 0.05)
+    const rotatedInside = localPoint(0, -(VILLAGE_COTTAGE_COLLIDER.halfExtents.z + SHERWOOD_PLAYER_RADIUS - 0.05))
+    const rotatedOutside = localPoint(0, -(VILLAGE_COTTAGE_COLLIDER.halfExtents.z + SHERWOOD_PLAYER_RADIUS + 0.05))
 
     expect(isSherwoodPlayerPositionBlocked(rotatedInside)).toBe(true)
     expect(isSherwoodPlayerPositionBlocked(rotatedOutside)).toBe(false)

@@ -65,7 +65,7 @@ M9 is complete only when first-time players can learn the game quickly, returnin
 - Durable replay storage, regional service scaling, and content operations when measured concurrency requires them.
 - A larger connected world only after instanced hubs and missions prove retention, safety, reliability, and cost.
 
-Open trading, tokens, PvP, unrestricted chat, user-generated content, and pay-to-win progression remain out of scope.
+Open trading, tokenized items, PvP, unrestricted chat, user-generated content, and pay-to-win progression remain out of scope. The bounded exception is the Robinhood Chain project-token access pass; it grants time only and never gameplay power.
 
 ## Technical guardrails
 

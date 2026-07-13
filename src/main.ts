@@ -41,7 +41,9 @@ import {
   type InputSettings,
   type PointerAction,
 } from "./input-settings"
-import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, sendMagicLink, signOutSocial, updateSocialPresence, type SocialState } from "./social"
+import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, updateSocialPresence, type SocialState } from "./social"
+import { currentWalletSession, disconnectRobinhoodWallet, shortWalletAddress, signInWithRobinhoodWallet, walletAddress } from "./wallet-auth"
+import { loadAccessState, purchaseTokenPass, type AccessState } from "./token-access"
 import { createVillageCottage, createVillageWagonShell } from "./village-assets"
 import { createAuthoredTreePlacements, TREE_VARIANT_NAMES } from "./tree-placements"
 import {
@@ -71,6 +73,10 @@ import { missionObjectivePosition } from "../shared/mission-objective"
 import { selectRegionalMissionLayout, synchronizeMissionGuards } from "./mission-snapshot-state"
 import { createCampfireVisuals } from "./campfire-visuals"
 import { createStylizedBuildingVisual } from "./building-visuals"
+import { getProductAnalyticsConsent, setProductAnalyticsConsent } from "./analytics-consent"
+import { ClientDiagnosticReporter } from "./client-diagnostics"
+import { versionedAssetUrl } from "./release"
+import type { RoomExperimentAssignment } from "../shared/experiments"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -140,7 +146,6 @@ const socialPanel = document.querySelector<HTMLElement>("#social-panel")!
 const closeSocial = document.querySelector<HTMLButtonElement>("#close-social")!
 const socialSignedOut = document.querySelector<HTMLElement>("#social-signed-out")!
 const socialSignedIn = document.querySelector<HTMLElement>("#social-signed-in")!
-const socialEmail = document.querySelector<HTMLInputElement>("#social-email")!
 const socialSignIn = document.querySelector<HTMLButtonElement>("#social-sign-in")!
 const socialSignOut = document.querySelector<HTMLButtonElement>("#social-sign-out")!
 const socialFriendCode = document.querySelector<HTMLElement>("#social-friend-code")!
@@ -152,6 +157,12 @@ const socialInviteList = document.querySelector<HTMLUListElement>("#social-invit
 const socialFriendList = document.querySelector<HTMLUListElement>("#social-friend-list")!
 const socialRecentList = document.querySelector<HTMLUListElement>("#social-recent-list")!
 const socialStatus = document.querySelector<HTMLElement>("#social-status")!
+const walletState = document.querySelector<HTMLElement>("#wallet-state")!
+const accessCopy = document.querySelector<HTMLElement>("#access-copy")!
+const accessStatus = document.querySelector<HTMLElement>("#access-status")!
+const walletSignIn = document.querySelector<HTMLButtonElement>("#wallet-sign-in")!
+const walletSignOut = document.querySelector<HTMLButtonElement>("#wallet-sign-out")!
+const tokenPassPurchase = document.querySelector<HTMLButtonElement>("#token-pass-purchase")!
 const settingsButton = document.querySelector<HTMLButtonElement>("#settings-button")!
 const settingsPanel = document.querySelector<HTMLDivElement>("#settings-panel")!
 const closeSettings = document.querySelector<HTMLButtonElement>("#close-settings")!
@@ -173,6 +184,7 @@ const highContrastSetting = document.querySelector<HTMLInputElement>("#setting-h
 const captionsSetting = document.querySelector<HTMLInputElement>("#setting-captions")!
 const readableTextSetting = document.querySelector<HTMLInputElement>("#setting-readable-text")!
 const mobileSpectatorSetting = document.querySelector<HTMLInputElement>("#setting-mobile-spectator")!
+const gameplayAnalyticsSetting = document.querySelector<HTMLInputElement>("#setting-gameplay-analytics")!
 const missionDebugButton = document.querySelector<HTMLButtonElement>("#mission-debug-button")!
 const graphicsRestoreButton = document.querySelector<HTMLButtonElement>("#graphics-restore-button")!
 const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
@@ -230,6 +242,8 @@ const lastRoomCode = localStorage.getItem("sherwood:last-room-code")
 if (lastRoomCode?.match(/^[A-Z2-9]{6}$/)) rejoinRoomButton.classList.remove("hidden")
 
 let inputSettings: InputSettings = loadInputSettings(localStorage)
+let diagnosticReporter: ClientDiagnosticReporter | null = null
+let lastDiagnosticSnapshotAt = 0
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x91aa83)
@@ -258,6 +272,7 @@ container.appendChild(renderer.domElement)
 
 let selectedCharacter: CharacterId = "robin"
 let state = createInitialState(selectedCharacter)
+let accessState: AccessState = { gateEnabled: false, authenticated: false, entitled: true, accessExpiresAt: null, referencePriceUsd: 6, payment: null }
 let soloRunSequence = 0
 const clock = new THREE.Clock()
 const keys = new Set<string>()
@@ -309,6 +324,7 @@ let publicHubPlayers: PublicHubPlayer[] = []
 let publicHubIsLooking = false
 let localRoleConfirmed = false
 let cameraQuarterTurns = 0
+let currentExperimentAssignments: RoomExperimentAssignment[] = []
 
 const guardViews: THREE.Group[] = []
 const lastGuardPositions = new Map<number, Vec2>()
@@ -693,8 +709,12 @@ function rebuildBowCaches(layout: RegionalMissionLayout): void {
     bowCacheInfrastructure.add(cache)
   }
 
-  treasureChestPromise ??= gltfLoader.loadAsync("/assets/props/treasure-chest.glb")
+  treasureChestPromise ??= gltfLoader.loadAsync(versionedAssetUrl("/assets/props/treasure-chest.glb"))
     .then((asset) => ({ scene: convertObjectToToon(asset.scene), animations: asset.animations }))
+    .catch((error) => {
+      void diagnosticReporter?.report("asset_load_failed", error)
+      throw error
+    })
   void treasureChestPromise.then((asset) => {
     if (generation !== bowCacheLoadGeneration) return
     clearBowCacheInfrastructure()
@@ -744,20 +764,23 @@ function createCharacter(role: CharacterId): THREE.Group {
 }
 
 function loadTreeCatalog(): Promise<THREE.Group> {
-  treeCatalogAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-tree-catalog.glb")
+  treeCatalogAssetPromise ??= gltfLoader.loadAsync(versionedAssetUrl("/assets/environment/sherwood-tree-catalog.glb"))
     .then((asset) => convertObjectToToon(asset.scene))
+    .catch((error) => { void diagnosticReporter?.report("asset_load_failed", error); throw error })
   return treeCatalogAssetPromise
 }
 
 function loadVillageCatalog(): Promise<THREE.Group> {
-  villageAssetPromise ??= gltfLoader.loadAsync("/assets/environment/sherwood-village-slice.glb")
+  villageAssetPromise ??= gltfLoader.loadAsync(versionedAssetUrl("/assets/environment/sherwood-village-slice.glb"))
     .then((asset) => convertObjectToToon(asset.scene))
+    .catch((error) => { void diagnosticReporter?.report("asset_load_failed", error); throw error })
   return villageAssetPromise
 }
 
 function loadMedievalProps(): Promise<THREE.Group> {
-  medievalPropsPromise ??= gltfLoader.loadAsync("/assets/environment/craftpix-medieval-props.glb")
+  medievalPropsPromise ??= gltfLoader.loadAsync(versionedAssetUrl("/assets/environment/craftpix-medieval-props.glb"))
     .then((asset) => convertObjectToToon(asset.scene))
+    .catch((error) => { void diagnosticReporter?.report("asset_load_failed", error); throw error })
   return medievalPropsPromise
 }
 
@@ -1140,6 +1163,8 @@ const multiplayer = new MultiplayerClient({
   },
   onSnapshot: (_tick, players, mission) => {
     const receivedAt = performance.now()
+    if (lastDiagnosticSnapshotAt > 0 && receivedAt - lastDiagnosticSnapshotAt >= 1_500) void diagnosticReporter?.report("snapshot_desync")
+    lastDiagnosticSnapshotAt = receivedAt
     for (const player of players) {
       if (player.id === multiplayer.playerId) {
         state.player.position.x += (player.position.x - state.player.position.x) * 0.35
@@ -1208,7 +1233,17 @@ const multiplayer = new MultiplayerClient({
     for (const player of remotes) remoteViews.get(player.id)?.snapshots.push(player.position, receivedAt)
     renderPublicHub()
   },
+  onExperiments: (assignments) => {
+    currentExperimentAssignments = assignments
+    updateMissionDebug()
+  },
 })
+
+diagnosticReporter = new ClientDiagnosticReporter(
+  (diagnostic) => multiplayer.sendDiagnostic(diagnostic),
+  () => renderProfile.tier,
+)
+diagnosticReporter.installWindowHandlers()
 
 function hubPlayerAsRoomPlayer(player: PublicHubPlayer): RoomPlayer {
   return {
@@ -1627,6 +1662,7 @@ function applyInputSettings(): void {
   captionsSetting.checked = inputSettings.captions
   readableTextSetting.checked = inputSettings.readableText
   mobileSpectatorSetting.checked = inputSettings.mobileSpectator
+  gameplayAnalyticsSetting.checked = getProductAnalyticsConsent()
   refreshControlCopy()
 }
 
@@ -1819,6 +1855,7 @@ function updateMissionDebug(): void {
     `ROTATION ${mission?.rotationId ?? "standard"} · modifiers=${mission?.rotationModifierIds.join(",") || "seeded"}`,
     `RESCUE CHAIN ${mission?.rescueOfferId ?? "none"} · source=${mission?.rescueSourceMissionId ?? "none"}`,
     `PREPARATION ${(mission?.preparations ?? []).map((preparation) => `${preparation.type}:${preparation.status}:${preparation.contributorLabel}`).join(" · ") || "none"}`,
+    `EXPERIMENTS ${currentExperimentAssignments.map((assignment) => `${assignment.experimentId}@${assignment.experimentRevision}:${assignment.variantId}`).join(", ") || "none"}`,
     `RENDER   ${renderProfile.tier} · calls=${renderer.info.render.calls} · triangles=${renderer.info.render.triangles}`,
   ].join("\n")
 }
@@ -2309,6 +2346,60 @@ async function refreshSocialPanel(): Promise<void> {
       : "Presence is off by default. Friends cannot see room availability."
   } catch (error) {
     socialStatus.textContent = error instanceof Error ? error.message : "Unable to load friends"
+  }
+}
+
+function canEnterSherwood(): boolean {
+  return !accessState.gateEnabled || accessState.entitled
+}
+
+async function refreshAccessPanel(): Promise<void> {
+  try {
+    const [session, nextAccess] = await Promise.all([currentWalletSession(), loadAccessState()])
+    accessState = nextAccess
+    const address = session ? walletAddress(session) : null
+    walletState.textContent = address ? shortWalletAddress(address) : nextAccess.authenticated ? "CONNECTED" : "NOT CONNECTED"
+    walletSignIn.classList.toggle("hidden", nextAccess.authenticated)
+    walletSignOut.classList.toggle("hidden", !nextAccess.authenticated)
+    tokenPassPurchase.classList.toggle("hidden", !nextAccess.gateEnabled || !nextAccess.authenticated || nextAccess.entitled || !nextAccess.payment)
+    startButton.disabled = !canEnterSherwood()
+    createRoomButton.disabled = !canEnterSherwood()
+    joinRoomButton.disabled = !canEnterSherwood()
+    joinPublicHubButton.disabled = !canEnterSherwood()
+    if (!nextAccess.gateEnabled) {
+      accessCopy.textContent = "The token-pass gate is switched off. Wallet sign-in is optional while Sherwood remains open."
+      accessStatus.textContent = "ACCESS SWITCH OFF · OPEN PLAY"
+    } else if (!nextAccess.authenticated) {
+      accessCopy.textContent = `Sign in with Robinhood Wallet, then buy a 30-day pass with the Sherwood token (approximately $${nextAccess.referencePriceUsd}).`
+      accessStatus.textContent = "WALLET SIGNATURE REQUIRED"
+    } else if (nextAccess.entitled) {
+      const expiry = nextAccess.accessExpiresAt ? new Date(nextAccess.accessExpiresAt).toLocaleDateString() : ""
+      accessCopy.textContent = "Your on-chain Sherwood pass is active. The authoritative realm is unlocked."
+      accessStatus.textContent = expiry ? `PASS ACTIVE THROUGH ${expiry.toUpperCase()}` : "PASS ACTIVE"
+    } else if (!nextAccess.payment) {
+      accessCopy.textContent = "Token payments are not configured on this realm. Access remains locked while the gate is on."
+      accessStatus.textContent = "TOKEN PAYMENT UNAVAILABLE"
+    } else {
+      const payment = nextAccess.payment
+      tokenPassPurchase.textContent = `PAY ${payment.amountDisplay} ${payment.tokenSymbol} · ${payment.passDays} DAYS`
+      accessCopy.textContent = `Transfer ${payment.amountDisplay} ${payment.tokenSymbol} on ${payment.chainName} for ${payment.passDays} days of access (approximately $${nextAccess.referencePriceUsd}).`
+      accessStatus.textContent = "PASS NOT ACTIVE"
+    }
+  } catch (error) {
+    accessStatus.textContent = error instanceof Error ? error.message : "Unable to check Sherwood access"
+  }
+}
+
+async function connectWalletAndRefresh(): Promise<void> {
+  walletSignIn.disabled = true
+  socialSignIn.disabled = true
+  accessStatus.textContent = "CHECK ROBINHOOD WALLET TO SIGN"
+  try {
+    await signInWithRobinhoodWallet()
+    await Promise.all([refreshAccessPanel(), refreshSocialPanel()])
+  } finally {
+    walletSignIn.disabled = false
+    socialSignIn.disabled = false
   }
 }
 
@@ -3272,6 +3363,7 @@ function syncViews(elapsed: number, dt: number): void {
 
 function animate(): void {
   requestAnimationFrame(animate)
+  if (document.visibilityState === "visible") diagnosticReporter?.observeFrame(performance.now())
   const dt = Math.min(clock.getDelta(), 0.05)
   const elapsed = clock.elapsedTime
   pollControllerActions()
@@ -3365,6 +3457,10 @@ function sendSupportAction(action: "revive" | "transfer_loot"): void {
 }
 
 startButton.addEventListener("click", () => {
+  if (!canEnterSherwood()) {
+    accessStatus.textContent = "Buy a 30-day token pass before entering Sherwood."
+    return
+  }
   enterHub(false)
 })
 
@@ -3379,7 +3475,7 @@ joinPublicHubButton.addEventListener("click", () => void (async () => {
   const social = await loadSocialState().catch(() => null)
   if (!social?.session) {
     openPanel(socialPanel, joinPublicHubButton)
-    socialStatus.textContent = "Sign in by private email link before opting into the public camp."
+    socialStatus.textContent = "Sign in with Robinhood Wallet before opting into the public camp."
     await refreshSocialPanel()
     return
   }
@@ -3540,15 +3636,34 @@ socialButton.addEventListener("click", () => {
   void refreshSocialPanel()
 })
 closeSocial.addEventListener("click", () => closePanel(socialPanel))
-socialSignIn.addEventListener("click", () => void (async () => {
-  const email = socialEmail.value.trim()
-  if (!email) return
+socialSignIn.addEventListener("click", () => void connectWalletAndRefresh()
+  .then(() => { socialStatus.textContent = "Robinhood Wallet connected." })
+  .catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to connect Robinhood Wallet" }))
+socialSignOut.addEventListener("click", () => void disconnectRobinhoodWallet().then(async () => {
+  currentSocial = null
+  await Promise.all([refreshAccessPanel(), refreshSocialPanel()])
+}).catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to sign out" }))
+walletSignIn.addEventListener("click", () => void connectWalletAndRefresh().catch((error) => {
+  accessStatus.textContent = error instanceof Error ? error.message : "Unable to connect Robinhood Wallet"
+}))
+walletSignOut.addEventListener("click", () => void disconnectRobinhoodWallet().then(async () => {
+  currentSocial = null
+  await Promise.all([refreshAccessPanel(), refreshSocialPanel()])
+}).catch((error) => { accessStatus.textContent = error instanceof Error ? error.message : "Unable to sign out" }))
+tokenPassPurchase.addEventListener("click", () => void (async () => {
+  const payment = accessState.payment
+  if (!payment) return
+  tokenPassPurchase.disabled = true
+  accessStatus.textContent = `CONFIRM ${payment.amountDisplay} ${payment.tokenSymbol} IN ROBINHOOD WALLET`
   try {
-    await sendMagicLink(email)
-    socialStatus.textContent = "Sign-in link sent. Return here after opening it; your email stays private."
-  } catch (error) { socialStatus.textContent = error instanceof Error ? error.message : "Unable to send sign-in link" }
+    accessState = await purchaseTokenPass(payment)
+    await refreshAccessPanel()
+  } catch (error) {
+    accessStatus.textContent = error instanceof Error ? error.message : "Token payment could not be verified"
+  } finally {
+    tokenPassPurchase.disabled = false
+  }
 })())
-socialSignOut.addEventListener("click", () => void signOutSocial().then(() => { currentSocial = null; return refreshSocialPanel() }).catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to sign out" }))
 socialAddFriend.addEventListener("click", () => void sendFriendRequest(socialFriendInput.value).then(async () => {
   socialFriendInput.value = ""
   socialStatus.textContent = "Friend request sent. Duplicate requests are suppressed."
@@ -3569,6 +3684,13 @@ highContrastSetting.addEventListener("change", () => { inputSettings.highContras
 captionsSetting.addEventListener("change", () => { inputSettings.captions = captionsSetting.checked; persistInputSettings() })
 readableTextSetting.addEventListener("change", () => { inputSettings.readableText = readableTextSetting.checked; persistInputSettings() })
 mobileSpectatorSetting.addEventListener("change", () => { inputSettings.mobileSpectator = mobileSpectatorSetting.checked; persistInputSettings() })
+gameplayAnalyticsSetting.addEventListener("change", () => {
+  setProductAnalyticsConsent(gameplayAnalyticsSetting.checked)
+  multiplayer.setProductAnalyticsConsent(gameplayAnalyticsSetting.checked)
+  settingsStatus.textContent = gameplayAnalyticsSetting.checked
+    ? "Anonymous play diagnostics enabled on this device."
+    : "Anonymous play diagnostics disabled on this device."
+})
 resetSettings.addEventListener("click", () => {
   inputSettings = {
     ...DEFAULT_INPUT_SETTINGS,
@@ -3672,9 +3794,11 @@ window.addEventListener("resize", () => {
 })
 
 window.addEventListener("blur", () => keys.clear())
+document.addEventListener("visibilitychange", () => diagnosticReporter?.resetFrameClock())
 window.addEventListener("beforeunload", () => unsubscribeLeaderboard?.())
 renderer.domElement.addEventListener("webglcontextlost", (event) => {
   event.preventDefault()
+  void diagnosticReporter?.report("webgl_context_lost")
   showToast("Graphics paused — restoring Sherwood")
 })
 renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sherwood restored"))
@@ -3682,6 +3806,7 @@ renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sh
 renderBindingControls()
 applyInputSettings()
 updateMissionDebug()
+void refreshAccessPanel()
 for (const panel of panelElements) panel.setAttribute("aria-hidden", String(panel.classList.contains("hidden")))
 updateUI()
 syncViews(0, 0.016)

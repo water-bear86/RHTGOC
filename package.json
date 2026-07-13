@@ -15,12 +15,17 @@
     "test:hub": "node tools/public-hub-smoke-test.mjs",
     "test:operator": "node tools/operator-review-smoke-test.mjs",
     "ops:aws-status": "node tools/aws-lightsail-status.mjs",
+    "ops:aws-edge": "node tools/aws-edge-release.mjs",
+    "ops:analytics-report": "node tools/gameplay-analytics-report.mjs",
     "build:village-assets": "node tools/build-sherwood-village-slice.mjs",
     "validate:assets": "node tools/validate-assets.mjs",
     "validate:missions": "tsx tools/validate-missions.ts"
   },
   "dependencies": {
+    "@reown/appkit": "1.8.22",
+    "@reown/appkit-adapter-ethers": "1.8.22",
     "@supabase/supabase-js": "2.110.2",
+    "ethers": "6.17.0",
     "three": "^0.178.0",
     "tsx": "4.23.0",
     "ws": "^8.18.3",

@@ -3,9 +3,11 @@ import { SHERWOOD_GUARD_SEPARATION } from "./guard-rules"
 import { composeSherwoodWorld } from "./world-composer"
 import {
   SHERWOOD_STATIC_OBSTACLES,
+  SHERWOOD_RIDGE_ROCK_OBSTACLES,
   SHERWOOD_TREE_OBSTACLES,
   VILLAGE_COTTAGE_OBSTACLE,
   createSherwoodRiverObstacles,
+  selectSherwoodRidgeRockObstaclesForRoads,
 } from "./world-obstacles"
 
 export { SHERWOOD_CROSSING_HALF_LENGTH, SHERWOOD_RIVER_HALF_WIDTH } from "./world-obstacles"
@@ -41,7 +43,22 @@ export const VILLAGE_COTTAGE_COLLIDER: OrientedRectangleCollider = VILLAGE_COTTA
 /** Tight square trunk footprints; the player's radius rounds their effective corners. */
 export const SHERWOOD_TREE_COLLIDERS: readonly OrientedRectangleCollider[] = SHERWOOD_TREE_OBSTACLES
 
+/** Collision-aligned footprints for the large rendered ridge boulders. */
+export const SHERWOOD_RIDGE_ROCK_COLLIDERS: readonly OrientedRectangleCollider[] = SHERWOOD_RIDGE_ROCK_OBSTACLES
+
 export const SHERWOOD_STATIC_COLLIDERS: readonly OrientedRectangleCollider[] = SHERWOOD_STATIC_OBSTACLES
+
+const missionStaticColliderCache = new WeakMap<RegionalMissionLayout, readonly OrientedRectangleCollider[]>()
+
+function staticCollidersForLayout(layout?: RegionalMissionLayout): readonly OrientedRectangleCollider[] {
+  if (!layout) return [...SHERWOOD_STATIC_COLLIDERS, ...SHERWOOD_RIDGE_ROCK_COLLIDERS]
+  const cached = missionStaticColliderCache.get(layout)
+  if (cached) return cached
+  const rocks = selectSherwoodRidgeRockObstaclesForRoads(composeSherwoodWorld(layout).roads)
+  const colliders = Object.freeze([...SHERWOOD_STATIC_COLLIDERS, ...rocks])
+  missionStaticColliderCache.set(layout, colliders)
+  return colliders
+}
 
 /** Builds solid river-bank spans while leaving exactly two seeded bridge gaps. */
 export function createSherwoodRiverColliders(layout: Pick<RegionalMissionLayout, "crossingPositions">): OrientedRectangleCollider[] {
@@ -394,7 +411,8 @@ export function resolveSherwoodPlayerMovement(
   const bounds = normalizeBounds(worldBounds)
   const radius = Number.isFinite(playerRadius) && playerRadius >= 0 ? playerRadius : SHERWOOD_PLAYER_RADIUS
   const midpoint = { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 }
-  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout), ...createSherwoodSettlementColliders(layout), ...createSherwoodTopologyColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
+  const staticColliders = staticCollidersForLayout(layout)
+  const colliders = layout ? [...staticColliders, ...createSherwoodRiverColliders(layout), ...createSherwoodSettlementColliders(layout), ...createSherwoodTopologyColliders(layout)] : staticColliders
   let position = depenetrate({
     x: finiteOr(start.x, midpoint.x),
     z: finiteOr(start.z, midpoint.z),
@@ -454,9 +472,10 @@ export function resolveSherwoodCombinedMovement(
     ? options.circleSeparation!
     : SHERWOOD_GUARD_SEPARATION
   const midpoint = { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 }
+  const staticColliders = staticCollidersForLayout(options.layout)
   const colliders = options.layout
-    ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(options.layout), ...createSherwoodSettlementColliders(options.layout), ...createSherwoodTopologyColliders(options.layout)]
-    : SHERWOOD_STATIC_COLLIDERS
+    ? [...staticColliders, ...createSherwoodRiverColliders(options.layout), ...createSherwoodSettlementColliders(options.layout), ...createSherwoodTopologyColliders(options.layout)]
+    : staticColliders
   const circleBlockers = options.circleBlockers.filter((blocker) => Number.isFinite(blocker.x) && Number.isFinite(blocker.z))
   const safeStart = clampPoint({
     x: finiteOr(start.x, midpoint.x),
@@ -545,6 +564,7 @@ export function isSherwoodPlayerPositionBlocked(
 ): boolean {
   const radius = Number.isFinite(playerRadius) && playerRadius >= 0 ? playerRadius : SHERWOOD_PLAYER_RADIUS
   if (!Number.isFinite(position.x) || !Number.isFinite(position.z)) return true
-  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout), ...createSherwoodSettlementColliders(layout), ...createSherwoodTopologyColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
+  const staticColliders = staticCollidersForLayout(layout)
+  const colliders = layout ? [...staticColliders, ...createSherwoodRiverColliders(layout), ...createSherwoodSettlementColliders(layout), ...createSherwoodTopologyColliders(layout)] : staticColliders
   return colliders.some((collider) => isInsideCollider(position, collider, radius))
 }

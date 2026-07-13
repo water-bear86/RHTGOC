@@ -3,6 +3,10 @@ import type { Vec2 } from "./simulation"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import type { SherwoodSeasonSnapshot } from "../shared/sherwood-season"
 import { getSupabase } from "./supabase"
+import { getProductAnalyticsConsent } from "./analytics-consent"
+import type { ClientDiagnostic } from "./client-diagnostics"
+import { CLIENT_BUILD_ID, refreshForBuildMismatch } from "./release"
+import type { RoomExperimentAssignment } from "../shared/experiments"
 
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
@@ -12,6 +16,7 @@ export interface MultiplayerEvents {
   onConnection?: (connected: boolean) => void
   onHubWelcome?: (instanceId: string, participantId: string, capacity: number) => void
   onHubState?: (players: PublicHubPlayer[]) => void
+  onExperiments?: (assignments: RoomExperimentAssignment[]) => void
 }
 
 export class MultiplayerClient {
@@ -38,7 +43,7 @@ export class MultiplayerClient {
     this.hubSession = null
     this.reconnectSession = null
     this.pendingIdentity = { displayName, characterId }
-    void this.getAccessToken().then((accessToken) => this.connect(() => this.send({ type: "create_room", version: PROTOCOL_VERSION, displayName, characterId, accessToken })))
+    void this.getAccessToken().then((accessToken) => this.connect(() => this.send({ type: "create_room", ...this.handshake(), displayName, characterId, accessToken })))
   }
 
   joinRoom(roomCode: string, displayName: string, characterId: CharacterId): void {
@@ -47,7 +52,7 @@ export class MultiplayerClient {
     this.reconnectSession = { roomCode: normalizedCode, displayName, characterId }
     this.pendingIdentity = { displayName, characterId }
     const reconnectToken = localStorage.getItem(`sherwood:reconnect:${normalizedCode}`) ?? undefined
-    void this.getAccessToken().then((accessToken) => this.connect(() => this.send({ type: "join_room", version: PROTOCOL_VERSION, roomCode: normalizedCode, displayName, characterId, reconnectToken, accessToken })))
+    void this.getAccessToken().then((accessToken) => this.connect(() => this.send({ type: "join_room", ...this.handshake(), roomCode: normalizedCode, displayName, characterId, reconnectToken, accessToken })))
   }
 
   joinPublicHub(displayName: string, characterId: CharacterId): void {
@@ -59,7 +64,7 @@ export class MultiplayerClient {
         this.events.onError?.("Sign in before entering the public camp")
         return
       }
-      this.connect(() => this.send({ type: "join_public_hub", version: PROTOCOL_VERSION, displayName, characterId, accessToken }))
+      this.connect(() => this.send({ type: "join_public_hub", ...this.handshake(), displayName, characterId, accessToken }))
     })
   }
 
@@ -165,6 +170,15 @@ export class MultiplayerClient {
     this.send({ type: "moderation", action, targetPlayerId, reason })
   }
 
+  sendDiagnostic(diagnostic: ClientDiagnostic): void {
+    if (!getProductAnalyticsConsent()) return
+    this.send(diagnostic)
+  }
+
+  setProductAnalyticsConsent(consented: boolean): void {
+    this.send({ type: "set_product_analytics", consented })
+  }
+
   close(): void {
     this.intentionallyClosed = true
     this.connectionId += 1
@@ -224,16 +238,20 @@ export class MultiplayerClient {
       localStorage.setItem(`sherwood:reconnect:${message.roomCode}`, message.reconnectToken)
       this.events.onWelcome?.(message.playerId, message.roomCode)
     }
-    if (message.type === "room_state") this.events.onRoomState?.(message.roomCode, message.phase, message.players, message.missionSlug, message.village, message.lastResult, message.selectedRotationId, message.rotationsPaused, message.rotations, message.upcomingRotations, message.rescueOffer, message.contributions, message.selectedContributionIds, message.season, message.band)
+    if (message.type === "room_state") {
+      this.events.onExperiments?.(message.experiments)
+      this.events.onRoomState?.(message.roomCode, message.phase, message.players, message.missionSlug, message.village, message.lastResult, message.selectedRotationId, message.rotationsPaused, message.rotations, message.upcomingRotations, message.rescueOffer, message.contributions, message.selectedContributionIds, message.season, message.band)
+    }
     if (message.type === "hub_welcome") this.events.onHubWelcome?.(message.instanceId, message.participantId, message.capacity)
     if (message.type === "hub_state") this.events.onHubState?.(message.players)
     if (message.type === "hub_band_ready" && this.pendingIdentity) {
       const identity = this.pendingIdentity
       this.hubSession = null
       this.reconnectSession = { roomCode: message.roomCode, ...identity }
-      window.setTimeout(() => void this.getAccessToken().then((accessToken) => this.send({ type: "join_room", version: PROTOCOL_VERSION, roomCode: message.roomCode, displayName: identity.displayName, characterId: identity.characterId, accessToken })), message.leader ? 0 : 120)
+      window.setTimeout(() => void this.getAccessToken().then((accessToken) => this.send({ type: "join_room", ...this.handshake(), roomCode: message.roomCode, displayName: identity.displayName, characterId: identity.characterId, accessToken })), message.leader ? 0 : 120)
     }
     if (message.type === "snapshot") {
+      this.events.onExperiments?.(message.experiments)
       const now = performance.now()
       if (this.playerId && now - this.lastMetricsAt >= 10_000) {
         const localPlayer = message.players.find((player) => player.id === this.playerId)
@@ -245,7 +263,10 @@ export class MultiplayerClient {
       this.lastSnapshotAt = now
       this.events.onSnapshot?.(message.tick, message.players, message.mission)
     }
-    if (message.type === "error") this.events.onError?.(message.message)
+    if (message.type === "error") {
+      if (message.code === "VERSION_MISMATCH" && message.buildId && refreshForBuildMismatch(message.buildId)) return
+      this.events.onError?.(message.message)
+    }
   }
 
   private send(message: unknown): void {
@@ -262,7 +283,7 @@ export class MultiplayerClient {
       const hub = this.hubSession
       if (hub) {
         void this.getAccessToken().then((accessToken) => {
-          if (accessToken) this.connect(() => this.send({ type: "join_public_hub", version: PROTOCOL_VERSION, displayName: hub.displayName, characterId: hub.characterId, accessToken }))
+          if (accessToken) this.connect(() => this.send({ type: "join_public_hub", ...this.handshake(), displayName: hub.displayName, characterId: hub.characterId, accessToken }))
         })
         return
       }
@@ -270,7 +291,7 @@ export class MultiplayerClient {
       const reconnectToken = localStorage.getItem(`sherwood:reconnect:${session.roomCode}`) ?? undefined
       void this.getAccessToken().then((accessToken) => this.connect(() => this.send({
           type: "join_room",
-          version: PROTOCOL_VERSION,
+          ...this.handshake(),
           roomCode: session.roomCode,
           displayName: session.displayName,
           characterId: session.characterId,
@@ -285,5 +306,9 @@ export class MultiplayerClient {
     if (!supabase) return undefined
     const { data } = await supabase.auth.getSession()
     return data.session?.access_token
+  }
+
+  private handshake(): { version: typeof PROTOCOL_VERSION; buildId: string; productAnalytics: boolean } {
+    return { version: PROTOCOL_VERSION, buildId: CLIENT_BUILD_ID, productAnalytics: getProductAnalyticsConsent() }
   }
 }

@@ -1,24 +1,26 @@
 import { describe, expect, it } from "vitest"
 import { PROTOCOL_VERSION, parseClientMessage } from "./protocol"
 
+const handshake = { version: PROTOCOL_VERSION, buildId: "test-build", productAnalytics: true } as const
+
 describe("Merry Band protocol", () => {
   it("accepts a versioned create-room message", () => {
-    expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "Oakheart", characterId: "marian" })).toEqual({
+    expect(parseClientMessage({ type: "create_room", ...handshake, displayName: "Oakheart", characterId: "marian" })).toEqual({
       type: "create_room",
-      version: PROTOCOL_VERSION,
+      ...handshake,
       displayName: "Oakheart",
       characterId: "marian",
     })
   })
 
   it("accepts bounded Supabase access tokens without trusting user ids from clients", () => {
-    expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "Oakheart", characterId: "marian", accessToken: "header.payload.signature.long-enough" })).not.toBeNull()
-    expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "Oakheart", characterId: "marian", accessToken: "short" })).toBeNull()
+    expect(parseClientMessage({ type: "create_room", ...handshake, displayName: "Oakheart", characterId: "marian", accessToken: "header.payload.signature.long-enough" })).not.toBeNull()
+    expect(parseClientMessage({ type: "create_room", ...handshake, displayName: "Oakheart", characterId: "marian", accessToken: "short" })).toBeNull()
   })
 
   it("accepts the four authored outlaw roles", () => {
     for (const characterId of ["robin", "marian", "little-john", "much"]) {
-      expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "Oakheart", characterId })).not.toBeNull()
+      expect(parseClientMessage({ type: "create_room", ...handshake, displayName: "Oakheart", characterId })).not.toBeNull()
     }
   })
 
@@ -43,8 +45,8 @@ describe("Merry Band protocol", () => {
   })
 
   it("rejects malformed names, room codes, and movement", () => {
-    expect(parseClientMessage({ type: "create_room", version: PROTOCOL_VERSION, displayName: "<script>", characterId: "robin" })).toBeNull()
-    expect(parseClientMessage({ type: "join_room", version: PROTOCOL_VERSION, roomCode: "abc", displayName: "Robin", characterId: "robin" })).toBeNull()
+    expect(parseClientMessage({ type: "create_room", ...handshake, displayName: "<script>", characterId: "robin" })).toBeNull()
+    expect(parseClientMessage({ type: "join_room", ...handshake, roomCode: "abc", displayName: "Robin", characterId: "robin" })).toBeNull()
     expect(parseClientMessage({ type: "input", sequence: 1, move: { x: 99, z: 0 } })).toBeNull()
   })
 
@@ -63,7 +65,7 @@ describe("Merry Band protocol", () => {
   })
 
   it("accepts only fixed, bounded public-camp discovery intents", () => {
-    expect(parseClientMessage({ type: "join_public_hub", version: PROTOCOL_VERSION, displayName: "Oakheart", characterId: "robin", accessToken: "header.payload.signature.long-enough" })).not.toBeNull()
+    expect(parseClientMessage({ type: "join_public_hub", ...handshake, displayName: "Oakheart", characterId: "robin", accessToken: "header.payload.signature.long-enough" })).not.toBeNull()
     expect(parseClientMessage({ type: "hub_intent", looking: true, targetPreference: "peoples-purse", desiredPartySize: 4 })).not.toBeNull()
     expect(parseClientMessage({ type: "hub_intent", looking: true, targetPreference: "unreleased", desiredPartySize: 20 })).toBeNull()
     expect(parseClientMessage({ type: "hub_emote", kind: "wave" })).not.toBeNull()
@@ -72,8 +74,15 @@ describe("Merry Band protocol", () => {
   })
 
   it("accepts privacy-safe desync telemetry only within bounded ranges", () => {
+    expect(parseClientMessage({ type: "set_product_analytics", consented: false })).toEqual({ type: "set_product_analytics", consented: false })
     expect(parseClientMessage({ type: "client_metrics", inputBacklog: 4, snapshotGapMs: 102 })).not.toBeNull()
     expect(parseClientMessage({ type: "client_metrics", inputBacklog: 99_999, snapshotGapMs: 102 })).toBeNull()
     expect(parseClientMessage({ type: "client_metrics", inputBacklog: 4, snapshotGapMs: -1 })).toBeNull()
+  })
+
+  it("accepts only fixed diagnostic codes and locally hashed fingerprints", () => {
+    expect(parseClientMessage({ type: "client_diagnostic", code: "webgl_context_lost", fingerprint: "a".repeat(64), renderProfile: "degraded", browserFamily: "safari", browserMajor: 19 })).not.toBeNull()
+    expect(parseClientMessage({ type: "client_diagnostic", code: "freeform_error", message: "raw stack", renderProfile: "standard", browserFamily: "chromium" })).toBeNull()
+    expect(parseClientMessage({ type: "client_diagnostic", code: "uncaught_error", fingerprint: "not-a-hash", renderProfile: "standard", browserFamily: "other" })).toBeNull()
   })
 })

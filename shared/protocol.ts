@@ -3,6 +3,7 @@ import type { SheriffRotation } from "./sheriff-rotation"
 import protocolVersion from "./protocol-version.json"
 import type { RegionalMissionLayout } from "./regional-layout"
 import type { SherwoodSeasonSnapshot } from "./sherwood-season"
+import type { RoomExperimentAssignment } from "./experiments"
 
 export const PROTOCOL_VERSION = protocolVersion.version
 export const MAX_ROOM_PLAYERS = 4
@@ -17,18 +18,39 @@ export type ContributionType = z.infer<typeof ContributionTypeSchema>
 
 const DisplayNameSchema = z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9 _-]+$/)
 const RoomCodeSchema = z.string().trim().length(6).regex(/^[A-Z2-9]+$/)
+const BuildIdSchema = z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
+
+export const ClientDiagnosticCodeSchema = z.enum([
+  "webgl_context_lost",
+  "asset_load_failed",
+  "uncaught_error",
+  "unhandled_rejection",
+  "frame_stall",
+  "snapshot_desync",
+])
+export type ClientDiagnosticCode = z.infer<typeof ClientDiagnosticCodeSchema>
+export const RenderProfileSchema = z.enum(["standard", "degraded"])
+export type RenderProfile = z.infer<typeof RenderProfileSchema>
+export const BrowserFamilySchema = z.enum(["chromium", "firefox", "safari", "other"])
+export type BrowserFamily = z.infer<typeof BrowserFamilySchema>
+
+const ClientHandshakeSchema = {
+  version: z.literal(PROTOCOL_VERSION),
+  buildId: BuildIdSchema,
+  productAnalytics: z.boolean(),
+} as const
 
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("create_room"),
-    version: z.literal(PROTOCOL_VERSION),
+    ...ClientHandshakeSchema,
     displayName: DisplayNameSchema,
     characterId: CharacterIdSchema,
     accessToken: z.string().min(20).max(4_096).optional(),
   }),
   z.object({
     type: z.literal("join_room"),
-    version: z.literal(PROTOCOL_VERSION),
+    ...ClientHandshakeSchema,
     roomCode: RoomCodeSchema,
     displayName: DisplayNameSchema,
     characterId: CharacterIdSchema,
@@ -36,6 +58,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     accessToken: z.string().min(20).max(4_096).optional(),
   }),
   z.object({ type: z.literal("set_ready"), ready: z.boolean() }),
+  z.object({ type: z.literal("set_product_analytics"), consented: z.boolean() }),
   z.object({ type: z.literal("select_character"), characterId: CharacterIdSchema }),
   z.object({ type: z.literal("select_mission"), missionSlug: z.string().regex(/^[a-z0-9-]{1,60}$/) }),
   z.object({ type: z.literal("select_rotation"), rotationId: z.string().regex(/^sheriff-[a-z0-9-]{8,80}$/) }),
@@ -50,7 +73,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("respond_band_membership"), accept: z.boolean() }),
   z.object({ type: z.literal("update_band_identity"), name: z.string().trim().min(3).max(28).regex(/^[A-Za-z0-9 _-]+$/), bannerId: z.enum(["oak", "fox", "arrow", "stag"]) }),
   z.object({ type: z.literal("remove_band_member"), targetPlayerId: z.string().uuid() }),
-  z.object({ type: z.literal("join_public_hub"), version: z.literal(PROTOCOL_VERSION), displayName: DisplayNameSchema, characterId: CharacterIdSchema, accessToken: z.string().min(20).max(4_096) }),
+  z.object({ type: z.literal("join_public_hub"), ...ClientHandshakeSchema, displayName: DisplayNameSchema, characterId: CharacterIdSchema, accessToken: z.string().min(20).max(4_096) }),
   z.object({ type: z.literal("hub_intent"), looking: z.boolean(), targetPreference: z.enum(["any", "peoples-purse", "prison-wagon", "royal-storehouse"]), desiredPartySize: z.number().int().min(2).max(4) }),
   z.object({ type: z.literal("hub_move"), sequence: z.number().int().nonnegative(), move: z.object({ x: z.number().min(-1).max(1), z: z.number().min(-1).max(1) }) }),
   z.object({ type: z.literal("hub_emote"), kind: z.enum(["wave", "cheer", "bow"]) }),
@@ -82,6 +105,14 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("client_metrics"),
     inputBacklog: z.number().int().min(0).max(2_000),
     snapshotGapMs: z.number().int().min(0).max(60_000),
+  }),
+  z.object({
+    type: z.literal("client_diagnostic"),
+    code: ClientDiagnosticCodeSchema,
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    renderProfile: RenderProfileSchema,
+    browserFamily: BrowserFamilySchema,
+    browserMajor: z.number().int().min(1).max(999).optional(),
   }),
 ])
 
@@ -322,14 +353,14 @@ export interface PublicHubPlayer {
 }
 
 export type ServerMessage =
-  | { type: "welcome"; version: typeof PROTOCOL_VERSION; playerId: string; reconnectToken: string; roomCode: string }
-  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; rescueOffer: RescueOffer | null; contributions: BandContribution[]; selectedContributionIds: string[]; season: SherwoodSeasonSnapshot | null; band: MerryBandState | null; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
+  | { type: "welcome"; version: typeof PROTOCOL_VERSION; buildId: string; playerId: string; reconnectToken: string; roomCode: string }
+  | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; rescueOffer: RescueOffer | null; contributions: BandContribution[]; selectedContributionIds: string[]; season: SherwoodSeasonSnapshot | null; band: MerryBandState | null; experiments: RoomExperimentAssignment[]; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
   | { type: "hub_welcome"; instanceId: string; participantId: string; capacity: number }
   | { type: "hub_state"; instanceId: string; players: PublicHubPlayer[] }
   | { type: "hub_band_ready"; roomCode: string; leader: boolean }
-  | { type: "snapshot"; tick: number; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
+  | { type: "snapshot"; tick: number; experiments: RoomExperimentAssignment[]; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
-  | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string }
+  | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string; buildId?: string }
 
 export function parseClientMessage(value: unknown): ClientMessage | null {
   const result = ClientMessageSchema.safeParse(value)

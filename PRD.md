@@ -219,9 +219,9 @@ Progression should operate across three connected tracks:
 - **Band:** camp facilities, banner identity, mission intelligence, and cooperative perks.
 - **Community:** village security, food, health, loyalty, recruits, routes, and available missions.
 
-The first multiplayer version should use only earned in-game resources. A token, marketplace, real-money economy, or player-to-player asset trading is explicitly outside the social MVP.
+In-game progression uses only earned resources. The sole token integration is a non-power access pass: a verified transfer of the project token on Robinhood Chain grants 30 days of play at an operator-maintained amount intended to approximate USD $6. Token balances, purchase size, and market value must never affect combat, rewards, rankings, or cooperative power. Marketplaces and player-to-player asset trading remain outside the social MVP.
 
-Future monetization should prioritize cosmetics, banners, camp decoration, emotes, and other non-power identity items. It must not undermine cooperative balance or generosity mechanics.
+Any future monetization beyond the access pass should prioritize cosmetics, banners, camp decoration, emotes, and other non-power identity items. It must not undermine cooperative balance or generosity mechanics.
 
 ## 11. World and content requirements
 
@@ -325,7 +325,7 @@ M9 is a planning milestone, not active feature implementation. Its entry gate is
 - A seamless massively multiplayer world.
 - Open-world PvP.
 - Public marketplace or player trading.
-- Blockchain or token integration.
+- Tokenized items, open trading, or blockchain-powered gameplay progression beyond the Robinhood Chain access pass.
 - User-generated levels or objects.
 - Public voice or unrestricted text chat.
 - Large guild administration systems.

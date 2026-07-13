@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { PEOPLES_PURSE_MISSION } from "./mission-catalog"
-import { regionalizeMissionDefinition } from "./regional-layout"
+import {
+  SHERWOOD_RIVER_CENTER_X,
+  SHERWOOD_RIVER_SLOPE,
+  regionalizeMissionDefinition,
+} from "./regional-layout"
 import { composeSherwoodWorld } from "./world-composer"
+import { SHERWOOD_RIVER_HALF_WIDTH } from "./world-obstacles"
 import { SHERWOOD_SETTLEMENT_SITES } from "./world-topology"
 
 describe("Sherwood world composer", () => {
@@ -44,6 +49,21 @@ describe("Sherwood world composer", () => {
       expect(world.roads).toHaveLength(6)
       expect(world.roads.every((road) => road.points.length >= 2)).toBe(true)
       expect(world.buildingCount).toBeGreaterThanOrEqual(10)
+    }
+  })
+
+  it("keeps every building footprint entirely out of the river", () => {
+    const riverNormalLength = Math.hypot(1, -SHERWOOD_RIVER_SLOPE)
+    for (let index = 1; index <= 64; index += 1) {
+      const seededLayout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, index * 7919).layout
+      const buildings = composeSherwoodWorld(seededLayout).settlements.flatMap((settlement) => settlement.buildings)
+      for (const building of buildings) {
+        const centerlineDistance = Math.abs(
+          building.position.x - SHERWOOD_RIVER_CENTER_X - SHERWOOD_RIVER_SLOPE * building.position.z,
+        ) / riverNormalLength
+        const footprintRadius = Math.hypot(building.halfExtents.x, building.halfExtents.z)
+        expect(centerlineDistance - footprintRadius).toBeGreaterThan(SHERWOOD_RIVER_HALF_WIDTH)
+      }
     }
   })
 })

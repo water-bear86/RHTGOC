@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Route 53 authority for rhtgoc.site. Deploy this stack before the edge stack.
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: rhtgoc.site
+    AllowedPattern: "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+    Description: Lowercase registered domain name without a scheme or path.
+
+Rules:
+  DeployInUsEast1:
+    Assertions:
+      - Assert: !Equals [!Ref AWS::Region, us-east-1]
+        AssertDescription: Deploy the DNS stack in us-east-1 so both stacks use one operator region.
+
+Resources:
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Ref DomainName
+      HostedZoneConfig:
+        Comment: !Sub Authoritative public zone for ${DomainName}
+      HostedZoneTags:
+        - Key: application
+          Value: sherwood-rebellion
+        - Key: managed-by
+          Value: cloudformation
+
+Outputs:
+  DomainName:
+    Description: Domain delegated to this hosted zone.
+    Value: !Ref DomainName
+  HostedZoneId:
+    Description: Pass this value to the rhtgoc-edge stack.
+    Value: !Ref HostedZone
+  NameServers:
+    Description: Replace the Namecheap nameservers with these four values before deploying the edge stack.
+    Value: !Join [",", !GetAtt HostedZone.NameServers]

@@ -18,8 +18,11 @@ Required build arguments:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_REOWN_PROJECT_ID`
+- `VITE_ROBINHOOD_CHAIN`
+- `BUILD_ID` (the immutable release ID shared by the built client and room process)
 
-Runtime port: `8080`. Health check: `/health`. WebSocket endpoint: `/rooms`.
+Runtime port: `8080`. Readiness check: `/ready`. Diagnostic health: `/health`. WebSocket endpoint: `/rooms`.
 
 Runtime secrets are supplied only to the container deployment, never as Docker build arguments:
 
@@ -27,6 +30,19 @@ Runtime secrets are supplied only to the container deployment, never as Docker b
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`
 - `OPS_ADMIN_SECRET`
+- `ROBINHOOD_CHAIN`
+- `ROBINHOOD_RPC_URL`
+- `TOKEN_CONTRACT_ADDRESS`
+- `TOKEN_TREASURY_ADDRESS`
+- `TOKEN_SYMBOL`
+- `TOKEN_DECIMALS`
+- `TOKEN_ACCESS_AMOUNT`
+- `TOKEN_ACCESS_DAYS`
+- `TOKEN_PAYMENT_CONFIRMATIONS`
+- `PUBLIC_ORIGIN`
+- `TOKEN_ACCESS_GATE_ENABLED`
+- `BUILD_ID`
+- `GAMEPLAY_ANALYTICS_ENABLED`
 
 Keep them in AWS Secrets Manager or the operator's encrypted password manager and inject them into the container environment. Rotate immediately after suspected disclosure. A deployment without these values remains playable but reports `bandPersistence`, `verifiedLeaderboardWrites`, `rescueOfferPersistence`, `contributionPersistence`, `seasonPersistence`, and `socialPersistence` as `false` at `/health`.
 
@@ -45,6 +61,9 @@ docker build \
   --platform linux/amd64 \
   --build-arg VITE_SUPABASE_URL \
   --build-arg VITE_SUPABASE_PUBLISHABLE_KEY \
+  --build-arg VITE_REOWN_PROJECT_ID \
+  --build-arg VITE_ROBINHOOD_CHAIN \
+  --build-arg BUILD_ID="$VERSION" \
   -t sherwood-rebellion:VERSION .
 
 eval "$(aws configure export-credentials --format env)"
@@ -67,17 +86,30 @@ jq -n \
   --arg publishable "$SUPABASE_PUBLISHABLE_KEY" \
   --arg secret "$SUPABASE_SECRET_KEY" \
   --arg ops "$OPS_ADMIN_SECRET" \
-  '{app:{image:$image,environment:{SUPABASE_URL:$url,SUPABASE_PUBLISHABLE_KEY:$publishable,SUPABASE_SECRET_KEY:$secret,OPS_ADMIN_SECRET:$ops},ports:{"8080":"HTTP"}}}' \
+  --arg chain "$ROBINHOOD_CHAIN" \
+  --arg rpc "$ROBINHOOD_RPC_URL" \
+  --arg contract "$TOKEN_CONTRACT_ADDRESS" \
+  --arg treasury "$TOKEN_TREASURY_ADDRESS" \
+  --arg symbol "$TOKEN_SYMBOL" \
+  --arg decimals "$TOKEN_DECIMALS" \
+  --arg amount "$TOKEN_ACCESS_AMOUNT" \
+  --arg days "$TOKEN_ACCESS_DAYS" \
+  --arg confirmations "$TOKEN_PAYMENT_CONFIRMATIONS" \
+  --arg origin "$PUBLIC_ORIGIN" \
+  --arg gate "$TOKEN_ACCESS_GATE_ENABLED" \
+  --arg build "$VERSION" \
+  --arg analytics "$GAMEPLAY_ANALYTICS_ENABLED" \
+  '{app:{image:$image,environment:{SUPABASE_URL:$url,SUPABASE_PUBLISHABLE_KEY:$publishable,SUPABASE_SECRET_KEY:$secret,OPS_ADMIN_SECRET:$ops,ROBINHOOD_CHAIN:$chain,ROBINHOOD_RPC_URL:$rpc,TOKEN_CONTRACT_ADDRESS:$contract,TOKEN_TREASURY_ADDRESS:$treasury,TOKEN_SYMBOL:$symbol,TOKEN_DECIMALS:$decimals,TOKEN_ACCESS_AMOUNT:$amount,TOKEN_ACCESS_DAYS:$days,TOKEN_PAYMENT_CONFIRMATIONS:$confirmations,PUBLIC_ORIGIN:$origin,TOKEN_ACCESS_GATE_ENABLED:$gate,BUILD_ID:$build,GAMEPLAY_ANALYTICS_ENABLED:$analytics},ports:{"8080":"HTTP"}}}' \
   > "$DEPLOY_SPEC"
 
 aws lightsail create-container-service-deployment \
   --service-name sherwood-rebellion \
   --region ca-central-1 \
   --containers "file://$DEPLOY_SPEC" \
-  --public-endpoint '{"containerName":"app","containerPort":8080,"healthCheck":{"path":"/health","intervalSeconds":10,"timeoutSeconds":5,"healthyThreshold":2,"unhealthyThreshold":2,"successCodes":"200-399"}}'
+  --public-endpoint '{"containerName":"app","containerPort":8080,"healthCheck":{"path":"/ready","intervalSeconds":10,"timeoutSeconds":5,"healthyThreshold":2,"unhealthyThreshold":2,"successCodes":"200-299"}}'
 
 rm -f "$DEPLOY_SPEC"
-unset DEPLOY_SPEC SUPABASE_SECRET_KEY OPS_ADMIN_SECRET
+unset DEPLOY_SPEC SUPABASE_SECRET_KEY OPS_ADMIN_SECRET ROBINHOOD_RPC_URL
 ```
 
 Confirm `RUNNING` and `ACTIVE` before announcing the release. The status query must select only non-secret deployment fields; never dump the complete service object or `currentDeployment.containers.environment` into a terminal transcript:
@@ -91,6 +123,8 @@ The checked-in command owns the field-limited query and rejects responses contai
 replace it with an unfiltered `get-container-services` call, including during incident response.
 
 Then run the health, reconnect, and bounded load checks against the new origin and inspect `/metrics` for persistence failures. A persistence-enabled release is not accepted until `/health` reports all six persistence flags true and one authenticated production mission proves the band-history and verified-leaderboard write paths.
+
+Keep `TOKEN_ACCESS_GATE_ENABLED=false` through initial wallet and token-payment validation. Test on Robinhood Chain testnet first. Before switching mainnet access on, apply the token-access migration, enable Ethereum Web3 Auth in Supabase, configure the production Reown origin, set the exact minted token and treasury addresses, set the operator-maintained token quantity that approximates USD $6, and prove valid payment, underpayment rejection, replay rejection, expiration, and renewal. After enabling it, `/health` must report both `tokenAccessGate: true` and `tokenPaymentConfigured: true`; a `true/false` combination is a failed deployment and blocks promotion.
 
 ## Rollback
 

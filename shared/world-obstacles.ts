@@ -3,7 +3,7 @@ import {
   riverPointAt,
   type RegionalMissionLayout,
 } from "./regional-layout"
-import { SHERWOOD_TREE_LAYOUT } from "./world-layout"
+import { SHERWOOD_RIDGE_ROCK_LAYOUT, SHERWOOD_TREE_LAYOUT } from "./world-layout"
 
 export interface SherwoodObstacle {
   id: string
@@ -31,10 +31,45 @@ export const SHERWOOD_TREE_OBSTACLES: readonly SherwoodObstacle[] = Object.freez
   })),
 )
 
+/**
+ * Insets the box proxy into the irregular dodecahedron while the player radius
+ * covers its visible edge, avoiding both walk-throughs and an oversized wall.
+ */
+export const SHERWOOD_RIDGE_ROCK_OBSTACLES: readonly SherwoodObstacle[] = Object.freeze(
+  SHERWOOD_RIDGE_ROCK_LAYOUT.map((rock, index) => Object.freeze({
+    id: `sherwood-ridge-rock-${index}`,
+    center: Object.freeze({ x: rock.x, z: rock.z }),
+    halfExtents: Object.freeze({ x: rock.scale.x * 0.82, z: rock.scale.z * 0.82 }),
+    rotation: rock.rotation,
+  })),
+)
+
 export const SHERWOOD_STATIC_OBSTACLES: readonly SherwoodObstacle[] = Object.freeze([
   VILLAGE_COTTAGE_OBSTACLE,
   ...SHERWOOD_TREE_OBSTACLES,
 ])
+
+export interface SherwoodRoadCorridor {
+  width: number
+  points: readonly { x: number; z: number }[]
+}
+
+/**
+ * Keeps generated roads traversable by removing conflicting boulders from
+ * both the renderer and runtime collision through one shared selection rule.
+ */
+export function selectSherwoodRidgeRockObstaclesForRoads(
+  roads: readonly SherwoodRoadCorridor[],
+): readonly SherwoodObstacle[] {
+  return SHERWOOD_RIDGE_ROCK_OBSTACLES.filter((rock) => roads.every((road) => (
+    road.points.slice(1).every((point, index) => !isSegmentBlockedBySherwoodObstacle(
+      road.points[index],
+      point,
+      rock,
+      road.width / 2 + 0.45 + 0.18,
+    ))
+  )))
+}
 
 /** River spans are solid except for the two authored crossing apertures. */
 export function createSherwoodRiverObstacles(

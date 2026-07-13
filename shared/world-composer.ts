@@ -1,4 +1,10 @@
-import { riverPointAt, sherwoodRegionCells, type RegionalMissionLayout } from "./regional-layout"
+import {
+  SHERWOOD_RIVER_CENTER_X,
+  SHERWOOD_RIVER_SLOPE,
+  riverPointAt,
+  sherwoodRegionCells,
+  type RegionalMissionLayout,
+} from "./regional-layout"
 import { SHERWOOD_TREE_LAYOUT } from "./world-layout"
 import {
   SHERWOOD_PASSES,
@@ -52,6 +58,8 @@ const ROAD_SAFETY_MARGIN = 0.18
 const ROAD_COMPOSITION_BOUND = 65
 const ROAD_VISIBILITY_EDGE_LIMIT = 42
 const SETTLEMENT_ROAD_APPROACH_CLEARANCE = 3.4 / 2 + ROAD_PLAYER_RADIUS + ROAD_SAFETY_MARGIN
+const SETTLEMENT_RIVER_BANK_MARGIN = 0.6
+const RIVER_NORMAL_LENGTH = Math.hypot(1, -SHERWOOD_RIVER_SLOPE)
 
 interface RoadRoutingContext {
   layout: RegionalMissionLayout
@@ -101,6 +109,13 @@ function roadCorridorClearForBuilding(
   )))
 }
 
+function riverClearForBuilding(position: TopologyPoint, footprintRadius: number): boolean {
+  const centerlineDistance = Math.abs(
+    position.x - SHERWOOD_RIVER_CENTER_X - SHERWOOD_RIVER_SLOPE * position.z,
+  ) / RIVER_NORMAL_LENGTH
+  return centerlineDistance > SHERWOOD_RIVER_HALF_WIDTH + footprintRadius + SETTLEMENT_RIVER_BANK_MARGIN
+}
+
 function createSettlement(
   id: string,
   kind: SettlementKind,
@@ -121,6 +136,7 @@ function createSettlement(
         : { x: 1.9, z: 1.45 }
     if (!treeClear(position, Math.max(halfExtents.x, halfExtents.z) + 0.8)) continue
     const footprintRadius = Math.hypot(halfExtents.x, halfExtents.z)
+    if (!riverClearForBuilding(position, footprintRadius)) continue
     if (!roadCorridorClearForBuilding(position, footprintRadius, roads)) continue
     const overlapsBuilding = buildings.some((existing) => {
       const existingRadius = Math.hypot(existing.halfExtents.x, existing.halfExtents.z)

@@ -44,16 +44,6 @@ function client(): any {
   return value
 }
 
-export async function sendMagicLink(email: string): Promise<void> {
-  const { error } = await client().auth.signInWithOtp({ email, options: { emailRedirectTo: `${location.origin}${location.pathname}` } })
-  if (error) throw error
-}
-
-export async function signOutSocial(): Promise<void> {
-  const { error } = await client().auth.signOut()
-  if (error) throw error
-}
-
 export async function registerSocialProfile(displayName: string): Promise<SocialProfile> {
   const { data, error } = await client().rpc("register_social_profile", { p_display_name: displayName })
   if (error) throw error

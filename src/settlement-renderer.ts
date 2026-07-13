@@ -4,7 +4,8 @@ import {
   SHERWOOD_RIVER_SLOPE,
 } from "../shared/regional-layout"
 import type { ComposedBuilding, ComposedWorld, SettlementKind } from "../shared/world-composer"
-import { SHERWOOD_RIVER_HALF_WIDTH } from "../shared/world-obstacles"
+import { SHERWOOD_RIDGE_ROCK_LAYOUT } from "../shared/world-layout"
+import { SHERWOOD_RIVER_HALF_WIDTH, selectSherwoodRidgeRockObstaclesForRoads } from "../shared/world-obstacles"
 import {
   createStylizedBuildingBatch,
   type StylizedBuildingDescriptor,
@@ -140,23 +141,17 @@ function createSettlementSquares(world: ComposedWorld): THREE.InstancedMesh {
   return instanced("SettlementGreenInstances", settlementGreenGeometry, matrices, colors, false)
 }
 
-function createBlindSpots(castShadow: boolean): THREE.Group {
+function createBlindSpots(world: ComposedWorld, castShadow: boolean): THREE.Group {
   const group = new THREE.Group()
   group.name = "SherwoodBlindSpots"
-  const ridgeMatrices: THREE.Matrix4[] = []
-  const ridgeColors: number[] = []
-  for (let index = 0; index < 22; index += 1) {
-    const angle = index * 1.71
-    const radius = 25 + (index % 5) * 7
-    const x = Math.cos(angle) * radius
-    const z = Math.sin(angle * 0.87) * radius
-    ridgeMatrices.push(new THREE.Matrix4().compose(
-      new THREE.Vector3(x, sherwoodHeightAt(x, z) + 0.8, z),
-      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle),
-      new THREE.Vector3(1.4 + index % 3, 1.25 + index % 4 * 0.35, 1.2 + index % 2),
-    ))
-    ridgeColors.push(index % 3 === 0 ? 0x5c6458 : 0x697063)
-  }
+  const visibleRockIds = new Set(selectSherwoodRidgeRockObstaclesForRoads(world.roads).map((rock) => rock.id))
+  const visibleRocks = SHERWOOD_RIDGE_ROCK_LAYOUT.filter((_, index) => visibleRockIds.has(`sherwood-ridge-rock-${index}`))
+  const ridgeMatrices = visibleRocks.map((rock) => new THREE.Matrix4().compose(
+    new THREE.Vector3(rock.x, sherwoodHeightAt(rock.x, rock.z) + 0.8, rock.z),
+    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rock.rotation),
+    new THREE.Vector3(rock.scale.x, rock.scale.y, rock.scale.z),
+  ))
+  const ridgeColors = visibleRocks.map((rock) => rock.color)
   const hedgeMatrices: THREE.Matrix4[] = []
   const hedgeColors: number[] = []
   for (let index = 0; index < 18; index += 1) {
@@ -240,7 +235,7 @@ export function createSettlementWorld(
   group.add(
     createSettlementSquares(world),
     createStylizedBuildingBatch(proceduralBuildings, { castShadow }),
-    createBlindSpots(castShadow),
+    createBlindSpots(world, castShadow),
   )
   if (options.villageCatalog && authoredCottages.length > 0) {
     group.add(createVillageCottageBatch(options.villageCatalog, authoredCottages, { castShadow }))

@@ -2,6 +2,7 @@ import { WebSocket } from "ws"
 import { readFileSync } from "node:fs"
 
 const { version: protocolVersion } = JSON.parse(readFileSync(new URL("../shared/protocol-version.json", import.meta.url), "utf8"))
+const handshake = { version: protocolVersion, buildId: process.env.BUILD_ID ?? "dev", productAnalytics: false }
 
 const endpoint = process.env.ROOM_SERVER_URL ?? "ws://127.0.0.1:8787/rooms"
 const soak = process.env.SOAK === "1"
@@ -45,7 +46,7 @@ async function createRoom(index) {
   const robin = await connect()
   const robinWelcome = waitForMessage(robin, (message) => message.type === "welcome")
   const robinProvisional = waitForMessage(robin, (message) => message.type === "room_state" && message.players.length === 1 && !message.players[0].roleConfirmed)
-  send(robin, { type: "create_room", version: protocolVersion, displayName: `Load Robin ${index}`, characterId: "robin" })
+  send(robin, { type: "create_room", ...handshake, displayName: `Load Robin ${index}`, characterId: "robin" })
   const { roomCode } = await robinWelcome
   await robinProvisional
   const robinConfirmed = waitForMessage(robin, (message) => message.type === "room_state" && message.players.length === 1 && message.players[0].roleConfirmed)
@@ -55,7 +56,7 @@ async function createRoom(index) {
   const marian = await connect()
   const marianWelcome = waitForMessage(marian, (message) => message.type === "welcome")
   const marianProvisional = waitForMessage(marian, (message) => message.type === "room_state" && message.players.length === 2 && message.players.some((player) => !player.roleConfirmed))
-  send(marian, { type: "join_room", version: protocolVersion, roomCode, displayName: `Load Marian ${index}`, characterId: "marian" })
+  send(marian, { type: "join_room", ...handshake, roomCode, displayName: `Load Marian ${index}`, characterId: "marian" })
   await Promise.all([marianWelcome, marianProvisional])
   const roomConfirmed = waitForMessage(robin, (message) => message.type === "room_state" && message.players.length === 2 && message.players.every((player) => player.roleConfirmed))
   send(marian, { type: "select_character", characterId: "marian" })

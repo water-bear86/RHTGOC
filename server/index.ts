@@ -3,7 +3,7 @@ import { randomInt, randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { extname, join, normalize } from "node:path"
 import { WebSocket, WebSocketServer } from "ws"
-import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "../shared/protocol"
+import { PROTOCOL_VERSION, parseClientMessage, type ClientDiagnosticCode, type ServerMessage } from "../shared/protocol"
 import { Room, type ContributionTransition, type RescueOfferTransition } from "./room"
 import { createBandStoreFromEnv, type CompletedBandMission, type PersistentBandRecord } from "./band-store"
 import { createLeaderboardStoreFromEnv, terminalLeaderboardFailure, type VerifiedRun } from "./leaderboard-store"
@@ -18,8 +18,15 @@ import { campaignRotationWindow } from "../shared/sherwood-season"
 import { createSeasonStoreFromEnv } from "./season-store"
 import { createSocialStoreFromEnv } from "./social-store"
 import { PublicHubService, type HubParticipant } from "./public-hub"
+import { createTokenAccessServiceFromEnv, REFERENCE_PRICE_USD, tokenAccessGateEnabled, walletAddressFromIdentities } from "./token-access-service"
+import { normalizeBuildId, staticCacheControl } from "../shared/release"
+import { GameplayAnalyticsAggregator } from "./gameplay-analytics"
+import { createGameplayAnalyticsStoreFromEnv } from "./gameplay-analytics-store"
+import { createExperimentServiceFromEnv } from "./experiment-service"
+import type { GameplayAnalyticsBatch, GameplayAnalyticsDimension, GameplayAnalyticsEvent } from "../shared/gameplay-analytics"
 
 const port = Number(process.env.PORT ?? 8787)
+const buildId = normalizeBuildId(process.env.BUILD_ID)
 const rooms = new Map<string, Room>()
 const bandStore = createBandStoreFromEnv()
 const leaderboardStore = createLeaderboardStoreFromEnv()
@@ -28,6 +35,13 @@ const contributionStore = createContributionStoreFromEnv()
 const seasonStore = createSeasonStoreFromEnv()
 const socialStore = createSocialStoreFromEnv()
 const publicHub = new PublicHubService()
+const tokenAccessService = createTokenAccessServiceFromEnv()
+const tokenAccessGate = tokenAccessGateEnabled(process.env.TOKEN_ACCESS_GATE_ENABLED)
+const gameplayAnalyticsEnabled = process.env.GAMEPLAY_ANALYTICS_ENABLED === "true"
+const gameplayAnalyticsStore = gameplayAnalyticsEnabled ? createGameplayAnalyticsStoreFromEnv() : null
+const gameplayAnalytics = gameplayAnalyticsStore ? new GameplayAnalyticsAggregator() : null
+const experimentService = gameplayAnalyticsStore ? createExperimentServiceFromEnv() : null
+const publicOrigin = process.env.PUBLIC_ORIGIN?.replace(/\/$/, "")
 let seasonReady = seasonStore === null
 const telemetry = new Telemetry()
 const rotationService = new SheriffRotationService()
@@ -55,6 +69,11 @@ let bandPersistenceFlushing = false
 const pendingLeaderboardRuns = new Map<string, { run: VerifiedRun; traceId: string | null; attempts: number; nextAttemptAt: number }>()
 let leaderboardPersistenceFlushing = false
 let leaderboardFinalizationRunning = false
+let acceptingNewSessions = true
+let draining = false
+const pendingGameplayAnalytics = new Map<string, { batch: GameplayAnalyticsBatch; attempts: number; nextAttemptAt: number }>()
+const observedGameplayEventSequences = new Map<string, { roomScope: string; sequence: number }>()
+let gameplayAnalyticsFlushing = false
 
 function roomCode(): string {
   let code = ""
@@ -68,9 +87,175 @@ function send(socket: WebSocket, message: ServerMessage): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
 }
 
+function assignRoomExperiments(roomScope: string) {
+  if (!experimentService) return []
+  try {
+    const assignments = experimentService.assignRoom(roomScope)
+    if (assignments.length > 1) {
+      telemetry.increment("experiment_overlap_suppressed_total")
+      structuredLog("experiment_overlap_suppressed", { activeAssignments: assignments.length }, "warn")
+    }
+    return assignments.slice(0, 1)
+  } catch (error) {
+    telemetry.increment("experiment_assignment_failure_total")
+    structuredLog("experiment_assignment_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+    return []
+  }
+}
+
+function analyticsDimension(room: Room, clientBuildId: string): GameplayAnalyticsDimension | null {
+  const mission = room.mission
+  if (!mission) return null
+  const assignment = room.experimentAssignments[0] ?? null
+  return {
+    buildId: clientBuildId,
+    missionSlug: mission.definition.slug,
+    mapVersion: mission.definition.contentHash,
+    phase: mission.phase,
+    experimentId: assignment?.experimentId ?? null,
+    experimentRevision: assignment?.experimentRevision ?? null,
+    variantId: assignment?.variantId ?? null,
+  }
+}
+
+function recordGameplayEvent(room: Room, event: GameplayAnalyticsEvent, playerId: string | null, observedAtMs = Date.now()): void {
+  if (!gameplayAnalytics) return
+  const candidates = playerId ? [room.players.get(playerId)].filter(Boolean) : [...room.players.values()]
+  const player = candidates.find((candidate) => candidate && room.hasProductAnalyticsConsent(candidate.id))
+  if (!player) return
+  const dimension = analyticsDimension(room, room.clientBuildId(player.id))
+  if (!dimension) return
+  try {
+    gameplayAnalytics.recordEvent({
+      observedAtMs,
+      x: player.position.x,
+      z: player.position.z,
+      event,
+      dimension,
+    })
+  } catch (error) {
+    telemetry.increment("gameplay_analytics_observation_rejected_total")
+    structuredLog("gameplay_analytics_observation_rejected", { reason: error instanceof Error ? error.message : "unknown" }, "warn")
+  }
+}
+
+function recordGameplayDiagnostic(room: Room, code: ClientDiagnosticCode, playerId: string, observedAtMs = Date.now()): void {
+  if (!gameplayAnalytics || !room.hasProductAnalyticsConsent(playerId)) return
+  const player = room.players.get(playerId)
+  if (!player) return
+  const dimension = analyticsDimension(room, room.clientBuildId(player.id))
+  if (!dimension) return
+  try {
+    gameplayAnalytics.recordDiagnostic({
+      observedAtMs,
+      x: player.position.x,
+      z: player.position.z,
+      code,
+      dimension,
+    })
+  } catch (error) {
+    telemetry.increment("gameplay_analytics_observation_rejected_total")
+    structuredLog("gameplay_analytics_observation_rejected", { reason: error instanceof Error ? error.message : "unknown" }, "warn")
+  }
+}
+
+const objectiveAnalyticsEvents = new Set([
+  "route_selected",
+  "cart_robbed",
+  "loot_delivered",
+  "wagon_intercepted",
+  "lock_breached",
+  "captives_freed",
+  "captive_extracted",
+  "alarm_sabotaged",
+  "disguise_acquired",
+  "cache_looted",
+  "intel_found",
+  "ledger_stolen",
+  "extraction_reached",
+])
+
+function analyticsEventForMissionEvent(type: string): GameplayAnalyticsEvent | null {
+  if (type === "mission_started") return "mission-start"
+  if (type === "mission_succeeded") return "mission-success"
+  if (type === "mission_failed") return "mission-failure"
+  if (type === "player_downed") return "player-downed"
+  return objectiveAnalyticsEvents.has(type) ? "objective-interaction" : null
+}
+
+function observeRoomGameplay(room: Room, now = Date.now()): void {
+  if (!gameplayAnalytics || !room.mission) return
+  const mission = room.mission
+  const roomScope = room.analyticsScope()
+  const prior = observedGameplayEventSequences.get(room.code)
+  const lastSequence = prior?.roomScope === roomScope ? prior.sequence : 0
+  for (const event of mission.events) {
+    if (event.sequence <= lastSequence) continue
+    const analyticsEvent = analyticsEventForMissionEvent(event.type)
+    if (analyticsEvent) recordGameplayEvent(room, analyticsEvent, event.playerId ?? null, now)
+  }
+  observedGameplayEventSequences.set(room.code, { roomScope, sequence: mission.events.at(-1)?.sequence ?? lastSequence })
+
+  ;[...room.players.values()].forEach((player, playerSlot) => {
+    if (!player.connected || !room.hasProductAnalyticsConsent(player.id)) return
+    const dimension = analyticsDimension(room, room.clientBuildId(player.id))
+    if (!dimension) return
+    const dangerNearby = mission.guards.some((guard) => guard.stunnedFor <= 0 && Math.hypot(guard.position.x - player.position.x, guard.position.z - player.position.z) <= 10)
+    gameplayAnalytics.observe(roomScope, playerSlot, {
+      observedAtMs: now,
+      x: player.position.x,
+      z: player.position.z,
+      dangerNearby,
+      dimension,
+    })
+  })
+}
+
+const MAX_PENDING_GAMEPLAY_BATCHES = 64
+
+function enqueueGameplayAnalytics(batch: GameplayAnalyticsBatch): void {
+  if (pendingGameplayAnalytics.has(batch.batchId)) return
+  if (pendingGameplayAnalytics.size >= MAX_PENDING_GAMEPLAY_BATCHES) {
+    const oldest = pendingGameplayAnalytics.keys().next().value as string | undefined
+    if (oldest) pendingGameplayAnalytics.delete(oldest)
+    telemetry.increment("gameplay_analytics_backpressure_drops_total")
+  }
+  pendingGameplayAnalytics.set(batch.batchId, { batch, attempts: 0, nextAttemptAt: Date.now() })
+  telemetry.gauge("gameplay_analytics_persistence_queue", pendingGameplayAnalytics.size)
+}
+
+async function flushGameplayAnalytics(now = Date.now()): Promise<void> {
+  if (!gameplayAnalyticsStore || gameplayAnalyticsFlushing) return
+  gameplayAnalyticsFlushing = true
+  try {
+    for (const [batchId, pending] of pendingGameplayAnalytics) {
+      if (pending.nextAttemptAt > now) continue
+      try {
+        const result = await gameplayAnalyticsStore.recordBatch(pending.batch)
+        pendingGameplayAnalytics.delete(batchId)
+        telemetry.increment(result.inserted ? "gameplay_analytics_batches_inserted_total" : "gameplay_analytics_batches_replayed_total")
+        telemetry.increment("gameplay_analytics_rows_persisted_total", result.rows)
+      } catch (error) {
+        pending.attempts += 1
+        if (pending.attempts >= 8) {
+          pendingGameplayAnalytics.delete(batchId)
+          telemetry.increment("gameplay_analytics_dead_letter_total")
+          structuredLog("gameplay_analytics_batch_dropped", { attempts: pending.attempts, reason: error instanceof Error ? error.message : "unknown" }, "error")
+        } else {
+          pending.nextAttemptAt = now + Math.min(60_000, 1_000 * 2 ** pending.attempts)
+          telemetry.increment("gameplay_analytics_persistence_retry_total")
+        }
+      }
+    }
+  } finally {
+    gameplayAnalyticsFlushing = false
+    telemetry.gauge("gameplay_analytics_persistence_queue", pendingGameplayAnalytics.size)
+  }
+}
+
 function reservePublicBand(group: HubParticipant[], automatic: boolean): void {
   const code = roomCode()
-  const room = new Room(code, (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)), (now) => seasonService.snapshot(now))
+  const room = new Room(code, (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)), (now) => seasonService.snapshot(now), null, assignRoomExperiments)
   rooms.set(code, room)
   reservedRoomsUntil.set(code, Date.now() + 10_000)
   roomTraces.set(code, randomUUID())
@@ -86,6 +271,9 @@ const contentTypes: Record<string, string> = {
   ".png": "image/png",
   ".svg": "image/svg+xml",
   ".json": "application/json; charset=utf-8",
+  ".glb": "model/gltf-binary",
+  ".webp": "image/webp",
+  ".woff2": "font/woff2",
 }
 
 function json(response: import("node:http").ServerResponse, status: number, value: unknown): void {
@@ -105,6 +293,11 @@ async function readJsonBody(request: import("node:http").IncomingMessage): Promi
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as unknown
 }
 
+function bearerToken(request: import("node:http").IncomingMessage): string | undefined {
+  const authorization = request.headers.authorization
+  return authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined
+}
+
 function operatorAuthorized(request: import("node:http").IncomingMessage): boolean {
   return Boolean(opsAdminSecret && request.headers.authorization === `Bearer ${opsAdminSecret}`)
 }
@@ -112,6 +305,7 @@ function operatorAuthorized(request: import("node:http").IncomingMessage): boole
 interface SupabaseIdentity {
   id: string
   sherwoodOperator: boolean
+  walletAddress: string | null
 }
 
 async function verifySupabaseIdentity(accessToken: string | undefined): Promise<SupabaseIdentity | null> {
@@ -122,10 +316,14 @@ async function verifySupabaseIdentity(accessToken: string | undefined): Promise<
       signal: AbortSignal.timeout(5_000),
     })
     if (!response.ok) return null
-    const value = await response.json() as { id?: unknown; app_metadata?: unknown }
+    const value = await response.json() as { id?: unknown; app_metadata?: unknown; identities?: unknown }
     if (typeof value.id !== "string" || !value.id.match(/^[0-9a-f-]{36}$/)) return null
     const appMetadata = value.app_metadata && typeof value.app_metadata === "object" ? value.app_metadata as Record<string, unknown> : {}
-    return { id: value.id, sherwoodOperator: appMetadata.sherwood_operator === true }
+    return {
+      id: value.id,
+      sherwoodOperator: appMetadata.sherwood_operator === true,
+      walletAddress: walletAddressFromIdentities(value.identities),
+    }
   } catch {
     return null
   }
@@ -133,6 +331,18 @@ async function verifySupabaseIdentity(accessToken: string | undefined): Promise<
 
 async function verifySupabaseUser(accessToken: string | undefined): Promise<string | null> {
   return (await verifySupabaseIdentity(accessToken))?.id ?? null
+}
+
+async function tokenAccessAllows(userId: string | null): Promise<boolean> {
+  if (!tokenAccessGate) return true
+  if (!userId || !tokenAccessService) return false
+  try {
+    return (await tokenAccessService.access(userId)).entitled
+  } catch (error) {
+    telemetry.increment("token_access_failure_total")
+    structuredLog("token_access_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+    return false
+  }
 }
 
 function enqueueRescueTransition(transition: RescueOfferTransition): void {
@@ -356,6 +566,92 @@ async function finalizeLeaderboardSeasons(): Promise<void> {
 
 const httpServer = createServer(async (request, response) => {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname
+  const requestOrigin = request.headers.origin
+  if (publicOrigin && requestOrigin === publicOrigin) {
+    response.setHeader("Access-Control-Allow-Origin", publicOrigin)
+    response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type")
+    response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    response.setHeader("Vary", "Origin")
+  }
+  if (request.method === "OPTIONS" && pathname.startsWith("/access")) {
+    response.writeHead(requestOrigin === publicOrigin ? 204 : 403)
+    response.end()
+    return
+  }
+  if (pathname === "/access" && request.method === "GET") {
+    const identity = await verifySupabaseIdentity(bearerToken(request))
+    let entitled = false
+    let accessExpiresAt: string | null = null
+    if (identity && tokenAccessService) {
+      try {
+        const access = await tokenAccessService.access(identity.id)
+        entitled = access.entitled
+        accessExpiresAt = access.expiresAt
+      } catch (error) {
+        telemetry.increment("token_access_failure_total")
+        structuredLog("token_access_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+      }
+    }
+    const payment = tokenAccessService?.payment
+    json(response, 200, {
+      gateEnabled: tokenAccessGate,
+      authenticated: identity !== null,
+      entitled: tokenAccessGate ? entitled : true,
+      accessExpiresAt,
+      referencePriceUsd: REFERENCE_PRICE_USD,
+      payment: payment ? {
+        chainId: payment.chainId,
+        chainName: payment.chainName,
+        tokenContract: payment.tokenContract,
+        treasuryAddress: payment.treasuryAddress,
+        amountBaseUnits: payment.amountBaseUnits,
+        amountDisplay: payment.amountDisplay,
+        tokenSymbol: payment.tokenSymbol,
+        passDays: payment.passDays,
+      } : null,
+    })
+    return
+  }
+  if (pathname === "/access/claim" && request.method === "POST") {
+    if (!tokenAccessService) {
+      json(response, 503, { error: "Token payments are not configured" })
+      return
+    }
+    const identity = await verifySupabaseIdentity(bearerToken(request))
+    if (!identity?.walletAddress) {
+      json(response, 401, { error: "Sign in with Robinhood Wallet first" })
+      return
+    }
+    try {
+      const body = await readJsonBody(request) as { transactionHash?: unknown }
+      const access = await tokenAccessService.claim(identity.id, identity.walletAddress, String(body.transactionHash ?? ""))
+      telemetry.increment("token_access_claim_success_total")
+      json(response, 200, {
+        gateEnabled: tokenAccessGate,
+        authenticated: true,
+        entitled: access.entitled,
+        accessExpiresAt: access.expiresAt,
+        referencePriceUsd: REFERENCE_PRICE_USD,
+        payment: tokenAccessService.payment,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Token payment could not be verified"
+      telemetry.increment("token_access_claim_failure_total")
+      structuredLog("token_access_claim_failed", { reason: message }, "error")
+      const pending = message.includes("CONFIRMATIONS") || message === "TOKEN_PAYMENT_NOT_CONFIRMED"
+      const conflict = message === "TOKEN_PAYMENT_ALREADY_CLAIMED" || pending
+      const invalid = message.startsWith("TOKEN_PAYMENT_") && !message.startsWith("TOKEN_PAYMENT_WRITE") && message !== "TOKEN_PAYMENT_BLOCK_UNAVAILABLE" && !pending
+      const publicMessage = message === "TOKEN_PAYMENT_ALREADY_CLAIMED"
+        ? "That token payment has already been claimed"
+        : pending
+          ? "Token payment is still confirming on Robinhood Chain"
+          : invalid
+            ? "That transaction does not match the required token payment"
+            : "Token payment verification is temporarily unavailable"
+      json(response, conflict ? 409 : invalid ? 400 : 503, { error: publicMessage })
+    }
+    return
+  }
   if (pathname === "/rotations" && request.method === "GET") {
     json(response, 200, campaignRotationWindow(rotationService.window(), seasonService.snapshot()))
     return
@@ -497,10 +793,17 @@ const httpServer = createServer(async (request, response) => {
     response.end(JSON.stringify(telemetry.snapshot()))
     return
   }
+  if (request.url === "/ready") {
+    const ready = acceptingNewSessions && seasonReady
+    json(response, ready ? 200 : 503, { ready, buildId, protocolVersion: PROTOCOL_VERSION })
+    return
+  }
   if (request.url === "/health") {
     response.writeHead(200, { "Content-Type": "application/json" })
     response.end(JSON.stringify({
       ok: true,
+      buildId,
+      acceptingNewSessions,
       rooms: rooms.size,
       protocolVersion: PROTOCOL_VERSION,
       bandPersistence: bandStore !== null,
@@ -509,6 +812,10 @@ const httpServer = createServer(async (request, response) => {
       contributionPersistence: contributionStore !== null,
       seasonPersistence: seasonStore !== null,
       socialPersistence: socialStore !== null,
+      gameplayAnalytics: gameplayAnalyticsStore !== null,
+      experiments: experimentService !== null,
+      tokenAccessGate,
+      tokenPaymentConfigured: tokenAccessService !== null,
       missionId: defaultMission.id,
       missionVersion: defaultMission.missionVersion,
       missionContentHash: defaultMission.contentHash,
@@ -528,14 +835,14 @@ const httpServer = createServer(async (request, response) => {
     const body = await readFile(filePath)
     response.writeHead(200, {
       "Content-Type": contentTypes[extname(filePath)] ?? "application/octet-stream",
-      "Cache-Control": filePath.endsWith("index.html") ? "no-cache" : "public, max-age=31536000, immutable",
+      "Cache-Control": staticCacheControl(pathname),
     })
     if (request.method === "HEAD") response.end()
     else response.end(body)
   } catch {
     try {
       const body = await readFile(join(process.cwd(), "dist", "index.html"))
-      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" })
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" })
       response.end(body)
     } catch {
       response.writeHead(404, { "Content-Type": "application/json" })
@@ -571,6 +878,8 @@ sockets.on("connection", (socket) => {
   let playerId: string | null = null
   let hubParticipantId: string | null = null
   let lastClientMetricsAt = 0
+  let lastClientDiagnosticAt = 0
+  let productAnalyticsConsent = false
 
   socket.on("message", async (raw) => {
     let value: unknown
@@ -579,6 +888,14 @@ sockets.on("connection", (socket) => {
     } catch {
       telemetry.increment("protocol_invalid_json_total")
       send(socket, { type: "error", code: "INVALID_MESSAGE", message: "Message must be valid JSON" })
+      return
+    }
+    const initial = value && typeof value === "object" ? value as Record<string, unknown> : null
+    const initialType = initial?.type
+    const isHandshake = initialType === "create_room" || initialType === "join_room" || initialType === "join_public_hub"
+    if (isHandshake && initial?.version !== PROTOCOL_VERSION) {
+      telemetry.increment("protocol_version_mismatch_total")
+      send(socket, { type: "error", code: "VERSION_MISMATCH", message: "A newer Sherwood build is ready. Refreshing…", buildId })
       return
     }
     const message = parseClientMessage(value)
@@ -590,6 +907,11 @@ sockets.on("connection", (socket) => {
 
     if (message.type === "create_room" || message.type === "join_room") {
       try {
+        if (message.type === "create_room" && !acceptingNewSessions) {
+          send(socket, { type: "error", code: "FORBIDDEN", message: "This server is draining for an update. Try again in a moment." })
+          return
+        }
+        productAnalyticsConsent = message.productAnalytics
         if (hubParticipantId) {
           publicHub.leave(hubParticipantId)
           hubParticipantId = null
@@ -597,6 +919,11 @@ sockets.on("connection", (socket) => {
         const authUserId = await verifySupabaseUser(message.accessToken)
         if (message.accessToken && supabaseUrl && supabasePublishableKey && !authUserId) {
           send(socket, { type: "error", code: "FORBIDDEN", message: "Your Sherwood sign-in expired. Sign in again or continue as a guest." })
+          return
+        }
+        if (!await tokenAccessAllows(authUserId)) {
+          telemetry.increment("token_access_room_rejected_total")
+          send(socket, { type: "error", code: "FORBIDDEN", message: "Sherwood requires an active 30-day token pass" })
           return
         }
         let persistentBand: PersistentBandRecord | null = null
@@ -615,6 +942,7 @@ sockets.on("connection", (socket) => {
             (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)),
             (now) => seasonService.snapshot(now),
             persistentBand,
+            assignRoomExperiments,
           )
           : rooms.get(message.roomCode)
         if (!room) {
@@ -633,9 +961,9 @@ sockets.on("connection", (socket) => {
         }
         if (message.type === "join_room" && message.reconnectToken) telemetry.increment("reconnect_attempts_total")
         const reconnected = message.type === "join_room" && message.reconnectToken
-          ? room.reconnect(socket, message.reconnectToken, Date.now(), authUserId)
+          ? room.reconnect(socket, message.reconnectToken, Date.now(), authUserId, message.productAnalytics, message.buildId)
           : null
-        const player = reconnected ?? room.addPlayer(socket, message.displayName, message.characterId, authUserId, false)
+        const player = reconnected ?? room.addPlayer(socket, message.displayName, message.characterId, authUserId, false, message.productAnalytics, message.buildId)
         telemetry.increment(reconnected ? "reconnect_success_total" : message.type === "create_room" ? "rooms_created_total" : "room_joins_total")
         if (message.type === "create_room") {
           const traceId = randomUUID()
@@ -645,7 +973,7 @@ sockets.on("connection", (socket) => {
         joinedRoom = room
         reservedRoomsUntil.delete(room.code)
         playerId = player.id
-        send(socket, { type: "welcome", version: PROTOCOL_VERSION, playerId: player.id, reconnectToken: player.reconnectToken, roomCode: room.code })
+        send(socket, { type: "welcome", version: PROTOCOL_VERSION, buildId, playerId: player.id, reconnectToken: player.reconnectToken, roomCode: room.code })
         room.broadcastRoomState()
       } catch (error) {
         const reason = error instanceof Error ? error.message : "MISSION_STARTED"
@@ -661,6 +989,11 @@ sockets.on("connection", (socket) => {
     }
 
     if (message.type === "join_public_hub") {
+      if (!acceptingNewSessions) {
+        send(socket, { type: "error", code: "FORBIDDEN", message: "This server is draining for an update. Try again in a moment." })
+        return
+      }
+      productAnalyticsConsent = message.productAnalytics
       if (joinedRoom || hubParticipantId) {
         send(socket, { type: "error", code: "FORBIDDEN", message: "Leave the current band or public camp before joining another" })
         return
@@ -671,6 +1004,11 @@ sockets.on("connection", (socket) => {
         send(socket, { type: "error", code: "FORBIDDEN", message: "The public camp requires a current Sherwood sign-in" })
         return
       }
+      if (!await tokenAccessAllows(authUserId)) {
+        telemetry.increment("token_access_hub_rejected_total")
+        send(socket, { type: "error", code: "FORBIDDEN", message: "The public camp requires an active 30-day token pass" })
+        return
+      }
       const [friendIds, blockedIds] = await Promise.all([
         socialStore?.getAcceptedFriendIds(authUserId).catch(() => []) ?? [],
         socialStore?.getHubBlockedIds(authUserId).catch(() => []) ?? [],
@@ -678,6 +1016,25 @@ sockets.on("connection", (socket) => {
       const participant = publicHub.join(socket, authUserId, message.displayName, message.characterId, friendIds, Date.now(), blockedIds)
       hubParticipantId = participant.id
       telemetry.increment("hub_opt_ins_total")
+      return
+    }
+
+    if (message.type === "client_diagnostic") {
+      if (productAnalyticsConsent && Date.now() - lastClientDiagnosticAt >= 10_000) {
+        lastClientDiagnosticAt = Date.now()
+        telemetry.increment("client_diagnostic_reports_total")
+        telemetry.increment(`client_diagnostic_${message.code}_total`)
+        telemetry.increment(`client_render_${message.renderProfile}_total`)
+        telemetry.increment(`client_browser_${message.browserFamily}_total`)
+        if (joinedRoom && playerId) recordGameplayDiagnostic(joinedRoom, message.code, playerId)
+      }
+      return
+    }
+
+    if (message.type === "set_product_analytics") {
+      productAnalyticsConsent = message.consented
+      if (joinedRoom && playerId) joinedRoom.setProductAnalyticsConsent(playerId, message.consented)
+      telemetry.increment(message.consented ? "gameplay_analytics_consent_enabled_total" : "gameplay_analytics_consent_disabled_total")
       return
     }
 
@@ -805,9 +1162,11 @@ sockets.on("connection", (socket) => {
       send(socket, { type: "error", code: "FORBIDDEN", message: "Field kits can only change at the campfire" })
     }
     if (message.type === "return_to_hub") {
+      const completedMissionScope = joinedRoom.analyticsScope()
       joinedRoom.update(0)
       settleRoomOutcomes(joinedRoom.code, joinedRoom)
       if (!joinedRoom.returnToHub(playerId)) send(socket, { type: "error", code: "FORBIDDEN", message: "Resolve the village vote before the leader returns the band to camp" })
+      else experimentService?.releaseRoom(completedMissionScope)
     }
     if (message.type === "accept_rescue" && !joinedRoom.acceptRescue(playerId, message.offerId)) {
       send(socket, { type: "error", code: "FORBIDDEN", message: "That rescue offer expired, was already handled, or requires the band leader" })
@@ -871,6 +1230,12 @@ setInterval(() => {
   let seasonChanged = false
   for (const [code, room] of rooms) {
     room.update(1 / 20)
+    try {
+      observeRoomGameplay(room)
+    } catch (error) {
+      telemetry.increment("gameplay_analytics_observation_rejected_total")
+      structuredLog("gameplay_analytics_observation_rejected", { reason: error instanceof Error ? error.message : "unknown" }, "warn")
+    }
     for (const transition of room.drainRescueOfferEvents()) {
       enqueueRescueTransition(transition)
       telemetry.increment(`rescue_offer_${transition.offer.status}_total`)
@@ -901,6 +1266,8 @@ setInterval(() => {
       reservedRoomsUntil.delete(code)
       observedRoomPhases.delete(code)
       observedMissionStatus.delete(code)
+      observedGameplayEventSequences.delete(code)
+      experimentService?.releaseRoom(room.analyticsScope())
       const traceId = roomTraces.get(code) ?? null
       roomTraces.delete(code)
       structuredLog("room_expired", { traceId })
@@ -945,6 +1312,15 @@ setInterval(() => void flushRecentPlayers(), 1_000)
 setInterval(() => void flushBandMissions(), 1_000)
 setInterval(() => void flushVerifiedRuns(), 1_000)
 setInterval(() => void finalizeLeaderboardSeasons(), 30_000)
+setInterval(() => {
+  const now = Date.now()
+  for (const batch of gameplayAnalytics?.flushReady(now) ?? []) enqueueGameplayAnalytics(batch)
+  void flushGameplayAnalytics(now)
+}, 15_000)
+setInterval(() => void experimentService?.refresh().catch((error) => {
+  telemetry.increment("experiment_refresh_failure_total")
+  structuredLog("experiment_refresh_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+}), 60_000)
 
 setInterval(() => {
   for (const room of rooms.values()) room.broadcastSnapshot()
@@ -952,7 +1328,7 @@ setInterval(() => {
 
 setInterval(() => {
   publicHub.cleanup()
-  for (const group of publicHub.drainMatches()) reservePublicBand(group, true)
+  if (acceptingNewSessions) for (const group of publicHub.drainMatches()) reservePublicBand(group, true)
   publicHub.broadcastAll()
   telemetry.gauge("public_hub_instances", publicHub.instances.size)
   telemetry.gauge("public_hub_players", [...publicHub.instances.values()].reduce((sum, instance) => sum + instance.participants.size, 0))
@@ -967,9 +1343,19 @@ async function startServer(): Promise<void> {
     }
     seasonReady = true
   }
+  if (experimentService) {
+    try {
+      await experimentService.refresh(Date.now(), true)
+      telemetry.gauge("active_experiment_definitions", experimentService.activeDefinitionCount())
+    } catch (error) {
+      telemetry.increment("experiment_refresh_failure_total")
+      structuredLog("experiment_refresh_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+    }
+  }
   httpServer.listen(port, "0.0.0.0", () => {
     structuredLog("server_started", {
       port,
+      buildId,
       protocolVersion: PROTOCOL_VERSION,
       bandPersistence: bandStore !== null,
       verifiedLeaderboardWrites: leaderboardStore !== null,
@@ -977,6 +1363,10 @@ async function startServer(): Promise<void> {
       contributionPersistence: contributionStore !== null,
       seasonPersistence: seasonStore !== null,
       socialPersistence: socialStore !== null,
+      gameplayAnalytics: gameplayAnalyticsStore !== null,
+      experiments: experimentService !== null,
+      tokenAccessGate,
+      tokenPaymentConfigured: tokenAccessService !== null,
       seasonSlug: seasonService.snapshot().slug,
       seasonPhase: seasonService.snapshot().phase,
       missionId: defaultMission.id,
@@ -990,3 +1380,39 @@ void startServer().catch((error) => {
   structuredLog("server_start_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
   process.exit(1)
 })
+
+function beginDrain(signal: NodeJS.Signals): void {
+  if (draining) return
+  draining = true
+  acceptingNewSessions = false
+  structuredLog("server_draining", { signal, buildId, activeConnections, activeRooms: rooms.size })
+  sockets.close()
+  const now = Date.now()
+  for (const batch of gameplayAnalytics?.flushAll(now) ?? []) enqueueGameplayAnalytics(batch)
+  let analyticsFlushComplete = gameplayAnalyticsStore === null
+  void flushGameplayAnalytics(Date.now()).finally(() => {
+    analyticsFlushComplete = true
+  })
+
+  let finished = false
+  const finish = (): void => {
+    if (finished) return
+    finished = true
+    clearInterval(check)
+    clearTimeout(deadline)
+    httpServer.close(() => process.exit(0))
+    setTimeout(() => process.exit(0), 1_000).unref()
+  }
+  const check = setInterval(() => {
+    if (activeConnections === 0 && analyticsFlushComplete) finish()
+  }, 250)
+  check.unref()
+  const deadline = setTimeout(() => {
+    for (const client of sockets.clients) client.terminate()
+    finish()
+  }, 25_000)
+  deadline.unref()
+}
+
+process.once("SIGTERM", () => beginDrain("SIGTERM"))
+process.once("SIGINT", () => beginDrain("SIGINT"))

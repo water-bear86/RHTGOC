@@ -61,6 +61,23 @@
         <span class="eyebrow">RHTGOC · A 3D OUTLAW ADVENTURE</span>
         <h1>Robin Hood.<br /><em>The Game (On Chain).</em></h1>
         <p>Take from the crown. Return it to the people. Ambush the Sheriff's tax cart and carry the coin home before they catch you.</p>
+        <span class="eyebrow">CHOOSE YOUR OUTLAW</span>
+        <div class="character-select solo-character-select" aria-label="Choose your outlaw">
+          <button class="character-option selected" data-character="robin" aria-pressed="true"><b>ROBIN HOOD</b><span>Marksman</span><small>Six arrows · Q: Twin Shot</small></button>
+          <button class="character-option" data-character="marian" aria-pressed="false"><b>MAID MARIAN</b><span>Scout</span><small>Faster · Q: Veil</small></button>
+          <button class="character-option" data-character="little-john" aria-pressed="false"><b>LITTLE JOHN</b><span>Vanguard</span><small>Heavy carry · Q: Oak Sweep</small></button>
+          <button class="character-option" data-character="much" aria-pressed="false"><b>MUCH</b><span>Saboteur</span><small>Cut signals · Q: Road Snare</small></button>
+        </div>
+        <section class="access-card" id="access-card" aria-label="Sherwood access">
+          <div><span>ROBINHOOD WALLET</span><b id="wallet-state">NOT CONNECTED</b></div>
+          <p id="access-copy">Connect Robinhood Wallet to keep your outlaw identity across Sherwood.</p>
+          <div class="access-actions">
+            <button id="wallet-sign-in">SIGN IN WITH ROBINHOOD WALLET</button>
+            <button class="hidden" id="token-pass-purchase">BUY 30-DAY TOKEN PASS · ≈ $6</button>
+            <button class="hidden quiet" id="wallet-sign-out">SIGN OUT</button>
+          </div>
+          <small id="access-status" role="status" aria-live="polite"></small>
+        </section>
         <div class="band-setup">
           <input id="player-name" maxlength="20" value="Greenhood" aria-label="Outlaw name" />
           <button id="create-room">FORM A MERRY BAND</button>
@@ -170,8 +187,8 @@
       <span class="eyebrow">TRUSTED OUTLAWS</span>
       <h2 id="social-title">Friends & invitations</h2>
       <section id="social-signed-out">
-        <p class="board-state">Sign in by private email link to keep friends across devices. Your email is never shown to players.</p>
-        <div class="social-auth"><input id="social-email" type="email" autocomplete="email" placeholder="you@example.com" aria-label="Email for magic sign-in link" /><button id="social-sign-in">SEND SIGN-IN LINK</button></div>
+        <p class="board-state">Sign in with Robinhood Wallet to keep friends and your outlaw identity across devices.</p>
+        <div class="social-auth"><button id="social-sign-in">SIGN IN WITH ROBINHOOD WALLET</button></div>
       </section>
       <section class="hidden" id="social-signed-in">
         <div class="social-identity"><span>YOUR FRIEND CODE</span><b id="social-friend-code">--------</b><button id="social-sign-out">SIGN OUT</button></div>
@@ -195,6 +212,11 @@
         <label><input type="checkbox" id="setting-captions" /> Event captions</label>
         <label><input type="checkbox" id="setting-readable-text" /> Larger readable text</label>
         <label><input type="checkbox" id="setting-mobile-spectator" /> Lightweight mobile spectator</label>
+      </fieldset>
+      <fieldset class="analytics-preference">
+        <legend>Privacy</legend>
+        <label><input type="checkbox" id="setting-gameplay-analytics" /> Share anonymous play diagnostics</label>
+        <p class="settings-note">Helps us find stalls, confusing areas, and avoided routes. We do not store wallet addresses, names, chat, IP addresses, or raw movement paths in product analytics.</p>
       </fieldset>
       <details open>
         <summary>Keyboard bindings</summary>

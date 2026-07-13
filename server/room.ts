@@ -7,9 +7,12 @@ import { isRotationActive, rotationWindowAt, type SheriffRotationWindow } from "
 import type { SeasonalMissionOutcome, SherwoodSeasonSnapshot } from "../shared/sherwood-season"
 import type { CompletedBandMission, PersistentBandRecord } from "./band-store"
 import type { VerifiedRun } from "./leaderboard-store"
+import type { RoomExperimentAssignment } from "../shared/experiments"
 
 interface ConnectedPlayer extends RoomPlayer {
   authUserId: string | null
+  productAnalytics: boolean
+  clientBuildId: string
   reconnectToken: string
   socket: WebSocket | null
   disconnectedAt: number | null
@@ -86,6 +89,7 @@ export class Room {
   village: VillageState = { granary: 0, infirmary: 0, watchtower: 0 }
   band: MerryBandState | null = null
   lastResult: LastMissionResult | null = null
+  experimentAssignments: RoomExperimentAssignment[] = []
   readonly moderationEvents: Array<{ at: number; actorId: string; targetId: string; action: "report" | "remove" | "block"; reason?: string }> = []
   private readonly bannedReconnectTokens = new Set<string>()
   private missionId = randomUUID()
@@ -107,6 +111,7 @@ export class Room {
     private readonly getRotationWindow: (now: number) => SheriffRotationWindow = rotationWindowAt,
     private readonly getSeasonSnapshot: (now: number) => SherwoodSeasonSnapshot | null = () => null,
     persistentBand: PersistentBandRecord | null = null,
+    private readonly assignExperiments: (roomScope: string) => RoomExperimentAssignment[] = () => [],
   ) {
     this.code = code
     if (persistentBand) this.attachPersistentBand(persistentBand)
@@ -133,7 +138,7 @@ export class Room {
     return true
   }
 
-  addPlayer(socket: WebSocket, displayName: string, characterId: CharacterId, authUserId: string | null = null, roleConfirmed = true): ConnectedPlayer {
+  addPlayer(socket: WebSocket, displayName: string, characterId: CharacterId, authUserId: string | null = null, roleConfirmed = true, productAnalytics = true, clientBuildId = "dev"): ConnectedPlayer {
     this.pruneDisconnected(Date.now())
     if (this.phase !== "lobby") throw new Error("MISSION_STARTED")
     if (this.players.size >= MAX_ROOM_PLAYERS) throw new Error("ROOM_FULL")
@@ -144,6 +149,8 @@ export class Room {
     const player: ConnectedPlayer = {
       id: randomUUID(),
       authUserId,
+      productAnalytics,
+      clientBuildId,
       reconnectToken: randomUUID(),
       displayName,
       characterId,
@@ -183,14 +190,33 @@ export class Room {
     return player
   }
 
-  reconnect(socket: WebSocket, token: string, now = Date.now(), authUserId: string | null = null): ConnectedPlayer | null {
+  reconnect(socket: WebSocket, token: string, now = Date.now(), authUserId: string | null = null, productAnalytics = true, clientBuildId = "dev"): ConnectedPlayer | null {
     if (this.bannedReconnectTokens.has(token)) return null
     const player = [...this.players.values()].find((candidate) => candidate.reconnectToken === token)
     if (!player || player.disconnectedAt === null || now - player.disconnectedAt > RECONNECT_GRACE_MS || (player.authUserId && player.authUserId !== authUserId)) return null
     player.socket = socket
     player.connected = true
     player.disconnectedAt = null
+    player.productAnalytics = productAnalytics
+    player.clientBuildId = clientBuildId
     return player
+  }
+
+  hasProductAnalyticsConsent(playerId: string): boolean {
+    return this.players.get(playerId)?.productAnalytics === true
+  }
+
+  setProductAnalyticsConsent(playerId: string, consented: boolean): void {
+    const player = this.players.get(playerId)
+    if (player) player.productAnalytics = consented
+  }
+
+  clientBuildId(playerId: string): string {
+    return this.players.get(playerId)?.clientBuildId ?? "dev"
+  }
+
+  analyticsScope(): string {
+    return `${this.code}:${this.missionId}`
   }
 
   disconnect(playerId: string, now = Date.now()): void {
@@ -243,6 +269,7 @@ export class Room {
         this.recordContributionTransition(contribution, now)
       }
       this.phase = "mission"
+      this.experimentAssignments = this.assignExperiments(this.analyticsScope())
       const season = this.getSeasonSnapshot(now)
       this.missionSeasonSlug = season && (season.phase === "active" || season.phase === "finale") ? season.slug : null
       this.missionStartedAt = now
@@ -474,6 +501,7 @@ export class Room {
     this.selectedRescueOfferId = null
     this.selectedContributionIds.clear()
     this.missionId = randomUUID()
+    this.experimentAssignments = []
     this.preparationsResolvedForMissionId = null
     this.seasonOutcomeClaimedForMissionId = null
     for (const player of this.players.values()) this.resetPlayerForHub(player)
@@ -783,6 +811,7 @@ export class Room {
       selectedContributionIds: [...this.selectedContributionIds],
       season: this.getSeasonSnapshot(now),
       band: this.band ? { ...this.band, camp: { ...this.band.camp } } : null,
+      experiments: this.experimentAssignments.map((assignment) => ({ ...assignment, config: { ...assignment.config } })),
       players: [...this.players.values()].map((player) => this.publicPlayer(player)),
       village: { ...this.village },
       lastResult: this.lastResult ? { ...this.lastResult } : null,
@@ -794,6 +823,7 @@ export class Room {
     this.broadcast({
       type: "snapshot",
       tick: this.tick,
+      experiments: this.experimentAssignments.map((assignment) => ({ ...assignment, config: { ...assignment.config } })),
       players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount })),
       mission: this.mission.snapshot(),
     })

@@ -32,6 +32,17 @@ describe("Merry Band room", () => {
     expect(room.publicPlayer(third)).toMatchObject({ characterId: "marian", roleConfirmed: true })
   })
 
+  it("applies analytics opt-out changes immediately without exposing consent in room state", () => {
+    const room = new Room("PRIVCY")
+    const player = room.addPlayer(fakeSocket(), "Private", "robin", null, true, true, "candidate.2")
+    expect(room.hasProductAnalyticsConsent(player.id)).toBe(true)
+    expect(room.clientBuildId(player.id)).toBe("candidate.2")
+    room.setProductAnalyticsConsent(player.id, false)
+    expect(room.hasProductAnalyticsConsent(player.id)).toBe(false)
+    expect(room.publicPlayer(player)).not.toHaveProperty("productAnalytics")
+    expect(room.publicPlayer(player)).not.toHaveProperty("clientBuildId")
+  })
+
   it("caps rooms at four players", () => {
     const room = new Room("ABC234")
     for (let index = 0; index < MAX_ROOM_PLAYERS; index += 1) room.addPlayer(fakeSocket(), `Player ${index}`, index % 2 === 0 ? "robin" : "marian")
@@ -100,6 +111,23 @@ describe("Merry Band room", () => {
     expect(room.village).toEqual({ granary: 1, infirmary: 0, watchtower: 0 })
     expect(room.lastResult).toEqual({ score: 8000, grade: "A", status: "succeeded", rescuedCaptives: 0, totalCaptives: 0 })
     expect([...room.players.values()].every((player) => !player.ready && player.health === 3 && player.loot === 0)).toBe(true)
+  })
+
+  it("pins experiment assignments to one mission run and clears them in the hub", () => {
+    let assignedScope = ""
+    const room = new Room("TESTAB", rotationWindowAt, () => null, null, (scope) => {
+      assignedScope = scope
+      return [{ experimentId: "objective-marker", experimentRevision: 1, variantId: "control", enrollmentBucket: 12, variantBucket: 34, config: { markerScale: 1 } }]
+    })
+    const leader = room.addPlayer(fakeSocket(), "Leader", "robin")
+    const member = room.addPlayer(fakeSocket(), "Member", "marian")
+    room.setReady(leader.id, true)
+    room.setReady(member.id, true)
+    expect(assignedScope).toBe(room.analyticsScope())
+    expect(room.experimentAssignments).toMatchObject([{ experimentId: "objective-marker", variantId: "control" }])
+    room.mission!.status = "failed"
+    expect(room.returnToHub(leader.id)).toBe(true)
+    expect(room.experimentAssignments).toEqual([])
   })
 
   it("launches the selected prison package and preserves a partial rescue on return", () => {
