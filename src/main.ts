@@ -50,7 +50,8 @@ import {
 } from "../shared/world-collisions"
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
-import { createArcheryEquipment, type BowVariant } from "./archery-equipment"
+import { createArcheryEquipment } from "./archery-equipment"
+import { createHeroCharacter, poseHeroCharacter } from "./character-visuals"
 import { SHERWOOD_CELL_SIZE, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells } from "./region-map"
 
@@ -291,11 +292,7 @@ const vanguardEffects: { ring: THREE.Mesh; age: number }[] = []
 interface RemoteView {
   view: THREE.Group
   fallback: THREE.Group
-  authored: THREE.Group | null
   snapshots: SnapshotBuffer
-  mixer: THREE.AnimationMixer | null
-  actions: Map<string, THREE.AnimationAction>
-  motion: string
   lastPosition: THREE.Vector3
   characterId: CharacterId
   downedFor: number
@@ -331,7 +328,6 @@ const missionCampfireView = new THREE.Group()
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
-let rangerAssetPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
 let treeCatalogAssetPromise: Promise<THREE.Group> | null = null
 let villageAssetPromise: Promise<THREE.Group> | null = null
 let medievalPropsPromise: Promise<THREE.Group> | null = null
@@ -342,9 +338,6 @@ let villageCottageFallback: THREE.Group | null = null
 let villageCottageView: THREE.Group | null = null
 let proceduralWagonShellView: THREE.Group | null = null
 let villageWagonShellView: THREE.Group | null = null
-let robinRangerMixer: THREE.AnimationMixer | null = null
-let robinRangerActions = new Map<string, THREE.AnimationAction>()
-let robinRangerMotion = ""
 let robinShotUntil = 0
 
 const palette = {
@@ -609,13 +602,10 @@ function openNearbyBowCache(): void {
 }
 
 function createCharacter(role: CharacterId | "guard"): THREE.Group {
+  if (role !== "guard") return createHeroCharacter(role)
   const character = new THREE.Group()
-  const isRobin = role === "robin"
-  const isMarian = role === "marian"
-  const isLittleJohn = role === "little-john"
-  const isHero = role !== "guard"
-  const tunicColor = isRobin ? palette.green : isMarian ? 0x4d536f : isLittleJohn ? 0x76532f : role === "much" ? 0x665337 : palette.red
-  const tunic = mesh(new THREE.CylinderGeometry(isLittleJohn ? 0.48 : 0.38, isLittleJohn ? 0.62 : 0.52, isLittleJohn ? 1.52 : 1.35, 8), tunicColor)
+  character.name = "character.sheriff.guard"
+  const tunic = mesh(new THREE.CylinderGeometry(0.38, 0.52, 1.35, 8), palette.red)
   tunic.position.y = 1.08
   const belt = mesh(new THREE.CylinderGeometry(0.43, 0.43, 0.14, 8), 0x3e2a21)
   belt.position.y = 1.15
@@ -625,80 +615,15 @@ function createCharacter(role: CharacterId | "guard"): THREE.Group {
   legLeft.position.set(-0.19, 0.38, 0)
   const legRight = legLeft.clone()
   legRight.position.x = 0.19
-  const hat = isHero
-    ? mesh(new THREE.ConeGeometry(0.48, 0.72, 7), isMarian ? 0x34374f : 0x234b2d)
-    : mesh(new THREE.SphereGeometry(0.39, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0x777d78)
+  const hat = mesh(new THREE.SphereGeometry(0.39, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0x777d78)
   hat.position.y = 2.23
-  hat.rotation.z = isHero ? -0.35 : 0
   character.add(tunic, belt, head, legLeft, legRight, hat)
-  if (isHero) {
-    const bowVariant: BowVariant = isRobin ? "longbow" : isMarian ? "recurve" : "shortbow"
-    const kitScale = isLittleJohn ? 1.05 : isMarian ? 0.88 : role === "much" ? 0.78 : 0.95
-    const { group: archeryKit, bow, quiver } = createArcheryEquipment(bowVariant, kitScale)
-    if (isLittleJohn) {
-      bow.position.set(-0.28, 1.35, 0.34)
-      bow.rotation.set(0.12, 0.2, -0.18)
-    } else {
-      bow.position.set(-0.52, 1.18, 0)
-      bow.rotation.set(0, 0, 0.08)
-    }
-    quiver.position.set(0.28, 1.38, 0.28)
-    quiver.rotation.set(-0.14, 0, -0.16)
-    character.add(archeryKit)
-  }
-  if (isHero && !isLittleJohn) {
-    if (isMarian) {
-      const mantle = mesh(new THREE.ConeGeometry(0.6, 1.45, 8, 1, true), 0x39465d)
-      mantle.position.set(0, 1.1, 0.17)
-      mantle.rotation.x = 0.08
-      character.add(mantle)
-    }
-    if (role === "much") {
-      const satchel = mesh(new THREE.BoxGeometry(0.48, 0.42, 0.24), 0x8b6234)
-      satchel.position.set(0.43, 1.04, 0.28)
-      satchel.rotation.z = -0.18
-      const fuse = mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.6, 5), 0xd4b15e)
-      fuse.position.set(0.36, 1.55, 0.22)
-      fuse.rotation.z = -0.55
-      character.add(satchel, fuse)
-    }
-  } else if (isLittleJohn) {
-    const staff = mesh(new THREE.CylinderGeometry(0.055, 0.065, 2.9, 8), 0x654225)
-    staff.position.set(0.55, 1.25, 0)
-    staff.rotation.z = -0.16
-    const ironBand = mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.22, 8), 0x8b8f86)
-    ironBand.position.set(0.78, 2.66, 0)
-    ironBand.rotation.z = -0.16
-    const shoulder = mesh(new THREE.TorusGeometry(0.48, 0.075, 6, 18, Math.PI), 0x3e2a21)
-    shoulder.position.set(0, 1.64, 0)
-    shoulder.rotation.x = Math.PI / 2
-    character.add(staff, ironBand, shoulder)
-  } else {
-    const spear = mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.5, 5), 0x3c2c20)
-    spear.position.set(0.48, 1.15, 0)
-    const tip = mesh(new THREE.ConeGeometry(0.12, 0.4, 5), 0xaeb4ae)
-    tip.position.set(0.48, 2.55, 0)
-    character.add(spear, tip)
-  }
+  const spear = mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.5, 5), 0x3c2c20)
+  spear.position.set(0.48, 1.15, 0)
+  const tip = mesh(new THREE.ConeGeometry(0.12, 0.4, 5), 0xaeb4ae)
+  tip.position.set(0.48, 2.55, 0)
+  character.add(spear, tip)
   return character
-}
-
-function loadRobinRanger(): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
-  rangerAssetPromise ??= gltfLoader.loadAsync("/assets/characters/robin-ranger-rigged.glb?v=clean-rig-3")
-    .then((asset) => {
-      const clipNames: Record<string, string> = {
-        Ranger_Idle: "Robin_Idle",
-        Ranger_Walk: "Robin_Walk",
-        Ranger_Attack: "Robin_Shoot",
-      }
-      const animations = asset.animations.map((clip) => {
-        const renamed = clip.clone()
-        renamed.name = clipNames[clip.name] ?? clip.name
-        return renamed
-      })
-      return { scene: convertObjectToToon(asset.scene), animations }
-    })
-  return rangerAssetPromise
 }
 
 function loadTreeCatalog(): Promise<THREE.Group> {
@@ -837,49 +762,6 @@ function attachStylizedTrees(): void {
     for (const tree of SHERWOOD_TREE_LAYOUT) createFallbackTree(tree.x, tree.z, tree.scale)
     showToast("Stylized trees could not be loaded; simple forest fallback enabled")
   })
-}
-
-function prepareRangerInstance(source: THREE.Group): THREE.Group {
-  const ranger = cloneSkeleton(source) as THREE.Group
-  cloneObjectMaterialsForInstance(ranger)
-  ranger.updateMatrixWorld(true)
-  const sourceBounds = new THREE.Box3().setFromObject(ranger)
-  const sourceHeight = Math.max(0.001, sourceBounds.max.y - sourceBounds.min.y)
-  ranger.scale.setScalar(2.35 / sourceHeight)
-  ranger.updateMatrixWorld(true)
-  const groundedBounds = new THREE.Box3().setFromObject(ranger)
-  ranger.position.y = -groundedBounds.min.y
-  ranger.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return
-    child.castShadow = true
-    child.receiveShadow = true
-    child.frustumCulled = true
-  })
-  return ranger
-}
-
-function attachRobinRanger(view: THREE.Group): void {
-  void loadRobinRanger().then((asset) => {
-    if (playerView !== view || selectedCharacter !== "robin") return
-    disposeObjectInstanceMaterials(view)
-    view.clear()
-    const ranger = prepareRangerInstance(asset.scene)
-    view.add(ranger)
-    robinRangerMixer = new THREE.AnimationMixer(ranger)
-    robinRangerActions = new Map(asset.animations.map((clip) => [clip.name, robinRangerMixer!.clipAction(clip)]))
-    robinRangerMotion = ""
-    setRobinRangerMotion("Robin_Idle")
-  }).catch(() => showToast("Robin's ranger model could not be loaded"))
-}
-
-function setRobinRangerMotion(name: string): void {
-  if (!robinRangerMixer || robinRangerMotion === name) return
-  const next = robinRangerActions.get(name)
-  if (!next) return
-  const previous = robinRangerActions.get(robinRangerMotion)
-  previous?.fadeOut(0.12)
-  next.reset().fadeIn(0.12).play()
-  robinRangerMotion = name
 }
 
 function createCart(): THREE.Group {
@@ -1030,7 +912,6 @@ attachMedievalProps()
 
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
-attachRobinRanger(playerView)
 state.guards.forEach(() => {
   const guard = createCharacter("guard")
   guardViews.push(guard)
@@ -2545,7 +2426,19 @@ function renderParty(players: RoomPlayer[]): void {
 function ensureRemotePlayers(players: RoomPlayer[]): void {
   const activeIds = new Set(players.filter((player) => player.id !== multiplayer.playerId).map((player) => player.id))
   for (const player of players) {
-    if (player.id === multiplayer.playerId || remoteViews.has(player.id)) continue
+    if (player.id === multiplayer.playerId) continue
+    const existing = remoteViews.get(player.id)
+    if (existing) {
+      existing.downedFor = player.downedFor
+      if (existing.characterId !== player.characterId) {
+        disposeObjectInstanceMaterials(existing.fallback)
+        existing.view.remove(existing.fallback)
+        existing.fallback = createCharacter(player.characterId)
+        existing.characterId = player.characterId
+        existing.view.add(existing.fallback)
+      }
+      continue
+    }
     const view = new THREE.Group()
     const fallback = createCharacter(player.characterId)
     view.add(fallback)
@@ -2554,30 +2447,13 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
     const remote: RemoteView = {
       view,
       fallback,
-      authored: null,
       snapshots: new SnapshotBuffer(),
-      mixer: null,
-      actions: new Map(),
-      motion: "",
       lastPosition: view.position.clone(),
       characterId: player.characterId,
       downedFor: player.downedFor,
     }
     remote.snapshots.push(player.position, performance.now())
     remoteViews.set(player.id, remote)
-    if (player.characterId === "robin") {
-      void loadRobinRanger().then((asset) => {
-        if (remoteViews.get(player.id) !== remote) return
-        const ranger = prepareRangerInstance(asset.scene)
-        view.add(ranger)
-        remote.authored = ranger
-        remote.fallback.visible = false
-        remote.mixer = new THREE.AnimationMixer(ranger)
-        remote.actions = new Map(asset.animations.map((clip) => [clip.name, remote.mixer!.clipAction(clip)]))
-        remote.motion = "Robin_Idle"
-        remote.actions.get("Robin_Idle")?.play()
-      }).catch(() => undefined)
-    }
   }
   for (const [id, remote] of remoteViews) {
     if (activeIds.has(id)) continue
@@ -2665,7 +2541,6 @@ function fireArrow(): void {
     }
     multiplayer.sendAction("shoot")
     robinShotUntil = clock.elapsedTime + 0.8
-    setRobinRangerMotion("Robin_Shoot")
     return
   }
   const guardId = shoot(state)
@@ -2680,7 +2555,6 @@ function fireArrow(): void {
   scene.add(line)
   arrowEffects.push({ line, age: 0 })
   robinShotUntil = clock.elapsedTime + 0.8
-  setRobinRangerMotion("Robin_Shoot")
   showToast("Guard stunned")
 }
 
@@ -2998,11 +2872,13 @@ function syncViews(elapsed: number, dt: number): void {
   const playerMoving = Math.hypot(dx, dz) > 0.001
   if (playerMoving) playerView.rotation.y = Math.atan2(dx, dz)
   lastPlayerPosition = { ...player }
-  if (robinRangerMixer) {
-    const motion = elapsed < robinShotUntil ? "Robin_Shoot" : playerMoving ? "Robin_Walk" : "Robin_Idle"
-    setRobinRangerMotion(motion)
-    robinRangerMixer.update(dt)
-  }
+  poseHeroCharacter(playerView, {
+    elapsed,
+    moving: playerMoving,
+    attacking: elapsed < robinShotUntil,
+    downed: localDownedFor > 0,
+    motionScale: renderProfile.motionScale,
+  })
   for (const cache of bowCacheAnimations) cache.mixer.update(dt)
 
   state.guards.forEach((guard, index) => {
@@ -3020,24 +2896,16 @@ function syncViews(elapsed: number, dt: number): void {
     const remoteDz = remote.view.position.z - remote.lastPosition.z
     const moving = Math.hypot(remoteDx, remoteDz) > 0.0001
     const cameraDistance = camera.position.distanceTo(remote.view.position)
-    if (remote.authored) {
-      remote.authored.visible = cameraDistance <= 24
-      remote.fallback.visible = cameraDistance > 24 && cameraDistance <= 48
-    } else {
-      remote.fallback.visible = cameraDistance <= 48
-    }
+    remote.fallback.visible = cameraDistance <= 48
     if (moving) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
     remote.view.rotation.z = remote.downedFor > 0 ? Math.PI / 2.7 : 0
+    poseHeroCharacter(remote.fallback, {
+      elapsed,
+      moving,
+      downed: remote.downedFor > 0,
+      motionScale: renderProfile.motionScale,
+    })
     remote.lastPosition.copy(remote.view.position)
-    if (remote.mixer) {
-      const motion = moving ? "Robin_Walk" : "Robin_Idle"
-      if (motion !== remote.motion) {
-        remote.actions.get(remote.motion)?.fadeOut(0.12)
-        remote.actions.get(motion)?.reset().fadeIn(0.12).play()
-        remote.motion = motion
-      }
-      remote.mixer.update(dt)
-    }
   }
 
   for (const view of pingViews.values()) {
@@ -3299,12 +3167,8 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   lastPlayerPosition = { ...state.player.position }
   disposeObjectInstanceMaterials(playerView)
   scene.remove(playerView)
-  robinRangerMixer = null
-  robinRangerActions = new Map()
-  robinRangerMotion = ""
   playerView = createCharacter(selectedCharacter)
   scene.add(playerView)
-  if (selectedCharacter === "robin") attachRobinRanger(playerView)
   if (notifyServer && multiplayer.playerId) multiplayer.selectCharacter(selectedCharacter)
   updateUI()
 }
