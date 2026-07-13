@@ -46,8 +46,10 @@ import { createVillageCottage, createVillageWagonShell } from "./village-assets"
 import { createAuthoredTreePlacements, TREE_VARIANT_NAMES } from "./tree-placements"
 import {
   PUBLIC_HUB_WORLD_BOUNDS,
+  resolveSherwoodCombinedMovement,
   resolveSherwoodPlayerMovement,
 } from "../shared/world-collisions"
+import { SHERWOOD_GUARD_SEPARATION, activeGuardPositions } from "../shared/guard-rules"
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
 import { createArcheryEquipment } from "./archery-equipment"
@@ -55,19 +57,25 @@ import { createHeroCharacter, poseHeroCharacter, type HeroAction } from "./chara
 import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { syncGuardViewCount } from "./guard-view-pool"
 import { sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
-import { buildRegionMapCells } from "./region-map"
+import { buildRegionMapCells, regionMapCellClassName } from "./region-map"
 import { createForestDressing } from "./forest-dressing"
 import { createSherwoodLandmarks, type SherwoodLandmarks } from "./world-landmarks"
 import { composeSherwoodWorld } from "../shared/world-composer"
 import { createSherwoodTerrain, sherwoodHeightAt } from "./sherwood-terrain"
 import { createProceduralRoads } from "./procedural-roads"
 import { createSettlementWorld } from "./settlement-renderer"
+import { animateObjectiveMarker, createObjectiveMarker, setObjectiveMarkerLabel } from "./objective-marker"
+import { computeObjectivePointer } from "./objective-guidance"
+import { missionObjectivePosition } from "../shared/mission-objective"
+import { selectRegionalMissionLayout, synchronizeMissionGuards } from "./mission-snapshot-state"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
 const startButton = document.querySelector<HTMLButtonElement>("#start-button")!
 const promptElement = document.querySelector<HTMLDivElement>("#prompt")!
 const toastElement = document.querySelector<HTMLDivElement>("#toast")!
+const objectivePointer = document.querySelector<HTMLElement>("#objective-pointer")!
+const objectivePointerDistance = document.querySelector<HTMLElement>("#objective-pointer-distance")!
 const objectiveElement = document.querySelector<HTMLElement>("#objective-text")!
 const missionTitle = document.querySelector<HTMLElement>("#mission-title")!
 const progressElement = document.querySelector<HTMLElement>("#progress-fill")!
@@ -963,20 +971,8 @@ destinationMarker.position.y = 0.08
 destinationMarker.visible = false
 scene.add(destinationMarker)
 
-const objectiveBeacon = new THREE.Group()
-objectiveBeacon.name = "ObjectiveBeacon"
-const objectiveBeaconRing = new THREE.Mesh(
-  new THREE.TorusGeometry(1.45, 0.09, 7, 28),
-  new THREE.MeshBasicMaterial({ color: palette.gold, transparent: true, opacity: 0.88, depthWrite: false }),
-)
-objectiveBeaconRing.rotation.x = Math.PI / 2
-objectiveBeaconRing.position.y = 3.2
-const objectiveBeaconRay = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.1, 0.34, 7, 8, 1, true),
-  new THREE.MeshBasicMaterial({ color: palette.gold, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }),
-)
-objectiveBeaconRay.position.y = 3.5
-objectiveBeacon.add(objectiveBeaconRing, objectiveBeaconRay)
+const objectiveMarker = createObjectiveMarker()
+const objectiveBeacon = objectiveMarker.group
 objectiveBeacon.visible = false
 scene.add(objectiveBeacon)
 
@@ -1173,6 +1169,7 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
     playerSpawns: layout.playerSpawns.map((position) => ({ ...position })),
   }
   missionCampfireView.position.set(layout.campfirePosition.x, sherwoodHeightAt(layout.campfirePosition.x, layout.campfirePosition.z), layout.campfirePosition.z)
+  cartView.position.set(layout.objectivePosition.x, sherwoodHeightAt(layout.objectivePosition.x, layout.objectivePosition.z), layout.objectivePosition.z)
   signalView.position.set(layout.reinforcementSignalPosition.x, sherwoodHeightAt(layout.reinforcementSignalPosition.x, layout.reinforcementSignalPosition.z), layout.reinforcementSignalPosition.z)
   storehouseView.position.set(layout.objectivePosition.x, sherwoodHeightAt(layout.objectivePosition.x, layout.objectivePosition.z), layout.objectivePosition.z)
   disguiseRackView.position.set(layout.disguisePosition.x, sherwoodHeightAt(layout.disguisePosition.x, layout.disguisePosition.z), layout.disguisePosition.z)
@@ -1725,7 +1722,8 @@ function updateMissionDebug(): void {
 
 function applyMissionSnapshot(mission: MissionSnapshot): void {
   latestMissionSnapshot = mission
-  applyRegionalLayout(mission.layout)
+  const nextLayout = selectRegionalMissionLayout(state.layout, mission.layout)
+  if (nextLayout !== state.layout) applyRegionalLayout(nextLayout)
   const definition = getMissionDefinition(currentMissionSlug)
   const packageMatches = mission.missionId === definition.id
     && mission.missionVersion === definition.missionVersion
@@ -1773,25 +1771,7 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   const preparationState = mission.preparations.length > 0 ? ` · PREP ${mission.preparations.filter((preparation) => preparation.status === "consumed").length}/${mission.preparations.length}` : ""
   missionModifiers.textContent = `5×5 SHERWOOD · SEARCH ${mission.searchPressure}/3 · ${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState}${rotationState}${preparationState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
   if (mission.phase === "robbery") localStorage.setItem("sherwood:tutorial-complete", "true")
-  while (guardViews.length < mission.guards.length) {
-    const guardState = mission.guards[guardViews.length]
-    state.guards.push({
-      id: guardState.id,
-      position: { ...guardState.position },
-      home: { ...guardState.position },
-      patrolAngle: 0,
-      stunnedFor: guardState.stunnedFor,
-    })
-    const guardView = createCharacter("guard")
-    guardViews.push(guardView)
-    scene.add(guardView)
-  }
-  for (const guard of mission.guards) {
-    const local = state.guards[guard.id]
-    if (!local) continue
-    local.position = { ...guard.position }
-    local.stunnedFor = guard.stunnedFor
-  }
+  state.guards = synchronizeMissionGuards(state.guards, mission.guards)
   if (mission.latestEvent && mission.latestEvent.sequence > lastMissionEventSequence) {
     lastMissionEventSequence = mission.latestEvent.sequence
     showMissionEvent(mission.latestEvent)
@@ -1825,6 +1805,11 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
 function showMissionEvent(event: MissionEvent): void {
   const messages: Partial<Record<MissionEvent["type"], string>> = {
     cart_robbed: "THE TAX CART IS OURS — RUN!",
+    escort_blocking: latestMissionSnapshot?.missionKind === "storehouse"
+      ? "GUARDS BLOCKING THE CACHE — STUN OR DRAW THEM AWAY"
+      : latestMissionSnapshot?.missionKind === "prison-wagon"
+        ? "ESCORT BLOCKING THE WAGON — STUN OR DRAW THEM AWAY"
+        : "ESCORT BLOCKING THE CART — STUN OR DRAW THEM AWAY",
     loot_delivered: "COIN RETURNED TO THE PEOPLE",
     wagon_intercepted: "THE PRISON WAGON IS STOPPED",
     lock_breached: "THE CAGE LOCK IS GIVING WAY",
@@ -2614,6 +2599,7 @@ function handleInteraction(): void {
   const result = interact(state)
   const messages: Record<string, string> = {
     "robbed-cart": "120 CROWN COIN TAKEN — RUN!",
+    "escort-blocking": "ESCORT BLOCKING THE CART — STUN OR DRAW THEM AWAY",
     "cart-empty": "The tax cart is empty",
     delivered: "COIN RETURNED TO THE PEOPLE",
     restocked: "Quiver restocked",
@@ -2819,7 +2805,9 @@ function updateUI(): void {
       ? missionPrompt
       : getContextPrompt(state)
   const discovered = latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered
-  const objectivePosition = latestMissionSnapshot?.layout.objectivePosition ?? state.layout.objectivePosition
+  const objectivePosition = latestMissionSnapshot
+    ? missionObjectivePosition(latestMissionSnapshot)
+    : state.layout.objectivePosition
   const dx = objectivePosition.x - state.player.position.x
   const dz = objectivePosition.z - state.player.position.z
   const objectiveDistance = Math.round(Math.hypot(dx, dz))
@@ -2847,7 +2835,10 @@ function renderRegionMap(): void {
   const explored = latestMissionSnapshot?.exploredCellIndices ?? state.exploredCellIndices
   const objectiveDiscovered = latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered
   const searchPressure = latestMissionSnapshot?.searchPressure ?? state.searchPressure
-  const cells = buildRegionMapCells(state.layout, explored, state.player.position, objectiveDiscovered, searchPressure)
+  const objectivePosition = latestMissionSnapshot
+    ? missionObjectivePosition(latestMissionSnapshot)
+    : state.layout.objectivePosition
+  const cells = buildRegionMapCells(state.layout, explored, state.player.position, objectiveDiscovered, searchPressure, objectivePosition)
   if (regionMapGrid.children.length !== cells.length) {
     regionMapGrid.replaceChildren(...cells.map(() => {
       const cell = document.createElement("span")
@@ -2859,7 +2850,7 @@ function renderRegionMap(): void {
   cells.forEach((cell, index) => {
     const view = regionMapGrid.children[index] as HTMLElement
     if (cell.explored) exploredCount += 1
-    view.className = `region-map-cell${cell.explored ? " explored" : " fogged"}${cell.activity ? " activity" : ""}${cell.objective ? " objective" : ""}${cell.current ? " current" : ""}`
+    view.className = regionMapCellClassName(cell)
     view.textContent = cell.current ? "▲" : ""
     view.setAttribute("aria-hidden", "true")
   })
@@ -2883,7 +2874,8 @@ function showEnding(won: boolean): void {
   startButton.innerHTML = "PLAY AGAIN <span>→</span>"
   small.textContent = "RESTART THE 3D PROTOTYPE"
   intro.classList.remove("closed")
-  intro.querySelector<HTMLElement>(".character-select")!.style.display = "none"
+  roleChoicePanel.classList.add("hidden")
+  roleChoicePanel.setAttribute("aria-hidden", "true")
   if (won && !resultSubmitted) {
     resultSubmitted = true
     const playerName = localStorage.getItem("sherwood-rebellion:player-name") ?? "Anonymous Outlaw"
@@ -2929,10 +2921,28 @@ function syncViews(elapsed: number, dt: number): void {
     },
   )
   water.update(elapsed, renderProfile.motionScale)
-  const objectiveVisible = !inHub && (latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered)
+  const objectiveDiscovered = latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered
+  const objectiveStillActive = multiplayerActive
+    ? latestMissionSnapshot !== null && ["scout", "ambush", "robbery"].includes(latestMissionSnapshot.phase)
+    : state.cartCoin > 0 && state.player.loot === 0 && !state.won && !state.lost
+  const objectiveVisible = running
+    && !inHub
+    && !inPublicHub
+    && intro.classList.contains("closed")
+    && objectiveDiscovered
+    && objectiveStillActive
+  const objectiveLabel = !multiplayerActive || latestMissionSnapshot?.missionKind === "tax-cart"
+    ? "SHERIFF'S CART"
+    : latestMissionSnapshot?.missionKind === "prison-wagon"
+      ? "PRISON WAGON"
+      : "NOTTINGHAM LEDGER"
+  const objectivePosition = latestMissionSnapshot
+    ? missionObjectivePosition(latestMissionSnapshot)
+    : state.layout.objectivePosition
+  setObjectiveMarkerLabel(objectiveMarker, objectiveLabel)
   objectiveBeacon.visible = objectiveVisible
-  objectiveBeacon.position.set(cartView.position.x, sherwoodHeightAt(cartView.position.x, cartView.position.z) + Math.sin(elapsed * 2) * 0.12, cartView.position.z)
-  objectiveBeaconRing.rotation.z = elapsed * 0.45
+  objectiveBeacon.position.set(objectivePosition.x, sherwoodHeightAt(objectivePosition.x, objectivePosition.z) + Math.sin(elapsed * 2) * 0.12, objectivePosition.z)
+  animateObjectiveMarker(objectiveMarker, elapsed, renderProfile.motionScale)
   if (windmillRotor) windmillRotor.rotation.z = elapsed * 0.32 * renderProfile.motionScale
   if (!multiplayerActive) {
     syncTrapViews(state.traps.map((trap) => ({ id: trap.id, ownerId: "local", position: trap.position, expiresAtTick: 0 })))
@@ -3052,6 +3062,22 @@ function syncViews(elapsed: number, dt: number): void {
   const desiredCamera = new THREE.Vector3(player.x + cameraOffset.x, playerGroundY + 14.5, player.z + cameraOffset.z)
   camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt))
   camera.lookAt(player.x, playerGroundY + 0.75, player.z)
+  if (objectiveVisible) {
+    const projectedObjective = new THREE.Vector3(objectiveBeacon.position.x, objectiveBeacon.position.y + 6, objectiveBeacon.position.z).project(camera)
+    const pointerLayout = computeObjectivePointer({
+      ndcX: projectedObjective.x,
+      ndcY: projectedObjective.y,
+      ndcZ: projectedObjective.z,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      distanceMeters: Math.hypot(objectivePosition.x - player.x, objectivePosition.z - player.z),
+    })
+    objectivePointer.classList.toggle("hidden", !pointerLayout.visible)
+    objectivePointer.style.left = `${pointerLayout.x}px`
+    objectivePointer.style.top = `${pointerLayout.y}px`
+    objectivePointer.style.setProperty("--objective-angle", `${pointerLayout.angleDegrees}deg`)
+    objectivePointerDistance.textContent = pointerLayout.distanceLabel
+  } else objectivePointer.classList.add("hidden")
 
   for (let i = arrowEffects.length - 1; i >= 0; i -= 1) {
     arrowEffects[i].age += dt
@@ -3138,10 +3164,16 @@ function predictMultiplayerMovement(move: Vec2, dt: number): void {
   const lootPenalty = state.player.characterId === "little-john"
     ? Math.max(0.82, 1 - state.player.loot / 1_100)
     : Math.max(0.68, 1 - state.player.loot / 600)
-  state.player.position = resolveSherwoodPlayerMovement(state.player.position, {
+  const origin = { ...state.player.position }
+  state.player.position = resolveSherwoodCombinedMovement(origin, {
     x: (move.x / length) * speed * lootPenalty * dt,
     z: (move.z / length) * speed * lootPenalty * dt,
-  }, state.layout.worldBounds, undefined, state.layout)
+  }, {
+    worldBounds: state.layout.worldBounds,
+    layout: state.layout,
+    circleBlockers: activeGuardPositions(state.guards),
+    circleSeparation: SHERWOOD_GUARD_SEPARATION,
+  })
 }
 
 function nearbyTeammate(predicate: (player: RoomPlayer) => boolean): RoomPlayer | null {

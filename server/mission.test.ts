@@ -5,7 +5,8 @@ import type { CharacterId } from "../shared/protocol"
 import referencePackage from "../missions/peoples-purse.v1.json"
 import { missionContentHash, parseMissionDefinition } from "../shared/mission-definition"
 import { PRISON_WAGON_MISSION, ROYAL_STOREHOUSE_MISSION } from "../shared/mission-catalog"
-import { VILLAGE_COTTAGE_COLLIDER, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
+import { SHERWOOD_ESCORT_BLOCK_RADIUS, SHERWOOD_GUARD_SEPARATION } from "../shared/guard-rules"
+import { SHERWOOD_PLAYER_RADIUS, VILLAGE_COTTAGE_COLLIDER, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
 import { createInitialState, updateSimulation } from "../src/simulation"
 
 function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer {
@@ -36,6 +37,12 @@ function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer
     heavyCarryPeak: 0,
     trapHits: 0,
     sabotageCount: 0,
+  }
+}
+
+function stunImmediateEscort(mission: Mission, objective = mission.cartPosition): void {
+  for (const guard of mission.guards) {
+    if (Math.hypot(guard.position.x - objective.x, guard.position.z - objective.z) <= SHERWOOD_ESCORT_BLOCK_RADIUS) guard.stunnedFor = 30
   }
 }
 
@@ -90,6 +97,7 @@ describe("authoritative mission", () => {
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]), definition)
     mission.phase = "robbery"
     robin.position = { ...mission.definition.spawns.cart }
+    stunImmediateEscort(mission)
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(robin.loot).toBe(99)
     expect(mission.snapshot()).toMatchObject({ missionId: variant.id, missionVersion: "1.1.0", contentHash: variant.contentHash, target: 777 })
@@ -139,6 +147,10 @@ describe("authoritative mission", () => {
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]))
     mission.phase = "robbery"
     robin.position = { ...mission.definition.spawns.cart }
+    expect(mission.action(robin.id, "interact")).toBe(false)
+    expect(mission.events.at(-1)).toMatchObject({ type: "escort_blocking", playerId: robin.id, value: 3, detail: "tax-cart" })
+    expect(robin.loot).toBe(0)
+    stunImmediateEscort(mission)
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(robin.loot).toBe(120)
     mission.phase = "escape"
@@ -187,6 +199,42 @@ describe("authoritative mission", () => {
     expect(remote.position.x).toBeCloseTo(local.player.position.x, 10)
     expect(remote.position.z).toBeCloseTo(local.player.position.z, 10)
     expect(isSherwoodPlayerPositionBlocked(remote.position)).toBe(false)
+  })
+
+  it("prevents authoritative movement from tunnelling through an active guard", () => {
+    const robin = player()
+    robin.position = { x: -20, z: -20 }
+    const mission = new Mission("GUARD-WALL", new Map([[robin.id, robin]]))
+    mission.guards.splice(1)
+    mission.guards[0].position = { x: -18, z: -20 }
+    mission.guards[0].home = { x: -18, z: -20 }
+    mission.guards[0].patrolAngle = 0
+    expect(mission.setInput(robin.id, 1, { x: 1, z: 0 }, 100)).toBe(true)
+    mission.update(0.75)
+    expect(robin.position.x).toBeLessThan(mission.guards[0].position.x)
+    expect(Math.hypot(
+      robin.position.x - mission.guards[0].position.x,
+      robin.position.z - mission.guards[0].position.z,
+    )).toBeGreaterThanOrEqual(SHERWOOD_GUARD_SEPARATION)
+  })
+
+  it("keeps authoritative guard avoidance outside shared world obstacles", () => {
+    const robin = player()
+    robin.position = { x: -15, z: 8 }
+    robin.invulnerableFor = 10
+    const mission = new Mission("COMBINED-CORNER", new Map([[robin.id, robin]]))
+    mission.guards.splice(1)
+    mission.guards[0].position = { x: -14, z: 10.5 }
+    mission.guards[0].home = { x: -14, z: 10.5 }
+    mission.guards[0].patrolAngle = 0
+    expect(mission.setInput(robin.id, 1, { x: 6, z: 5 }, 100)).toBe(true)
+    mission.update(Math.hypot(6, 5) / 6.2)
+
+    expect(isSherwoodPlayerPositionBlocked(robin.position, SHERWOOD_PLAYER_RADIUS, mission.layout)).toBe(false)
+    expect(Math.hypot(
+      robin.position.x - mission.guards[0].position.x,
+      robin.position.z - mission.guards[0].position.z,
+    )).toBeGreaterThanOrEqual(SHERWOOD_GUARD_SEPARATION)
   })
 
   it("requires proximity for revive and loot transfer and scores support", () => {
@@ -368,6 +416,9 @@ describe("authoritative mission", () => {
     expect(mission.action(robin.id, "shoot")).toBe(true)
     expect(mission.phase).toBe("robbery")
     robin.position = { ...mission.definition.spawns.cart }
+    expect(mission.action(robin.id, "interact")).toBe(false)
+    expect(mission.events.at(-1)?.type).toBe("escort_blocking")
+    stunImmediateEscort(mission)
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(mission.phase).toBe("pursuit")
     robin.position = { ...mission.definition.routes.escape.find((route) => route.id === "forest")!.position }
@@ -410,6 +461,7 @@ describe("authoritative mission", () => {
     const mission = new Mission("ABC234", new Map([[robin.id, robin], [marian.id, marian]]))
     mission.phase = "robbery"
     robin.position = { ...mission.definition.spawns.cart }
+    stunImmediateEscort(mission)
     mission.action(robin.id, "interact")
     mission.phase = "escape"
     mission.delivered = 540
@@ -450,6 +502,23 @@ describe("authoritative mission", () => {
     expect(after.captives.every((captive) => captive.status === "locked" && !captive.rewarded)).toBe(true)
   })
 
+  it("discovers a prison wagon at its current position instead of its stale regional spawn", () => {
+    const robin = player("robin", "robin")
+    const mission = new Mission("IRON-MOVING", new Map([[robin.id, robin]]), PRISON_WAGON_MISSION)
+    mission.cartPosition = {
+      x: mission.layout.objectivePosition.x - 30,
+      z: mission.layout.objectivePosition.z + 30,
+    }
+
+    robin.position = { ...mission.layout.objectivePosition }
+    mission.update(0)
+    expect(mission.objectiveDiscovered).toBe(false)
+
+    robin.position = { ...mission.cartPosition }
+    mission.update(0)
+    expect(mission.objectiveDiscovered).toBe(true)
+  })
+
   it("completes a two-player prison rescue through lock, reconnect, alternate extraction, and idempotent rewards", () => {
     const john = player("john", "little-john")
     const much = player("much", "much")
@@ -458,6 +527,7 @@ describe("authoritative mission", () => {
     mission.wagonMoving = false
     john.position = { ...mission.cartPosition }
     much.position = { ...mission.cartPosition }
+    stunImmediateEscort(mission)
     expect(mission.action(john.id, "interact")).toBe(true)
     expect(mission.action(john.id, "interact")).toBe(false)
     expect(mission.action(much.id, "interact")).toBe(true)
@@ -510,6 +580,7 @@ describe("authoritative mission", () => {
     mission.wagonMoving = false
     robin.position = { ...mission.cartPosition }
     marian.position = { ...mission.cartPosition }
+    stunImmediateEscort(mission)
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(mission.action(marian.id, "interact")).toBe(true)
     const refuge = mission.definition.routes.escape.find((route) => route.id === "forest")!.position
@@ -541,11 +612,14 @@ describe("authoritative mission", () => {
     for (const kind of ["intel", "ledger"] as const) {
       const cache = mission.lootCaches.find((candidate) => candidate.kind === kind)!
       marian.position = { ...cache.position }
+      stunImmediateEscort(mission, cache.position)
       expect(mission.action(marian.id, "interact")).toBe(true)
     }
     const coins = mission.lootCaches.filter((cache) => cache.kind === "coin")
     marian.position = { ...coins[0].position }
     much.position = { ...coins[1].position }
+    stunImmediateEscort(mission, coins[0].position)
+    stunImmediateEscort(mission, coins[1].position)
     expect(mission.action(marian.id, "interact")).toBe(true)
     expect(mission.action(much.id, "interact")).toBe(true)
     if (coins[1].status === "secured") expect(mission.action(much.id, "interact")).toBe(true)
@@ -612,6 +686,7 @@ describe("authoritative mission", () => {
     mission.disguisePlayerId = marian.id
     const cache = mission.lootCaches.find((candidate) => candidate.kind === "coin")!
     marian.position = { ...cache.position }
+    stunImmediateEscort(mission, cache.position)
     expect(mission.action(marian.id, "interact")).toBe(true)
     const carried = marian.loot
     marian.connected = false
@@ -621,5 +696,26 @@ describe("authoritative mission", () => {
     expect(marian.loot).toBe(carried)
     expect(mission.snapshot().lootCaches.find((candidate) => candidate.id === cache.id)?.status).toBe("looted")
     expect(mission.events.filter((event) => event.type === "cache_looted" && event.detail === cache.id)).toHaveLength(1)
+  })
+
+  it.each(["coin", "intel", "ledger"] as const)("blocks a guarded storehouse %s cache until its escort is stunned", (kind) => {
+    const marian = player("marian", "marian")
+    const mission = new Mission(`GUARDED-${kind}`, new Map([[marian.id, marian]]), ROYAL_STOREHOUSE_MISSION)
+    mission.phase = "robbery"
+    const cache = mission.lootCaches.find((candidate) => candidate.kind === kind)!
+    marian.position = { ...cache.position }
+    mission.guards[0].position = { ...cache.position }
+
+    expect(mission.action(marian.id, "interact")).toBe(false)
+    expect(cache.status).toBe("secured")
+    expect(mission.events.at(-1)).toMatchObject({
+      type: "escort_blocking",
+      playerId: marian.id,
+      detail: "storehouse",
+    })
+
+    stunImmediateEscort(mission, cache.position)
+    expect(mission.action(marian.id, "interact")).toBe(true)
+    expect(cache.status).toBe("looted")
   })
 })

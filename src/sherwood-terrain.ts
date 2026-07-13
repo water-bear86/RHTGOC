@@ -1,13 +1,9 @@
 import * as THREE from "three"
+import { sherwoodTopologyHeightAt } from "../shared/world-topology"
 import { createToonMaterial } from "./toon-materials"
 
 export function sherwoodHeightAt(x: number, z: number): number {
-  const rolling = Math.sin(x * 0.075) * 0.85 + Math.cos(z * 0.061) * 0.68
-  const ridge = Math.max(0, Math.sin((x + z) * 0.052) - 0.35) * 2.8
-  const secondary = Math.sin((x - z) * 0.038 + 1.2) * 0.5
-  const riverDistance = Math.abs(x - 1 + z * 0.1)
-  const valleyBlend = Math.max(0, Math.min(1, (riverDistance - 3.2) / 6.5))
-  return THREE.MathUtils.lerp(-0.48, 1.15 + rolling + ridge + secondary, valleyBlend)
+  return sherwoodTopologyHeightAt(x, z)
 }
 
 export function createSherwoodTerrain(size = 134, segments = 72): THREE.Mesh {
@@ -27,4 +23,3 @@ export function createSherwoodTerrain(size = 134, segments = 72): THREE.Mesh {
   terrain.castShadow = false
   return terrain
 }
-

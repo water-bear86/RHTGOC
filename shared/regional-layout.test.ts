@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { PEOPLES_PURSE_MISSION, PRISON_WAGON_MISSION, ROYAL_STOREHOUSE_MISSION } from "./mission-catalog"
 import { SHERWOOD_REGIONAL_BOUNDS, regionCellIndexAt, regionalizeMissionDefinition, sherwoodRegionCells, stableSeed } from "./regional-layout"
+import {
+  SHERWOOD_STATIC_OBSTACLES,
+  createSherwoodRiverObstacles,
+  isPointInsideSherwoodObstacle,
+} from "./world-obstacles"
 
 describe("5x5 regional mission layout", () => {
   it("publishes 25 stable cells and separates campfire from the objective as far as possible", () => {
@@ -25,6 +30,31 @@ describe("5x5 regional mission layout", () => {
     const first = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 42)
     expect(regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 42)).toEqual(first)
     expect(regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 43).layout).not.toEqual(first.layout)
+  })
+
+  it("keeps mission anchors off authoritative blockers without collapsing layout diversity", () => {
+    const campCells = new Set<number>()
+    const objectiveCells = new Set<number>()
+    const anchorPairs = new Set<string>()
+    for (let seed = 1; seed <= 128; seed += 1) {
+      const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed * 7919).layout
+      campCells.add(layout.campfireCell.index)
+      objectiveCells.add(layout.objectiveCell.index)
+      anchorPairs.add(`${layout.campfireCell.index}:${layout.objectiveCell.index}`)
+      const blockers = [...SHERWOOD_STATIC_OBSTACLES, ...createSherwoodRiverObstacles(layout)]
+      for (const anchor of [layout.campfirePosition, layout.objectivePosition]) {
+        expect(
+          blockers.some((blocker) => isPointInsideSherwoodObstacle(anchor, blocker, 0.45)),
+          `seed ${seed * 7919} placed a mission anchor inside ${blockers.find((blocker) => isPointInsideSherwoodObstacle(anchor, blocker, 0.45))?.id}`,
+        ).toBe(false)
+      }
+      const cellDistance = Math.abs(layout.campfireCell.row - layout.objectiveCell.row)
+        + Math.abs(layout.campfireCell.column - layout.objectiveCell.column)
+      expect(cellDistance).toBeGreaterThanOrEqual(4)
+    }
+    expect(campCells.size).toBeGreaterThanOrEqual(10)
+    expect(objectiveCells.size).toBeGreaterThanOrEqual(4)
+    expect(anchorPairs.size).toBeGreaterThanOrEqual(12)
   })
 
   it("translates every mission family while preserving stable package identity", () => {

@@ -33,9 +33,16 @@ export const SHERWOOD_CELL_SIZE = 26
 export const SHERWOOD_REGIONAL_BOUNDS = 67
 export const SHERWOOD_RIVER_CENTER_X = 1
 export const SHERWOOD_RIVER_SLOPE = -0.1
+/** Cell-center clearance leaves room for anchor jitter, the river, and a full road corridor. */
+export const SHERWOOD_MISSION_ANCHOR_RIVER_CLEARANCE = 10
 
 export function riverPointAt(z: number): { x: number; z: number } {
   return { x: SHERWOOD_RIVER_CENTER_X + SHERWOOD_RIVER_SLOPE * z, z }
+}
+
+function missionAnchorCellClearOfRiver(cell: RegionCell): boolean {
+  return Math.abs(cell.center.x - SHERWOOD_RIVER_CENTER_X - SHERWOOD_RIVER_SLOPE * cell.center.z)
+    >= SHERWOOD_MISSION_ANCHOR_RIVER_CLEARANCE
 }
 
 export function seededUnit(seed: number): () => number {
@@ -91,9 +98,10 @@ function cloneCell(cell: RegionCell): RegionCell {
 export function regionalizeMissionDefinition(base: MissionDefinition, seed: number): RegionalizedMission {
   const random = seededUnit(seed)
   const cells = sherwoodRegionCells()
-  const campfireCandidates = cells.filter((cell) => cell.row === 0 || cell.column === 0 || cell.row === SHERWOOD_GRID_SIZE - 1 || cell.column === SHERWOOD_GRID_SIZE - 1)
+  const anchorCells = cells.filter(missionAnchorCellClearOfRiver)
+  const campfireCandidates = anchorCells.filter((cell) => cell.row === 0 || cell.column === 0 || cell.row === SHERWOOD_GRID_SIZE - 1 || cell.column === SHERWOOD_GRID_SIZE - 1)
   const campfireCell = campfireCandidates[Math.floor(random() * campfireCandidates.length)]
-  const distances = cells.map((cell) => ({
+  const distances = anchorCells.map((cell) => ({
     cell,
     distance: Math.abs(cell.row - campfireCell.row) + Math.abs(cell.column - campfireCell.column),
   }))

@@ -1,5 +1,6 @@
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
-import { resolveSherwoodPlayerMovement } from "../shared/world-collisions"
+import { SHERWOOD_GUARD_SEPARATION, activeEscortCount, activeGuardPositions } from "../shared/guard-rules"
+import { resolveSherwoodCombinedMovement } from "../shared/world-collisions"
 import { regionCellIndexAt, regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 
 export interface Vec2 { x: number; z: number }
@@ -159,7 +160,13 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
     }
     state.stats.distanceTravelled += movement
   }
-  const resolvedPlayerPosition = resolveSherwoodPlayerMovement(player.position, playerDisplacement, state.layout.worldBounds, undefined, state.layout)
+  const playerOrigin = { ...player.position }
+  const resolvedPlayerPosition = resolveSherwoodCombinedMovement(playerOrigin, playerDisplacement, {
+    worldBounds: state.layout.worldBounds,
+    layout: state.layout,
+    circleBlockers: activeGuardPositions(state.guards),
+    circleSeparation: SHERWOOD_GUARD_SEPARATION,
+  })
   player.position.x = resolvedPlayerPosition.x
   player.position.z = resolvedPlayerPosition.z
 
@@ -209,21 +216,32 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       }
       moveToward(guard.position, patrolTarget, 1.5, dt)
     }
-    const guardResolved = resolveSherwoodPlayerMovement(guardOrigin, {
+    guard.position = resolveSherwoodCombinedMovement(guardOrigin, {
       x: guard.position.x - guardOrigin.x,
       z: guard.position.z - guardOrigin.z,
-    }, state.layout.worldBounds, 0.35, state.layout)
-    guard.position = guardResolved
+    }, {
+      worldBounds: state.layout.worldBounds,
+      moverRadius: 0.35,
+      layout: state.layout,
+      circleBlockers: [player.position],
+      circleSeparation: SHERWOOD_GUARD_SEPARATION,
+    })
 
     if (distance(guard.position, player.position) < 1.25 && player.invulnerableFor === 0) {
       player.health -= 1
       state.stats.damageTaken += 1
       player.invulnerableFor = 2
       state.heat = Math.min(100, state.heat + 15)
-      const knockback = resolveSherwoodPlayerMovement(player.position, {
+      const knockbackOrigin = { ...player.position }
+      const knockback = resolveSherwoodCombinedMovement(knockbackOrigin, {
         x: -(guard.position.x - player.position.x) * 1.8,
         z: -(guard.position.z - player.position.z) * 1.8,
-      }, state.layout.worldBounds, undefined, state.layout)
+      }, {
+        worldBounds: state.layout.worldBounds,
+        layout: state.layout,
+        circleBlockers: activeGuardPositions(state.guards),
+        circleSeparation: SHERWOOD_GUARD_SEPARATION,
+      })
       player.position.x = knockback.x
       player.position.z = knockback.z
       events.push("player-hit")
@@ -247,6 +265,7 @@ export function interact(state: GameState): string {
   }
   if (distance(state.player.position, state.layout.objectivePosition) < 3) {
     if (state.cartCoin === 0) return "cart-empty"
+    if (activeEscortCount(state.guards, state.layout.objectivePosition) > 0) return "escort-blocking"
     state.player.loot += state.cartCoin
     state.cartCoin = 0
     state.cartRefill = 28
@@ -365,6 +384,9 @@ export function calculateMastery(state: GameState): MasteryResult {
 
 export function getContextPrompt(state: GameState): string {
   if (distance(state.player.position, state.layout.objectivePosition) < 3) {
+    if (state.cartCoin > 0 && activeEscortCount(state.guards, state.layout.objectivePosition) > 0) {
+      return "ESCORT BLOCKING CART · STUN THEM FIRST"
+    }
     return state.cartCoin > 0 ? "E  ROB THE TAX CART" : `Cart returns in ${Math.ceil(state.cartRefill)}s`
   }
   if (distance(state.player.position, state.layout.campfirePosition) < 3.2) {

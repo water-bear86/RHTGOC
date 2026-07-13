@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { SHERWOOD_PASSES, SHERWOOD_RIDGE_SEGMENTS, SHERWOOD_SETTLEMENT_SITES } from "../shared/world-topology"
 import { createSherwoodTerrain, sherwoodHeightAt } from "./sherwood-terrain"
 
 describe("Sherwood terrain", () => {
@@ -12,5 +13,21 @@ describe("Sherwood terrain", () => {
     const terrain = createSherwoodTerrain(134, 24)
     expect(terrain.name).toBe("SherwoodTopography")
     expect(terrain.geometry.boundingBox).toBeTruthy()
+  })
+
+  it("renders steep shared ridges, cut passes, and level settlement terraces", () => {
+    const ridge = SHERWOOD_RIDGE_SEGMENTS.find((candidate) => candidate.id === "oak-ridge-middle")!
+    const ridgeCenter = { x: (ridge.start.x + ridge.end.x) / 2, z: (ridge.start.z + ridge.end.z) / 2 }
+    const ridgeHeight = sherwoodHeightAt(ridgeCenter.x, ridgeCenter.z)
+    const lowSideHeight = sherwoodHeightAt(ridgeCenter.x + 12, ridgeCenter.z)
+    const pass = SHERWOOD_PASSES.find((candidate) => candidate.id === "oak-south-pass")!
+    const terrace = SHERWOOD_SETTLEMENT_SITES[0]
+
+    expect(ridgeHeight - lowSideHeight).toBeGreaterThan(3)
+    expect(sherwoodHeightAt(pass.position.x, pass.position.z)).toBeLessThan(ridgeHeight - 3)
+    expect(sherwoodHeightAt(terrace.center.x + 7, terrace.center.z)).toBeCloseTo(
+      sherwoodHeightAt(terrace.center.x, terrace.center.z),
+      5,
+    )
   })
 })

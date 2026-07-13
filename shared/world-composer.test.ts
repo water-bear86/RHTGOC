@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { PEOPLES_PURSE_MISSION } from "./mission-catalog"
 import { regionalizeMissionDefinition } from "./regional-layout"
 import { composeSherwoodWorld } from "./world-composer"
+import { SHERWOOD_SETTLEMENT_SITES } from "./world-topology"
 
 describe("Sherwood world composer", () => {
   const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 4219).layout
@@ -14,6 +15,7 @@ describe("Sherwood world composer", () => {
     expect(first.buildingCount).toBeGreaterThanOrEqual(10)
     expect(first.roads).toHaveLength(6)
     expect(first.roads.every((road) => road.points.length >= 8)).toBe(true)
+    expect(first.roads.some((road) => (road.passIds?.length ?? 0) > 0)).toBe(true)
   })
 
   it("keeps substantial buildings away from the exact mission anchors", () => {
@@ -23,6 +25,7 @@ describe("Sherwood world composer", () => {
       expect(Math.hypot(building.position.x - layout.objectivePosition.x, building.position.z - layout.objectivePosition.z)).toBeGreaterThan(4)
     }
     for (const settlement of world.settlements) {
+      expect(SHERWOOD_SETTLEMENT_SITES.some((site) => site.center.x === settlement.center.x && site.center.z === settlement.center.z)).toBe(true)
       for (let left = 0; left < settlement.buildings.length; left += 1) {
         for (let right = left + 1; right < settlement.buildings.length; right += 1) {
           const a = settlement.buildings[left]
@@ -31,6 +34,16 @@ describe("Sherwood world composer", () => {
           expect(Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z)).toBeGreaterThan(minimum)
         }
       }
+    }
+  })
+
+  it("finds sparse authored routes across a broad deterministic seed sample", () => {
+    for (let index = 1; index <= 32; index += 1) {
+      const seededLayout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, index * 7919).layout
+      const world = composeSherwoodWorld(seededLayout)
+      expect(world.roads).toHaveLength(6)
+      expect(world.roads.every((road) => road.points.length >= 2)).toBe(true)
+      expect(world.buildingCount).toBeGreaterThanOrEqual(10)
     }
   })
 })

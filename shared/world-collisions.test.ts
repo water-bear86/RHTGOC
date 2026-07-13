@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest"
 import {
   PUBLIC_HUB_WORLD_BOUNDS,
+  SHERWOOD_CROSSING_HALF_LENGTH,
   SHERWOOD_PLAYER_RADIUS,
   SHERWOOD_TREE_COLLIDERS,
   VILLAGE_COTTAGE_COLLIDER,
   createSherwoodSettlementColliders,
+  createSherwoodTopologyColliders,
   isSherwoodPlayerPositionBlocked,
+  resolveSherwoodCombinedMovement,
   resolveSherwoodPlayerMovement,
 } from "./world-collisions"
 import { PEOPLES_PURSE_MISSION } from "./mission-catalog"
 import { regionalizeMissionDefinition, riverPointAt } from "./regional-layout"
+import { composeSherwoodWorld } from "./world-composer"
 
 function localPoint(x: number, z: number): { x: number; z: number } {
   const collider = VILLAGE_COTTAGE_COLLIDER
@@ -80,6 +84,36 @@ describe("shared Sherwood world collision contract", () => {
     expect(local.z).toBeGreaterThan(1.9)
   })
 
+  it("keeps circle sliding from pushing a valid result back inside a building", () => {
+    const start = { x: -15, z: 8 }
+    const guard = { x: -14, z: 10.5 }
+    const resolved = resolveSherwoodCombinedMovement(start, { x: 6, z: 5 }, {
+      worldBounds: 22,
+      circleBlockers: [guard],
+      circleSeparation: 1,
+    })
+
+    expect(isSherwoodPlayerPositionBlocked(resolved)).toBe(false)
+    expect(Math.hypot(resolved.x - guard.x, resolved.z - guard.z)).toBeGreaterThanOrEqual(1)
+    expect(Math.hypot(resolved.x - start.x, resolved.z - start.z)).toBeGreaterThan(0.5)
+  })
+
+  it("keeps the seed-zero crossing guard from sliding a player into the river bank", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 0).layout
+    const start = { x: 9.373601996327949, z: -37.13394306944951 }
+    const displacement = { x: -0.688392923813165, z: 0.08255269235650076 }
+    const guard = { x: 9.678431707424417, z: -37.51852131274919 }
+    const resolved = resolveSherwoodCombinedMovement(start, displacement, {
+      worldBounds: layout.worldBounds,
+      layout,
+      circleBlockers: [guard],
+      circleSeparation: 1,
+    })
+
+    expect(isSherwoodPlayerPositionBlocked(resolved, SHERWOOD_PLAYER_RADIUS, layout)).toBe(false)
+    expect(Math.hypot(resolved.x - guard.x, resolved.z - guard.z)).toBeGreaterThanOrEqual(1)
+  })
+
   it("evaluates the footprint in its authored rotation rather than as an axis-aligned box", () => {
     const rotatedInside = localPoint(0, VILLAGE_COTTAGE_COLLIDER.halfExtents.z + SHERWOOD_PLAYER_RADIUS - 0.05)
     const rotatedOutside = localPoint(0, VILLAGE_COTTAGE_COLLIDER.halfExtents.z + SHERWOOD_PLAYER_RADIUS + 0.05)
@@ -126,5 +160,87 @@ describe("shared Sherwood world collision contract", () => {
     const buildings = createSherwoodSettlementColliders(layout)
     expect(buildings.length).toBeGreaterThanOrEqual(10)
     expect(isSherwoodPlayerPositionBlocked(buildings[0].center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
+  })
+
+  it("keeps every rendered road corridor traversable across representative world seeds", () => {
+    for (const seed of [1, 1937, 4219, 7777, 99991]) {
+      const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed).layout
+      const world = composeSherwoodWorld(layout)
+      for (const road of world.roads) {
+        for (let pointIndex = 1; pointIndex < road.points.length; pointIndex += 1) {
+          const start = road.points[pointIndex - 1]
+          const end = road.points[pointIndex]
+          const dx = end.x - start.x
+          const dz = end.z - start.z
+          const length = Math.max(0.001, Math.hypot(dx, dz))
+          const samples = Math.max(1, Math.ceil(length / 0.35))
+          for (const lateralOffset of [-road.width / 2, 0, road.width / 2]) {
+            for (let sample = 0; sample <= samples; sample += 1) {
+              const amount = sample / samples
+              const position = {
+                x: start.x + dx * amount - dz / length * lateralOffset,
+                z: start.z + dz * amount + dx / length * lateralOffset,
+              }
+              expect(
+                isSherwoodPlayerPositionBlocked(position, SHERWOOD_PLAYER_RADIUS, layout),
+                `seed ${seed}, ${road.id}, segment ${pointIndex}, offset ${lateralOffset}, sample ${sample}`,
+              ).toBe(false)
+            }
+          }
+        }
+
+        for (let pointIndex = 1; pointIndex < road.points.length; pointIndex += 1) {
+          const start = road.points[pointIndex - 1]
+          const end = road.points[pointIndex]
+          const startSide = start.x + 0.1 * start.z - 1
+          const endSide = end.x + 0.1 * end.z - 1
+          if (startSide * endSide > 0) continue
+          const amount = Math.abs(startSide - endSide) < 1e-9 ? 0 : startSide / (startSide - endSide)
+          const crossingZ = start.z + (end.z - start.z) * Math.max(0, Math.min(1, amount))
+          expect(
+            layout.crossingPositions.some((crossing) => Math.abs(crossing.z - crossingZ) <= SHERWOOD_CROSSING_HALF_LENGTH),
+            `seed ${seed}, ${road.id} crossed the river away from a named gap`,
+          ).toBe(true)
+        }
+      }
+    }
+  })
+
+  it("turns visible ridges into solid spans while carving roads and mission anchors", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 4219).layout
+    const topology = createSherwoodTopologyColliders(layout)
+    const secondRead = createSherwoodTopologyColliders(layout)
+    expect(topology).toBe(secondRead)
+    expect(topology.length).toBeGreaterThan(30)
+    expect(topology.every((collider) => collider.id.startsWith("sherwood-topology-"))).toBe(true)
+    expect(isSherwoodPlayerPositionBlocked(topology[0].center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
+
+    const ridge = topology.find((collider) => SHERWOOD_TREE_COLLIDERS.every((tree) => (
+      Math.hypot(collider.center.x - tree.center.x, collider.center.z - tree.center.z) > 3
+    )))!
+    const normal = { x: Math.sin(ridge.rotation), z: Math.cos(ridge.rotation) }
+    const approachDistance = ridge.halfExtents.z + SHERWOOD_PLAYER_RADIUS + 1
+    const ridgeStart = {
+      x: ridge.center.x - normal.x * approachDistance,
+      z: ridge.center.z - normal.z * approachDistance,
+    }
+    const ridgeResolved = resolveSherwoodPlayerMovement(ridgeStart, {
+      x: normal.x * approachDistance * 2,
+      z: normal.z * approachDistance * 2,
+    }, layout.worldBounds, SHERWOOD_PLAYER_RADIUS, layout)
+    const resolvedSide = (ridgeResolved.x - ridge.center.x) * normal.x + (ridgeResolved.z - ridge.center.z) * normal.z
+    expect(resolvedSide).toBeLessThanOrEqual(-(ridge.halfExtents.z + SHERWOOD_PLAYER_RADIUS) + 0.001)
+
+    for (const anchor of [layout.campfirePosition, layout.objectivePosition, ...layout.crossingPositions]) {
+      expect(topology.some((collider) => {
+        const cosine = Math.cos(collider.rotation)
+        const sine = Math.sin(collider.rotation)
+        const x = anchor.x - collider.center.x
+        const z = anchor.z - collider.center.z
+        const local = { x: cosine * x - sine * z, z: sine * x + cosine * z }
+        return Math.abs(local.x) < collider.halfExtents.x + SHERWOOD_PLAYER_RADIUS
+          && Math.abs(local.z) < collider.halfExtents.z + SHERWOOD_PLAYER_RADIUS
+      })).toBe(false)
+    }
   })
 })

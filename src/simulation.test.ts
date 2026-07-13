@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest"
-import { CART_POSITION, DELIVERY_TARGET, VILLAGE_POSITION, activateSignature, calculateMastery, createInitialState, interact, shoot, updateSimulation } from "./simulation"
+import { SHERWOOD_GUARD_SEPARATION } from "../shared/guard-rules"
+import { SHERWOOD_PLAYER_RADIUS, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
+import { CART_POSITION, DELIVERY_TARGET, VILLAGE_POSITION, activateSignature, calculateMastery, createInitialState, getContextPrompt, interact, shoot, updateSimulation } from "./simulation"
 
 describe("Sherwood simulation", () => {
-  it("robs the tax cart and raises the wanted level", () => {
+  it("requires the immediate escort to be cleared before robbing the tax cart", () => {
     const state = createInitialState()
     state.player.position = { ...CART_POSITION }
+    expect(getContextPrompt(state)).toBe("ESCORT BLOCKING CART · STUN THEM FIRST")
+    expect(interact(state)).toBe("escort-blocking")
+    expect(state.player.loot).toBe(0)
+    for (const guard of state.guards) guard.stunnedFor = 2
+    expect(getContextPrompt(state)).toBe("E  ROB THE TAX CART")
     expect(interact(state)).toBe("robbed-cart")
     expect(state.player.loot).toBe(120)
     expect(state.heat).toBe(100)
@@ -31,6 +38,41 @@ describe("Sherwood simulation", () => {
     const before = state.player.position.x
     updateSimulation(state, { move: { x: 1, z: 0 } }, 0.5)
     expect(state.player.position.x).toBeGreaterThan(before)
+  })
+
+  it("does not let the player tunnel through an active guard", () => {
+    const state = createInitialState()
+    state.player.position = { x: -20, z: -20 }
+    state.guards = [{ id: 0, position: { x: -18, z: -20 }, home: { x: -18, z: -20 }, patrolAngle: 0, stunnedFor: 0 }]
+    updateSimulation(state, { move: { x: 1, z: 0 } }, 0.75)
+    expect(state.player.position.x).toBeLessThan(state.guards[0].position.x)
+    expect(Math.hypot(
+      state.player.position.x - state.guards[0].position.x,
+      state.player.position.z - state.guards[0].position.z,
+    )).toBeGreaterThanOrEqual(SHERWOOD_GUARD_SEPARATION)
+  })
+
+  it("lets the player pass through a stunned guard", () => {
+    const state = createInitialState()
+    state.player.position = { x: -20, z: -20 }
+    state.guards = [{ id: 0, position: { x: -18, z: -20 }, home: { x: -18, z: -20 }, patrolAngle: 0, stunnedFor: 2 }]
+    updateSimulation(state, { move: { x: 1, z: 0 } }, 0.75)
+    expect(state.player.position.x).toBeGreaterThan(state.guards[0].position.x)
+  })
+
+  it("keeps solo guard avoidance outside buildings at shared collision corners", () => {
+    const state = createInitialState()
+    state.player.position = { x: -15, z: 8 }
+    state.player.invulnerableFor = 10
+    state.objectiveDiscovered = true
+    state.guards = [{ id: 0, position: { x: -14, z: 10.5 }, home: { x: -14, z: 10.5 }, patrolAngle: 0, stunnedFor: 0 }]
+    updateSimulation(state, { move: { x: 6, z: 5 } }, Math.hypot(6, 5) / 6.2)
+
+    expect(isSherwoodPlayerPositionBlocked(state.player.position, SHERWOOD_PLAYER_RADIUS, state.layout)).toBe(false)
+    expect(Math.hypot(
+      state.player.position.x - state.guards[0].position.x,
+      state.player.position.z - state.guards[0].position.z,
+    )).toBeGreaterThanOrEqual(SHERWOOD_GUARD_SEPARATION)
   })
 
   it("lets a wrong 5x5 search route strengthen the Sheriff before discovery", () => {

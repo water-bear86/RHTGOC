@@ -1,6 +1,15 @@
-import { SHERWOOD_TREE_LAYOUT } from "./world-layout"
-import { SHERWOOD_REGIONAL_BOUNDS, type RegionalMissionLayout, riverPointAt } from "./regional-layout"
+import type { RegionalMissionLayout } from "./regional-layout"
+import { SHERWOOD_GUARD_SEPARATION } from "./guard-rules"
 import { composeSherwoodWorld } from "./world-composer"
+import { SHERWOOD_RIDGE_SEGMENTS } from "./world-topology"
+import {
+  SHERWOOD_STATIC_OBSTACLES,
+  SHERWOOD_TREE_OBSTACLES,
+  VILLAGE_COTTAGE_OBSTACLE,
+  createSherwoodRiverObstacles,
+} from "./world-obstacles"
+
+export { SHERWOOD_CROSSING_HALF_LENGTH, SHERWOOD_RIVER_HALF_WIDTH } from "./world-obstacles"
 
 export interface XzPoint {
   x: number
@@ -28,46 +37,16 @@ export const SHERWOOD_PLAYER_RADIUS = 0.45
  * Conservative authored footprint for the village cottage.
  * Rotation follows Three.js' Y-axis convention.
  */
-export const VILLAGE_COTTAGE_COLLIDER: OrientedRectangleCollider = Object.freeze({
-  id: "sherwood-village-cottage",
-  center: Object.freeze({ x: -10, z: 14 }),
-  halfExtents: Object.freeze({ x: 2.75, z: 3 }),
-  rotation: -0.55,
-})
+export const VILLAGE_COTTAGE_COLLIDER: OrientedRectangleCollider = VILLAGE_COTTAGE_OBSTACLE
 
 /** Tight square trunk footprints; the player's radius rounds their effective corners. */
-export const SHERWOOD_TREE_COLLIDERS: readonly OrientedRectangleCollider[] = Object.freeze(
-  SHERWOOD_TREE_LAYOUT.map((tree, index) => Object.freeze({
-    id: `sherwood-tree-${index}`,
-    center: Object.freeze({ x: tree.x, z: tree.z }),
-    halfExtents: Object.freeze({ x: 0.3 * tree.scale, z: 0.3 * tree.scale }),
-    rotation: 0,
-  })),
-)
+export const SHERWOOD_TREE_COLLIDERS: readonly OrientedRectangleCollider[] = SHERWOOD_TREE_OBSTACLES
 
-export const SHERWOOD_STATIC_COLLIDERS: readonly OrientedRectangleCollider[] = Object.freeze([
-  VILLAGE_COTTAGE_COLLIDER,
-  ...SHERWOOD_TREE_COLLIDERS,
-])
-
-export const SHERWOOD_RIVER_HALF_WIDTH = 3.5
-export const SHERWOOD_CROSSING_HALF_LENGTH = 3.4
+export const SHERWOOD_STATIC_COLLIDERS: readonly OrientedRectangleCollider[] = SHERWOOD_STATIC_OBSTACLES
 
 /** Builds solid river-bank spans while leaving exactly two seeded bridge gaps. */
 export function createSherwoodRiverColliders(layout: Pick<RegionalMissionLayout, "crossingPositions">): OrientedRectangleCollider[] {
-  const crossingZs = layout.crossingPositions.map(({ z }) => z).sort((left, right) => left - right)
-  const boundaries = [-SHERWOOD_REGIONAL_BOUNDS, crossingZs[0] - SHERWOOD_CROSSING_HALF_LENGTH, crossingZs[0] + SHERWOOD_CROSSING_HALF_LENGTH, crossingZs[1] - SHERWOOD_CROSSING_HALF_LENGTH, crossingZs[1] + SHERWOOD_CROSSING_HALF_LENGTH, SHERWOOD_REGIONAL_BOUNDS]
-  const spans = [[boundaries[0], boundaries[1]], [boundaries[2], boundaries[3]], [boundaries[4], boundaries[5]]]
-  return spans.flatMap(([start, end], index) => {
-    if (end - start < 0.1) return []
-    const centerZ = (start + end) / 2
-    return [{
-      id: `sherwood-river-${index}`,
-      center: riverPointAt(centerZ),
-      halfExtents: { x: SHERWOOD_RIVER_HALF_WIDTH, z: (end - start) / 2 },
-      rotation: -0.1,
-    }]
-  })
+  return createSherwoodRiverObstacles(layout)
 }
 
 const settlementColliderCache = new WeakMap<RegionalMissionLayout, OrientedRectangleCollider[]>()
@@ -85,6 +64,64 @@ export function createSherwoodSettlementColliders(layout: RegionalMissionLayout)
   return colliders
 }
 
+const topologyColliderCache = new WeakMap<RegionalMissionLayout, OrientedRectangleCollider[]>()
+
+function distanceToSegment(point: XzPoint, start: XzPoint, end: XzPoint): number {
+  const dx = end.x - start.x
+  const dz = end.z - start.z
+  const lengthSquared = dx * dx + dz * dz
+  if (lengthSquared < COLLISION_EPSILON) return Math.hypot(point.x - start.x, point.z - start.z)
+  const amount = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.z - start.z) * dz) / lengthSquared))
+  return Math.hypot(point.x - (start.x + dx * amount), point.z - (start.z + dz * amount))
+}
+
+/**
+ * Converts the visible macro-ridges into short authoritative spans. Spans near
+ * generated roads, settlement pads, and mission anchors are omitted, producing
+ * deterministic passes instead of trapping objectives behind decorative hills.
+ */
+export function createSherwoodTopologyColliders(layout: RegionalMissionLayout): OrientedRectangleCollider[] {
+  const cached = topologyColliderCache.get(layout)
+  if (cached) return cached
+  const world = composeSherwoodWorld(layout)
+  const clearings = [
+    { center: layout.campfirePosition, radius: 7.5 },
+    { center: layout.objectivePosition, radius: 8 },
+    { center: layout.reinforcementSignalPosition, radius: 4 },
+    { center: layout.disguisePosition, radius: 4 },
+    ...layout.crossingPositions.map((center) => ({ center, radius: 6.5 })),
+    ...layout.playerSpawns.map((center) => ({ center, radius: 4 })),
+    ...layout.guardPositions.map((center) => ({ center, radius: 2.4 })),
+    ...world.settlements.map((settlement) => ({ center: settlement.center, radius: 13.5 })),
+  ]
+  const colliders = SHERWOOD_RIDGE_SEGMENTS.flatMap((ridge) => {
+    const dx = ridge.end.x - ridge.start.x
+    const dz = ridge.end.z - ridge.start.z
+    const length = Math.max(0.001, Math.hypot(dx, dz))
+    const chunkCount = Math.ceil(length / 3.25)
+    return Array.from({ length: chunkCount }, (_, index): OrientedRectangleCollider | null => {
+      const startAmount = index / chunkCount
+      const endAmount = (index + 1) / chunkCount
+      const start = { x: ridge.start.x + dx * startAmount, z: ridge.start.z + dz * startAmount }
+      const end = { x: ridge.start.x + dx * endAmount, z: ridge.start.z + dz * endAmount }
+      const center = { x: (start.x + end.x) / 2, z: (start.z + end.z) / 2 }
+      if (clearings.some((clearing) => Math.hypot(center.x - clearing.center.x, center.z - clearing.center.z) < clearing.radius + ridge.collisionHalfWidth)) return null
+      const roadClear = world.roads.some((road) => road.points.slice(1).some((point, pointIndex) => (
+        distanceToSegment(center, road.points[pointIndex], point) < road.width / 2 + ridge.collisionHalfWidth + 0.8
+      )))
+      if (roadClear) return null
+      return {
+        id: `sherwood-topology-${ridge.id}-${index}`,
+        center,
+        halfExtents: { x: Math.hypot(end.x - start.x, end.z - start.z) / 2 + 0.08, z: ridge.collisionHalfWidth },
+        rotation: Math.atan2(-dz, dx),
+      }
+    }).filter((collider): collider is OrientedRectangleCollider => collider !== null)
+  })
+  topologyColliderCache.set(layout, colliders)
+  return colliders
+}
+
 export const SHERWOOD_MISSION_WORLD_BOUNDS = 22
 export const PUBLIC_HUB_WORLD_BOUNDS: XzWorldBounds = Object.freeze({ minX: -18, maxX: -4, minZ: 2, maxZ: 16 })
 
@@ -95,6 +132,14 @@ interface SweepHit {
   time: number
   normal: XzPoint
   colliderId: string
+}
+
+export interface SherwoodCombinedMovementOptions {
+  worldBounds?: number | XzWorldBounds
+  moverRadius?: number
+  layout?: RegionalMissionLayout
+  circleBlockers: readonly XzPoint[]
+  circleSeparation: number
 }
 
 function finiteOr(value: number, fallback: number): number {
@@ -252,6 +297,132 @@ function sweepAgainstCollider(
   return { time: Math.max(0, near), normal, colliderId: collider.id }
 }
 
+function isInsideCircle(point: XzPoint, blocker: XzPoint, separation: number): boolean {
+  return Math.hypot(point.x - blocker.x, point.z - blocker.z) < separation - COLLISION_EPSILON
+}
+
+function sweepAgainstCircle(
+  origin: XzPoint,
+  movement: XzPoint,
+  blocker: XzPoint,
+  separation: number,
+  blockerIndex: number,
+): SweepHit | null {
+  const movementLengthSquared = movement.x * movement.x + movement.z * movement.z
+  if (movementLengthSquared < DIRECTION_EPSILON) return null
+  const offset = { x: origin.x - blocker.x, z: origin.z - blocker.z }
+  const outsideDistanceSquared = offset.x * offset.x + offset.z * offset.z - separation * separation
+  if (outsideDistanceSquared < -COLLISION_EPSILON) return null
+  const directionDot = offset.x * movement.x + offset.z * movement.z
+  if (directionDot >= 0) return null
+  const discriminant = directionDot * directionDot - movementLengthSquared * outsideDistanceSquared
+  if (discriminant < 0) return null
+  const time = (-directionDot - Math.sqrt(discriminant)) / movementLengthSquared
+  if (time < -COLLISION_EPSILON || time > 1) return null
+  const impact = {
+    x: origin.x + movement.x * Math.max(0, time),
+    z: origin.z + movement.z * Math.max(0, time),
+  }
+  const normalLength = Math.max(DIRECTION_EPSILON, Math.hypot(impact.x - blocker.x, impact.z - blocker.z))
+  return {
+    time: Math.max(0, time),
+    normal: { x: (impact.x - blocker.x) / normalLength, z: (impact.z - blocker.z) / normalLength },
+    colliderId: `circle-${String(blockerIndex).padStart(6, "0")}`,
+  }
+}
+
+function isCombinedPositionValid(
+  point: XzPoint,
+  colliders: readonly OrientedRectangleCollider[],
+  moverRadius: number,
+  circleBlockers: readonly XzPoint[],
+  circleSeparation: number,
+): boolean {
+  return !colliders.some((collider) => isInsideCollider(point, collider, moverRadius))
+    && !circleBlockers.some((blocker) => isInsideCircle(point, blocker, circleSeparation))
+}
+
+function depenetrateFromCircle(
+  point: XzPoint,
+  destination: XzPoint,
+  blocker: XzPoint,
+  blockerIndex: number,
+  separation: number,
+  bounds: XzWorldBounds,
+): XzPoint {
+  let dx = point.x - blocker.x
+  let dz = point.z - blocker.z
+  let length = Math.hypot(dx, dz)
+  if (length < DIRECTION_EPSILON) {
+    dx = destination.x - blocker.x
+    dz = destination.z - blocker.z
+    length = Math.hypot(dx, dz)
+  }
+  if (length < DIRECTION_EPSILON) {
+    const fallbackAngle = blockerIndex * Math.PI * (3 - Math.sqrt(5))
+    dx = Math.cos(fallbackAngle)
+    dz = Math.sin(fallbackAngle)
+    length = 1
+  }
+  return clampPoint({
+    x: blocker.x + (dx / length) * (separation + COLLISION_EPSILON),
+    z: blocker.z + (dz / length) * (separation + COLLISION_EPSILON),
+  }, bounds)
+}
+
+function depenetrateCombined(
+  point: XzPoint,
+  destination: XzPoint,
+  colliders: readonly OrientedRectangleCollider[],
+  moverRadius: number,
+  circleBlockers: readonly XzPoint[],
+  circleSeparation: number,
+  bounds: XzWorldBounds,
+): XzPoint | null {
+  let resolved = clampPoint(point, bounds)
+  const passLimit = Math.max(8, (colliders.length + circleBlockers.length) * 4)
+  for (let pass = 0; pass < passLimit; pass += 1) {
+    const collider = colliders.find((candidate) => isInsideCollider(resolved, candidate, moverRadius))
+    if (collider) {
+      const next = depenetrateFromCollider(resolved, collider, moverRadius, bounds)
+      if (!next) return null
+      resolved = next
+      continue
+    }
+    const blockerIndex = circleBlockers.findIndex((blocker) => isInsideCircle(resolved, blocker, circleSeparation))
+    if (blockerIndex >= 0) {
+      resolved = depenetrateFromCircle(resolved, destination, circleBlockers[blockerIndex], blockerIndex, circleSeparation, bounds)
+      continue
+    }
+    return resolved
+  }
+  return isCombinedPositionValid(resolved, colliders, moverRadius, circleBlockers, circleSeparation) ? resolved : null
+}
+
+function findCombinedRecovery(
+  origin: XzPoint,
+  destination: XzPoint,
+  colliders: readonly OrientedRectangleCollider[],
+  moverRadius: number,
+  circleBlockers: readonly XzPoint[],
+  circleSeparation: number,
+  bounds: XzWorldBounds,
+): XzPoint | null {
+  const preferredAngle = Math.atan2(destination.z - origin.z, destination.x - origin.x)
+  const maxRadius = Math.hypot(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ)
+  for (let radius = 0.5; radius <= maxRadius; radius += 0.5) {
+    for (let direction = 0; direction < 32; direction += 1) {
+      const angle = preferredAngle + direction * Math.PI / 16
+      const candidate = clampPoint({
+        x: origin.x + Math.cos(angle) * radius,
+        z: origin.z + Math.sin(angle) * radius,
+      }, bounds)
+      if (isCombinedPositionValid(candidate, colliders, moverRadius, circleBlockers, circleSeparation)) return candidate
+    }
+  }
+  return null
+}
+
 /**
  * Resolves a player displacement against Sherwood's static authored geometry.
  * The continuous sweep blocks tunnelling and projects the remaining displacement
@@ -267,7 +438,7 @@ export function resolveSherwoodPlayerMovement(
   const bounds = normalizeBounds(worldBounds)
   const radius = Number.isFinite(playerRadius) && playerRadius >= 0 ? playerRadius : SHERWOOD_PLAYER_RADIUS
   const midpoint = { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 }
-  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout), ...createSherwoodSettlementColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
+  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout), ...createSherwoodSettlementColliders(layout), ...createSherwoodTopologyColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
   let position = depenetrate({
     x: finiteOr(start.x, midpoint.x),
     z: finiteOr(start.z, midpoint.z),
@@ -309,6 +480,108 @@ export function resolveSherwoodPlayerMovement(
   return depenetrate(clampPoint(position, bounds), colliders, radius, bounds)
 }
 
+/**
+ * Resolves world geometry and dynamic circular actors in one continuous sweep.
+ * Treating both contact sets together prevents a circle slide or depenetration
+ * from pushing the mover back through a river bank, ridge, tree, or building.
+ */
+export function resolveSherwoodCombinedMovement(
+  start: XzPoint,
+  displacement: XzPoint,
+  options: SherwoodCombinedMovementOptions,
+): XzPoint {
+  const bounds = normalizeBounds(options.worldBounds ?? SHERWOOD_MISSION_WORLD_BOUNDS)
+  const moverRadius = Number.isFinite(options.moverRadius) && (options.moverRadius ?? -1) >= 0
+    ? options.moverRadius!
+    : SHERWOOD_PLAYER_RADIUS
+  const circleSeparation = Number.isFinite(options.circleSeparation) && (options.circleSeparation ?? 0) > 0
+    ? options.circleSeparation!
+    : SHERWOOD_GUARD_SEPARATION
+  const midpoint = { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 }
+  const colliders = options.layout
+    ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(options.layout), ...createSherwoodSettlementColliders(options.layout), ...createSherwoodTopologyColliders(options.layout)]
+    : SHERWOOD_STATIC_COLLIDERS
+  const circleBlockers = options.circleBlockers.filter((blocker) => Number.isFinite(blocker.x) && Number.isFinite(blocker.z))
+  const safeStart = clampPoint({
+    x: finiteOr(start.x, midpoint.x),
+    z: finiteOr(start.z, midpoint.z),
+  }, bounds)
+  const requested = {
+    x: finiteOr(displacement.x, 0),
+    z: finiteOr(displacement.z, 0),
+  }
+  const requestedDestination = clampPoint({ x: safeStart.x + requested.x, z: safeStart.z + requested.z }, bounds)
+
+  let position = depenetrateCombined(
+    safeStart,
+    requestedDestination,
+    colliders,
+    moverRadius,
+    circleBlockers,
+    circleSeparation,
+    bounds,
+  ) ?? findCombinedRecovery(
+    safeStart,
+    requestedDestination,
+    colliders,
+    moverRadius,
+    circleBlockers,
+    circleSeparation,
+    bounds,
+  ) ?? safeStart
+  const safeFallback = isCombinedPositionValid(position, colliders, moverRadius, circleBlockers, circleSeparation)
+    ? { ...position }
+    : findCombinedRecovery(midpoint, requestedDestination, colliders, moverRadius, circleBlockers, circleSeparation, bounds)
+
+  const boundedTarget = clampPoint({ x: position.x + requested.x, z: position.z + requested.z }, bounds)
+  let remaining = { x: boundedTarget.x - position.x, z: boundedTarget.z - position.z }
+  const passLimit = colliders.length + circleBlockers.length + 4
+  for (let pass = 0; pass < passLimit; pass += 1) {
+    if (Math.hypot(remaining.x, remaining.z) < DIRECTION_EPSILON) break
+    const hit = [
+      ...colliders.map((collider) => sweepAgainstCollider(position, remaining, collider, moverRadius)),
+      ...circleBlockers.map((blocker, blockerIndex) => sweepAgainstCircle(position, remaining, blocker, circleSeparation, blockerIndex)),
+    ]
+      .filter((candidate): candidate is SweepHit => candidate !== null)
+      .sort((left, right) => left.time - right.time || left.colliderId.localeCompare(right.colliderId))[0]
+
+    if (!hit) {
+      position = { x: position.x + remaining.x, z: position.z + remaining.z }
+      remaining = { x: 0, z: 0 }
+      break
+    }
+
+    position = {
+      x: position.x + remaining.x * hit.time + hit.normal.x * COLLISION_EPSILON,
+      z: position.z + remaining.z * hit.time + hit.normal.z * COLLISION_EPSILON,
+    }
+    const unspent = {
+      x: remaining.x * (1 - hit.time),
+      z: remaining.z * (1 - hit.time),
+    }
+    const inward = unspent.x * hit.normal.x + unspent.z * hit.normal.z
+    remaining = inward < 0
+      ? { x: unspent.x - hit.normal.x * inward, z: unspent.z - hit.normal.z * inward }
+      : unspent
+  }
+
+  const resolved = depenetrateCombined(
+    clampPoint(position, bounds),
+    boundedTarget,
+    colliders,
+    moverRadius,
+    circleBlockers,
+    circleSeparation,
+    bounds,
+  )
+  if (resolved && isCombinedPositionValid(resolved, colliders, moverRadius, circleBlockers, circleSeparation)) return resolved
+  if (safeFallback) return safeFallback
+  const recovery = findCombinedRecovery(safeStart, requestedDestination, colliders, moverRadius, circleBlockers, circleSeparation, bounds)
+  if (recovery) return recovery
+  if (isCombinedPositionValid(midpoint, colliders, moverRadius, circleBlockers, circleSeparation)) return midpoint
+  throw new Error("Sherwood movement has no valid world-and-actor position")
+}
+
 export function isSherwoodPlayerPositionBlocked(
   position: XzPoint,
   playerRadius = SHERWOOD_PLAYER_RADIUS,
@@ -316,6 +589,6 @@ export function isSherwoodPlayerPositionBlocked(
 ): boolean {
   const radius = Number.isFinite(playerRadius) && playerRadius >= 0 ? playerRadius : SHERWOOD_PLAYER_RADIUS
   if (!Number.isFinite(position.x) || !Number.isFinite(position.z)) return true
-  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout), ...createSherwoodSettlementColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
+  const colliders = layout ? [...SHERWOOD_STATIC_COLLIDERS, ...createSherwoodRiverColliders(layout), ...createSherwoodSettlementColliders(layout), ...createSherwoodTopologyColliders(layout)] : SHERWOOD_STATIC_COLLIDERS
   return colliders.some((collider) => isInsideCollider(position, collider, radius))
 }

@@ -2,7 +2,9 @@ import type { BandContribution, CharacterId, LoadoutId, MissionAlarm, MissionCap
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
-import { resolveSherwoodPlayerMovement } from "../shared/world-collisions"
+import { SHERWOOD_GUARD_SEPARATION, activeEscortCount, activeGuardPositions } from "../shared/guard-rules"
+import { missionObjectivePosition } from "../shared/mission-objective"
+import { resolveSherwoodCombinedMovement } from "../shared/world-collisions"
 import { regionCellIndexAt, regionalizeMissionDefinition, seededUnit, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 
 export interface MissionOptions {
@@ -278,7 +280,8 @@ export class Mission {
       return
     }
     this.elapsedSeconds += dt
-    if (this.phase === "scout" && [...this.players.values()].some((player) => player.connected && !player.captured && distance(player.position, this.layout.objectivePosition) < 13)) {
+    const activeObjectivePosition = missionObjectivePosition(this)
+    if (this.phase === "scout" && [...this.players.values()].some((player) => player.connected && !player.captured && distance(player.position, activeObjectivePosition) < 13)) {
       this.objectiveDiscovered = true
     }
     if (this.phase === "scout" && !this.objectiveDiscovered) {
@@ -330,7 +333,13 @@ export class Mission {
           z: (player.input.z / moveLength) * movement,
         }
       }
-      const resolved = resolveSherwoodPlayerMovement(player.position, displacement, this.definition.rules.worldBounds, undefined, this.layout)
+      const playerOrigin = { ...player.position }
+      const resolved = resolveSherwoodCombinedMovement(playerOrigin, displacement, {
+        worldBounds: this.definition.rules.worldBounds,
+        layout: this.layout,
+        circleBlockers: activeGuardPositions(this.guards),
+        circleSeparation: SHERWOOD_GUARD_SEPARATION,
+      })
       player.position.x = resolved.x
       player.position.z = resolved.z
     }
@@ -446,6 +455,7 @@ export class Mission {
     }
     if (distance(player.position, this.definition.spawns.cart) < 3) {
       if (this.phase !== "robbery" || this.cartCoin === 0) return false
+      if (this.escortBlocksInteraction(player, this.definition.spawns.cart)) return false
       const stolen = this.cartCoin
       player.loot += stolen
       if (player.characterId === "little-john") {
@@ -517,6 +527,7 @@ export class Mission {
       return true
     }
     if (this.phase === "robbery" && distance(player.position, this.cartPosition) < 3.2) {
+      if (this.escortBlocksInteraction(player, this.cartPosition)) return false
       if (this.lockContributors.has(player.id)) return false
       const contribution = player.characterId === "little-john" || player.characterId === "much" ? 3 : 2
       this.lockContributors.add(player.id)
@@ -588,6 +599,7 @@ export class Mission {
         .filter((candidate) => candidate.status === "secured")
         .sort((left, right) => distance(left.position, player.position) - distance(right.position, player.position))[0]
       if (!cache || distance(cache.position, player.position) >= 2.7) return false
+      if (this.escortBlocksInteraction(player, cache.position)) return false
       cache.status = "looted"
       if (cache.kind === "coin") {
         player.loot += cache.value
@@ -857,7 +869,7 @@ export class Mission {
       .sort((a, b) => distance(a.position, guard.position) - distance(b.position, guard.position))[0]
     if (target && this.heat > 8 && distance(target.position, guard.position) < 22) {
       const disruption = this.reinforcementDelaySeconds > 0 ? 0.7 : 0
-      this.moveGuardToward(guard, target.position, 3.35 + this.heat * 0.008 - disruption, dt)
+      this.moveGuardToward(guard, target.position, 3.35 + this.heat * 0.008 - disruption, dt, players)
       if (distance(target.position, guard.position) < 1.25 && target.invulnerableFor === 0) {
         target.health = Math.max(0, target.health - 1)
         this.damageTaken += 1
@@ -876,16 +888,29 @@ export class Mission {
     this.moveGuardToward(guard, {
       x: guard.home.x + Math.cos(guard.patrolAngle) * 2.2,
       z: guard.home.z + Math.sin(guard.patrolAngle) * 2.2,
-    }, 1.5, dt)
+    }, 1.5, dt, players)
   }
 
-  private moveGuardToward(guard: MissionGuardState, target: { x: number; z: number }, speed: number, dt: number): void {
+  private moveGuardToward(guard: MissionGuardState, target: { x: number; z: number }, speed: number, dt: number, players: readonly MissionPlayer[]): void {
     const origin = { ...guard.position }
     this.moveToward(guard.position, target, speed, dt)
-    guard.position = resolveSherwoodPlayerMovement(origin, {
+    guard.position = resolveSherwoodCombinedMovement(origin, {
       x: guard.position.x - origin.x,
       z: guard.position.z - origin.z,
-    }, this.definition.rules.worldBounds, 0.35, this.layout)
+    }, {
+      worldBounds: this.definition.rules.worldBounds,
+      moverRadius: 0.35,
+      layout: this.layout,
+      circleBlockers: players.map((player) => player.position),
+      circleSeparation: SHERWOOD_GUARD_SEPARATION,
+    })
+  }
+
+  private escortBlocksInteraction(player: MissionPlayer, objective: { x: number; z: number }): boolean {
+    const activeEscorts = activeEscortCount(this.guards, objective)
+    if (activeEscorts === 0) return false
+    this.record("escort_blocking", player.id, activeEscorts, this.missionKind)
+    return true
   }
 
   private placeTrap(player: MissionPlayer): boolean {
