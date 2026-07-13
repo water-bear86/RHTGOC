@@ -56,16 +56,18 @@ elbow_x = (max_x - min_x) * .34
 hand_x = (max_x - min_x) * .47
 for side, sign in (("L", 1), ("R", -1)):
     bone(f"clavicle.{side}", (0, center_y, z(.66)), (sign * shoulder_x, center_y, z(.65)), "chest")
-    bone(f"upper_arm.{side}", (sign * shoulder_x, center_y, z(.65)), (sign * elbow_x, center_y, z(.48)), f"clavicle.{side}", True)
-    bone(f"forearm.{side}", (sign * elbow_x, center_y, z(.48)), (sign * hand_x, center_y, z(.32)), f"upper_arm.{side}", True)
-    bone(f"hand.{side}", (sign * hand_x, center_y, z(.32)), (sign * hand_x, center_y - height * .02, z(.24)), f"forearm.{side}", True)
+    # Match the actual T-pose bind. The previous diagonal rest bones forced
+    # animation rotations to compensate for a bind-pose mismatch.
+    bone(f"upper_arm.{side}", (sign * shoulder_x, center_y, z(.65)), (sign * elbow_x, center_y, z(.65)), f"clavicle.{side}", True)
+    bone(f"forearm.{side}", (sign * elbow_x, center_y, z(.65)), (sign * hand_x, center_y, z(.65)), f"upper_arm.{side}", True)
+    bone(f"hand.{side}", (sign * hand_x, center_y, z(.65)), (sign * (hand_x + height * .035), center_y, z(.65)), f"forearm.{side}", True)
     hip_x = (max_x - min_x) * .09
     knee_x = (max_x - min_x) * .1
     bone(f"thigh.{side}", (sign * hip_x, center_y, z(.25)), (sign * knee_x, center_y, z(.13)), "pelvis")
     bone(f"shin.{side}", (sign * knee_x, center_y, z(.13)), (sign * knee_x, center_y, z(.035)), f"thigh.{side}", True)
     bone(f"foot.{side}", (sign * knee_x, center_y, z(.035)), (sign * knee_x, center_y - height * .1, min_z), f"shin.{side}", True)
 
-bone("weapon_socket.R", (-hand_x, center_y, z(.28)), (-hand_x, center_y - height * .12, z(.28)), "hand.R", deform=False)
+bone("weapon_socket.R", (-hand_x, center_y, z(.65)), (-hand_x, center_y - height * .12, z(.65)), "hand.R", deform=False)
 bone("quiver_socket", (height * .05, center_y + height * .04, z(.64)), (height * .05, center_y + height * .04, z(.82)), "chest", deform=False)
 
 bpy.ops.object.mode_set(mode="OBJECT")
@@ -75,15 +77,20 @@ rig.select_set(True)
 bpy.context.view_layer.objects.active = rig
 bpy.ops.object.parent_set(type="ARMATURE_AUTO")
 
-# Bone heat can fail on dense, disconnected accessories. Rebuild deterministic
-# smooth weights from the three nearest deform-bone segments so every vertex,
-# including clothing and gear, remains controlled by the rig.
+# Preserve Blender's heat weights and fill only genuinely unweighted vertices
+# with a deterministic three-nearest-bone fallback. The previous rig discarded
+# all heat weights, which made clothing and the continuous equipment mesh pull
+# toward whichever bone segment happened to be spatially closest.
 deform_bones = [item for item in rig.data.bones if item.use_deform]
 segments = [(item.name, rig.matrix_world @ item.head_local, rig.matrix_world @ item.tail_local) for item in deform_bones]
 for obj in meshes:
-    obj.vertex_groups.clear()
-    groups = {name: obj.vertex_groups.new(name=name) for name, _, _ in segments}
+    groups = {name: obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name) for name, _, _ in segments}
+    deform_group_indices = {group.index for group in groups.values()}
+    fallback_count = 0
     for vertex in obj.data.vertices:
+        if sum(link.weight for link in vertex.groups if link.group in deform_group_indices) > 1e-5:
+            continue
+        fallback_count += 1
         point = obj.matrix_world @ vertex.co
         candidates = []
         for name, head, tail in segments:
@@ -96,6 +103,7 @@ for obj in meshes:
         total = sum(weight for weight, _ in raw)
         for weight, name in raw:
             groups[name].add([vertex.index], weight / total, "REPLACE")
+    print(f"WEIGHTS object={obj.name} vertices={len(obj.data.vertices)} fallback={fallback_count}")
 
 def world_rotation(pose, rotations):
     """Build a pose-space quaternion from rotations around armature axes."""
@@ -127,20 +135,19 @@ def action(name, end_frame, poses, aimed_poses=None):
     clip.frame_start, clip.frame_end = 1, end_frame
     return clip
 
-# The source mesh is authored in a T-pose. Its glTF-converted bind axes require
-# rotating past horizontal to drop the shoulders into a relaxed bow-carry pose.
-relaxed_left = [((0, 1, 0), math.radians(126)), ((1, 0, 0), math.radians(-7))]
-relaxed_right = [((0, 1, 0), math.radians(-124)), ((1, 0, 0), math.radians(9))]
+# With horizontal bind bones, a direct shoulder drop produces a neutral stance.
+relaxed_left = [((0, 1, 0), math.radians(72)), ((1, 0, 0), math.radians(-4))]
+relaxed_right = [((0, 1, 0), math.radians(-72)), ((1, 0, 0), math.radians(5))]
 
 idle = action("Ranger_Idle", 48, {
-    1: {"chest": (0, 0, -.025), "head": (0, 0, .015)},
-    24: {"chest": (.025, 0, .025), "head": (-.015, 0, -.02)},
-    48: {"chest": (0, 0, -.025), "head": (0, 0, .015)},
+    1: {"chest": (0, 0, -.025), "head": (0, 0, .015), "thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
+    24: {"chest": (.025, 0, .025), "head": (-.015, 0, -.02), "thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
+    48: {"chest": (0, 0, -.025), "head": (0, 0, .015), "thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
 }, {
     1: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right,
         "forearm.L": [((0, 1, 0), math.radians(8))], "forearm.R": [((0, 1, 0), math.radians(-18))]},
-    24: {"upper_arm.L": [((0, 1, 0), math.radians(124)), ((1, 0, 0), math.radians(-5))],
-         "upper_arm.R": [((0, 1, 0), math.radians(-122)), ((1, 0, 0), math.radians(7))],
+    24: {"upper_arm.L": [((0, 1, 0), math.radians(70)), ((1, 0, 0), math.radians(-3))],
+         "upper_arm.R": [((0, 1, 0), math.radians(-70)), ((1, 0, 0), math.radians(4))],
          "forearm.L": [((0, 1, 0), math.radians(10))], "forearm.R": [((0, 1, 0), math.radians(-20))]},
     48: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right,
          "forearm.L": [((0, 1, 0), math.radians(8))], "forearm.R": [((0, 1, 0), math.radians(-18))]},
@@ -152,20 +159,20 @@ walk = action("Ranger_Walk", 24, {
     19: {"thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
     24: {"thigh.L": (.55, 0, 0), "thigh.R": (-.55, 0, 0)},
 }, {
-    1: {"upper_arm.L": [((0, 1, 0), math.radians(118)), ((1, 0, 0), -.22)],
-        "upper_arm.R": [((0, 1, 0), math.radians(-130)), ((1, 0, 0), .22)]},
+    1: {"upper_arm.L": [((0, 1, 0), math.radians(72)), ((1, 0, 0), -.18)],
+        "upper_arm.R": [((0, 1, 0), math.radians(-72)), ((1, 0, 0), .18)]},
     7: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right},
-    13: {"upper_arm.L": [((0, 1, 0), math.radians(130)), ((1, 0, 0), .22)],
-         "upper_arm.R": [((0, 1, 0), math.radians(-116)), ((1, 0, 0), -.22)]},
+    13: {"upper_arm.L": [((0, 1, 0), math.radians(72)), ((1, 0, 0), .18)],
+         "upper_arm.R": [((0, 1, 0), math.radians(-72)), ((1, 0, 0), -.18)]},
     19: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right},
-    24: {"upper_arm.L": [((0, 1, 0), math.radians(118)), ((1, 0, 0), -.22)],
-         "upper_arm.R": [((0, 1, 0), math.radians(-130)), ((1, 0, 0), .22)]},
+    24: {"upper_arm.L": [((0, 1, 0), math.radians(72)), ((1, 0, 0), -.18)],
+         "upper_arm.R": [((0, 1, 0), math.radians(-72)), ((1, 0, 0), .18)]},
 })
 attack = action("Ranger_Attack", 30, {
-    1: {"chest": (0, 0, 0)},
-    10: {"chest": (0, 0, -.18)},
-    18: {"chest": (0, 0, .12)},
-    30: {"chest": (0, 0, 0)},
+    1: {"chest": (0, 0, 0), "thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
+    10: {"chest": (0, 0, -.18), "thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
+    18: {"chest": (0, 0, .12), "thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
+    30: {"chest": (0, 0, 0), "thigh.L": (0, 0, 0), "thigh.R": (0, 0, 0)},
 }, {
     1: {"upper_arm.L": relaxed_left, "upper_arm.R": relaxed_right,
         "forearm.L": [((0, 1, 0), math.radians(8))], "forearm.R": [((0, 1, 0), math.radians(-18))]},
