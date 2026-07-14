@@ -57,7 +57,12 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     reconnectToken: z.string().uuid().optional(),
     accessToken: z.string().min(20).max(4_096).optional(),
   }),
-  z.object({ type: z.literal("set_ready"), ready: z.boolean() }),
+  z.object({
+    type: z.literal("set_ready"),
+    ready: z.boolean(),
+    expectedMissionSlug: z.string().regex(/^[a-z0-9-]{1,60}$/).optional(),
+    expectedCharacterId: CharacterIdSchema.optional(),
+  }),
   z.object({ type: z.literal("set_product_analytics"), consented: z.boolean() }),
   z.object({ type: z.literal("select_character"), characterId: CharacterIdSchema }),
   z.object({ type: z.literal("select_mission"), missionSlug: z.string().regex(/^[a-z0-9-]{1,60}$/) }),

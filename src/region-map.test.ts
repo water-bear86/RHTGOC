@@ -20,7 +20,7 @@ describe("region map fog of war", () => {
     const cells = buildRegionMapCells(layout, [], layout.campfirePosition, false)
     expect(cells).toHaveLength(25)
     expect(cells.filter((cell) => cell.explored)).toHaveLength(1)
-    expect(cells.filter((cell) => cell.activity).length).toBeGreaterThan(1)
+    expect(cells.every((cell) => !cell.activity)).toBe(true)
     expect(cells.every((cell) => !cell.objective)).toBe(true)
   })
 
@@ -40,27 +40,22 @@ describe("region map fog of war", () => {
     expect(cells[layout.objectiveCell.index].objective).toBe(false)
   })
 
-  it("narrows the Sheriff activity area as search pressure rises", () => {
-    const activityIndices = (pressure: number) => buildRegionMapCells(cornerLayout, [], playerCorner.center, false, pressure)
-      .filter((cell) => cell.activity)
-      .map((cell) => cell.index)
+  it("never leaks a hidden objective through its position or search pressure", () => {
+    const secondObjective = regionCells[12]
+    const secondLayout = {
+      ...cornerLayout,
+      objectiveCell: secondObjective,
+      objectivePosition: secondObjective.center,
+    }
+    const explored = [playerCorner.index, regionCells[23].index]
+    const first = buildRegionMapCells(cornerLayout, explored, playerCorner.center, false, 0, objectiveCorner.center)
+    const second = buildRegionMapCells(secondLayout, explored, playerCorner.center, false, 3, secondObjective.center)
 
-    expect(activityIndices(0)).toEqual([0, 1, 2, 5, 6, 10])
-    expect(activityIndices(1)).toEqual([0, 1, 5])
-    expect(activityIndices(2)).toEqual([0])
+    expect(second).toEqual(first)
+    expect(first.every((cell) => !cell.activity && !cell.objective)).toBe(true)
   })
 
-  it("keeps corner search candidates fogged until they are explored", () => {
-    const cells = buildRegionMapCells(cornerLayout, [], playerCorner.center, false, 0)
-    const activityCells = cells.filter((cell) => cell.activity)
-
-    expect(activityCells).toHaveLength(6)
-    expect(activityCells.every((cell) => !cell.explored)).toBe(true)
-    expect(activityCells.every((cell) => regionMapCellClassName(cell).includes("region-map-cell--fogged"))).toBe(true)
-    expect(cells[playerCorner.index]).toMatchObject({ explored: true, current: true, activity: false })
-  })
-
-  it("replaces every search candidate with one target marker after discovery", () => {
+  it("reveals exactly one target marker after discovery", () => {
     const cells = buildRegionMapCells(cornerLayout, [], playerCorner.center, true, 0)
 
     expect(cells.every((cell) => !cell.activity)).toBe(true)

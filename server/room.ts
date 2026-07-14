@@ -235,9 +235,15 @@ export class Room {
     }
   }
 
-  setReady(playerId: string, ready: boolean, now = Date.now()): boolean {
+  setReady(
+    playerId: string,
+    ready: boolean,
+    now = Date.now(),
+    expected?: { missionSlug: string; characterId: CharacterId },
+  ): boolean {
     const player = this.players.get(playerId)
     if (!player || this.phase !== "lobby" || (ready && !player.roleConfirmed)) return false
+    if (ready && expected && (this.missionSlug !== expected.missionSlug || player.characterId !== expected.characterId)) return false
     player.ready = ready
     const connected = [...this.players.values()].filter((candidate) => candidate.connected)
     if (connected.length >= 2 && connected.every((candidate) => candidate.ready)) {

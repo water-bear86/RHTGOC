@@ -44,12 +44,13 @@
           <b class="region-map-title">SHERWOOD MAP</b>
           <i class="region-map-north" aria-label="Map north">N↑</i>
           <b id="region-map-count">1/25</b>
+          <button id="region-map-expand" type="button" aria-label="Open full Sherwood field map">↗</button>
         </span>
         <div class="region-map-grid" id="region-map-grid" role="img" aria-label="One of 25 regions explored"></div>
-        <small class="region-map-legend" aria-label="Map legend: you, search area, target">
+        <small class="region-map-legend" aria-label="Map legend: you, band signals, discovered target">
           <span><i class="region-map-legend-you" aria-hidden="true">▲</i>YOU</span>
-          <span><i class="region-map-legend-search" aria-hidden="true">?</i>SEARCH</span>
-          <span><i class="region-map-legend-target" aria-hidden="true">◆</i>TARGET</span>
+          <span><i class="region-map-legend-signal" aria-hidden="true">!</i>SIGNAL</span>
+          <span><i class="region-map-legend-target" aria-hidden="true">◆</i>FOUND</span>
         </small>
       </aside>
       <button class="help-button" id="help-button" aria-label="Open controls">?</button>
@@ -126,9 +127,52 @@
         <dt>Survive</dt><dd>Break line of pursuit among the trees</dd>
       </dl>
       <div class="panel-actions">
+        <button id="replay-tutorial-button">REPLAY CURRENT FIELD LESSONS</button>
         <button id="mission-debug-button">TOGGLE MISSION DEBUG</button>
         <button id="graphics-restore-button" hidden>TEST GRAPHICS RESTORE</button>
       </div>
+    </div>
+    <div class="tutorial-scrim hidden" id="tutorial-scrim" aria-hidden="true"></div>
+    <div class="panel tutorial-panel hidden" id="tutorial-panel" role="dialog" aria-modal="true" aria-labelledby="tutorial-title" aria-describedby="tutorial-copy" tabindex="-1">
+      <button id="close-tutorial" aria-label="Close field lesson">×</button>
+      <span class="eyebrow" id="tutorial-eyebrow">SHERWOOD FIELD LESSON</span>
+      <div class="tutorial-progress" role="progressbar" aria-label="Tutorial progress" aria-valuemin="1" aria-valuemax="1" aria-valuenow="1"><i id="tutorial-progress-fill"></i></div>
+      <h2 id="tutorial-title">Read the woods</h2>
+      <p class="tutorial-copy" id="tutorial-copy"></p>
+      <div class="tutorial-visual" id="tutorial-visual" aria-hidden="true"></div>
+      <ul class="tutorial-points" id="tutorial-points"></ul>
+      <p class="tutorial-tip hidden" id="tutorial-tip"></p>
+      <div class="tutorial-actions">
+        <button id="tutorial-back" type="button">BACK</button>
+        <span id="tutorial-step-count">1 / 1</span>
+        <button id="tutorial-next" type="button">CONTINUE</button>
+      </div>
+    </div>
+    <div class="panel field-map-panel hidden" id="field-map-panel" role="dialog" aria-modal="true" aria-labelledby="field-map-title" tabindex="-1">
+      <button id="close-field-map" aria-label="Close Sherwood field map">×</button>
+      <span class="eyebrow">YOUR BAND'S KNOWLEDGE</span>
+      <h2 id="field-map-title">Sherwood field map</h2>
+      <p class="field-map-copy">Every expedition rearranges Sherwood. Dark sectors are unsearched—not empty. Only explored ground, band signals, and a target someone has actually found appear here.</p>
+      <div class="field-map-heading"><span>25 SECTORS</span><i aria-label="Map north">N↑</i><b id="field-map-count">1/25 EXPLORED</b></div>
+      <div class="field-map-grid region-map-grid" id="field-map-grid" role="img" aria-label="One of 25 regions explored"></div>
+      <div class="field-map-legend" aria-label="Sherwood field map legend">
+        <span><i class="region-map-legend-you">▲</i>YOU</span>
+        <span><i class="region-map-legend-camp">⌂</i>CAMP</span>
+        <span><i class="region-map-legend-target">◆</i>DISCOVERED TARGET</span>
+        <span><i class="signal-danger">!</i>DANGER</span>
+        <span><i class="signal-target">◎</i>TARGET PING</span>
+        <span><i class="signal-route">➜</i>ROUTE</span>
+        <span><i class="signal-loot">$</i>LOOT</span>
+        <span><i class="signal-regroup">✦</i>REGROUP</span>
+      </div>
+      <ol class="field-map-keys" aria-label="Area marking keys">
+        <li><kbd data-signal-key="pingDanger">1</kbd><b>DANGER</b><span>Warn the band away</span></li>
+        <li><kbd data-signal-key="pingTarget">2</kbd><b>TARGET</b><span>Mark something worth checking</span></li>
+        <li><kbd data-signal-key="pingRoute">3</kbd><b>ROUTE</b><span>Propose a way through</span></li>
+        <li><kbd data-signal-key="pingLoot">4</kbd><b>LOOT</b><span>Call out supplies or coin</span></li>
+        <li><kbd data-signal-key="pingRegroup">5</kbd><b>REGROUP</b><span>Bring the band together</span></li>
+      </ol>
+      <small class="field-map-note">A target ping is your band's suggestion. The gold diamond appears only after the real mission objective has been discovered.</small>
     </div>
     <div class="panel leaderboard-panel hidden" id="leaderboard-panel" role="dialog" aria-modal="true" aria-labelledby="leaderboard-title" tabindex="-1">
       <button id="close-leaderboard" aria-label="Close leaderboard">×</button>

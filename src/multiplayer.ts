@@ -83,8 +83,12 @@ export class MultiplayerClient {
   blockHubPlayer(targetParticipantId: string): void { this.send({ type: "hub_block", targetParticipantId }) }
   leavePublicHub(): void { this.send({ type: "hub_leave" }); this.hubSession = null }
 
-  setReady(ready: boolean): void {
-    this.send({ type: "set_ready", ready })
+  setReady(ready: boolean, expected?: { missionSlug: string; characterId: CharacterId }): void {
+    this.send({
+      type: "set_ready",
+      ready,
+      ...(ready && expected ? { expectedMissionSlug: expected.missionSlug, expectedCharacterId: expected.characterId } : {}),
+    })
   }
 
   selectCharacter(characterId: CharacterId): void {

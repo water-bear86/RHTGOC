@@ -2,7 +2,7 @@
 
 ## North star
 
-Build an approachable true-3D cooperative browser game where a first-time outlaw can understand the complete vocabulary in one minute, while coordinated bands can spend months mastering routes, guard behavior, hero technique chains, risk, rescue, and redistribution.
+Build an approachable true-3D cooperative browser game where a first-time outlaw can understand the complete vocabulary in one minute, while coordinated bands can spend months mastering routes, guard behavior, hero technique chains, risk, rescue, and redistribution. Teach systems without revealing a seeded run: the field map records what the band has discovered instead of predicting what lies under fog.
 
 The permanent playtest is an alpha service, not a finished MMO. Small-group mission quality, trustworthy persistence, readable 3D gameplay, and measurable player learning come before world scale.
 
@@ -44,7 +44,7 @@ No M9 feature may be promoted to production or treated as milestone-complete unt
 The ordered GitHub backlog is:
 
 1. #39 — establish a releasable mainline and automated promotion gate.
-2. #40 — teach the complete game in a five-minute Practice Grove.
+2. #40 — teach the complete game through a five-minute Practice Grove plus independent universal, hero, and mission-type tutorial gates.
 3. #41 — add hero technique chains and cooperative combo mastery.
 4. #42 — add readable stealth, sound, and guard investigation.
 5. #43 — build a cooperative planning table with route voting.
@@ -56,7 +56,19 @@ The ordered GitHub backlog is:
 11. #49 — enforce runtime performance and network budgets in CI.
 12. #50 — run an instrumented public-alpha playtest and publish the tuning report.
 
-M9 is complete only when first-time players can learn the game quickly, returning bands can demonstrate deeper mastery, the new region stays inside browser/network budgets, accessibility is a release criterion, the deployed commit is traceable, and real playtest evidence produces the next ranked backlog.
+M9 is complete only when first-time players can learn the game quickly, all twelve hero-and-mission combinations resolve useful briefings, returning bands can demonstrate deeper mastery, the new region stays inside browser/network budgets, accessibility is a release criterion, the deployed commit is traceable, and real playtest evidence produces the next ranked backlog.
+
+### Onboarding and discovery contract
+
+- Universal, hero, and mission-type tutorial gates are completed, replayed, and versioned independently. A resolved briefing composes them; it is not one of twelve duplicated scripts.
+- The universal lesson includes perspective movement, 90-degree camera rotation, interaction, fire, signature use, and the 1–5 danger, target, route, loot, and regroup signals.
+- First-run briefings appear at the campfire before Ready. Active authoritative missions receive compact contextual prompts and never an automatically opened blocking tutorial.
+- A required gate cannot be skipped into play: closing it returns to the prior screen and records no completion.
+- Tutorial progress is browser-local in the first pass. It is not ranked, authoritative, wallet-bound, or synchronized between devices.
+- Offline solo play supports the tax-cart loop only. Universal and selected-hero lessons can run there, but prison-wagon and storehouse mission gates remain band-only.
+- Compact and expanded maps share one learned-map rule: show band-known sectors, signals, committed routes, and discovered locations; never derive a pre-discovery highlight, search area, bearing, distance, or copy from the hidden target.
+
+See [Tutorials and discovery](./docs/design/tutorials-and-discovery.md) for the completion and map invariants.
 
 ## Later horizon
 
@@ -74,4 +86,5 @@ Open trading, tokenized items, PvP, unrestricted chat, user-generated content, a
 - The server owns positions, guards, objectives, combat, rewards, social mutation, campaign state, and ranked outcomes.
 - Runtime assets are curated GLB/glTF 2.0 with license evidence, measured geometry/texture/draw cost, simple shared collision, and explicit LOD behavior.
 - Standard and degraded profiles must preserve routes, collision, visibility rules, and scoring.
+- Before objective discovery, map output must be invariant to hidden target position for the same band-known sectors and player positions.
 - The client never receives Supabase or operator secrets and never authors verified score values.

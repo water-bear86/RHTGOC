@@ -25,6 +25,12 @@ describe("Merry Band protocol", () => {
   })
 
   it("accepts bounded hub mission, loadout, and return intents", () => {
+    expect(parseClientMessage({ type: "set_ready", ready: true, expectedMissionSlug: "peoples-purse", expectedCharacterId: "marian" })).toEqual({
+      type: "set_ready",
+      ready: true,
+      expectedMissionSlug: "peoples-purse",
+      expectedCharacterId: "marian",
+    })
     expect(parseClientMessage({ type: "select_mission", missionSlug: "peoples-purse" })).not.toBeNull()
     expect(parseClientMessage({ type: "select_rotation", rotationId: "sheriff-2026-07-10-p2-v1" })).not.toBeNull()
     expect(parseClientMessage({ type: "select_rotation", rotationId: "../../forged" })).toBeNull()

@@ -86,6 +86,22 @@ describe("Merry Band room", () => {
     expect(room.mission?.snapshot().village).toEqual({ granary: 0, infirmary: 0, watchtower: 0 })
   })
 
+  it("rejects readiness when the briefed mission or outlaw is stale", () => {
+    const room = new Room("BRIEFD")
+    const leader = room.addPlayer(fakeSocket(), "Leader", "robin")
+    const member = room.addPlayer(fakeSocket(), "Member", "marian")
+    expect(room.selectMission(leader.id, "prison-wagon")).toBe(true)
+
+    expect(room.setReady(leader.id, true, Date.now(), { missionSlug: "peoples-purse", characterId: "robin" })).toBe(false)
+    expect(room.setReady(member.id, true, Date.now(), { missionSlug: "prison-wagon", characterId: "robin" })).toBe(false)
+    expect(room.publicPlayer(leader).ready).toBe(false)
+    expect(room.publicPlayer(member).ready).toBe(false)
+
+    expect(room.setReady(leader.id, true, Date.now(), { missionSlug: "prison-wagon", characterId: "robin" })).toBe(true)
+    expect(room.setReady(member.id, true, Date.now(), { missionSlug: "prison-wagon", characterId: "marian" })).toBe(true)
+    expect(room.phase).toBe("mission")
+  })
+
   it("returns a resolved band to the hub with village progress and a fresh replay state", () => {
     const room = new Room("ABC234")
     const leader = room.addPlayer(fakeSocket(), "Leader", "robin")

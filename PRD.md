@@ -64,7 +64,9 @@ Initial target session length is 12–20 minutes per heist, with a lightweight c
 
 ### Easy to learn, difficult to master
 
-The first minute should teach the complete base vocabulary: move, interact, fire, and use one signature ability. Contextual prompts, generous early timing, readable guard silhouettes, and immediate feedback should make a first robbery achievable without reading a manual.
+The first minute should teach the complete base vocabulary: move, interact, fire, use one signature ability, and understand the fixed 1–5 danger, target, route, loot, and regroup signals. Contextual prompts, generous early timing, readable guard silhouettes, and immediate feedback should make a first robbery achievable without reading a manual.
+
+Onboarding uses independent, versioned universal, character, and mission-type gates. A briefing composes those lessons for the selected hero and target rather than duplicating twelve complete tutorials. Reaching the Robbery phase alone does not complete onboarding; each gate completes when its briefing is finished and remains independently replayable. The first implementation stores that progress in the browser only, so it is neither authoritative nor synchronized across devices. The offline solo loop can teach universal controls, any selected hero's general lesson, and the tax-cart mission, while prison-wagon and storehouse mission tutorials remain band-only until they are played in an authoritative room. The complete contract is recorded in [Tutorials and discovery](./docs/design/tutorials-and-discovery.md).
 
 Long-term mastery should come from systems rather than hidden controls:
 
@@ -234,7 +236,9 @@ The first production region should contain:
 - One safe house or alternate extraction point.
 - Patrols, reinforcements, environmental cover, and escape obstacles.
 
-Mission terrain is composed as a deterministic 5×5 grid of 26-metre sectors (a 134-metre playable span). Each run places the campfire in one outer sector and the objective in a farthest valid sector, with bounded per-cell jitter. The authoritative run seed translates player, objective, guard, route, signal, rescue, and storehouse positions together so every client sees the same geography and a replay can reproduce it. A compact HUD map begins with only the camp sector visible; entering a sector clears its fog for the entire Merry Band, while the target marker remains hidden until discovery. Searching the wrong sectors raises a three-step Sheriff pressure floor and can add target guards before discovery; exploration is therefore a mastery decision, not empty travel. A fresh run token must produce another valid placement without revealing the target sector in the HUD.
+Mission terrain is composed as a deterministic 5×5 grid of 26-metre sectors (a 134-metre playable span). Each run places the campfire in one outer sector and the objective in a farthest valid sector, with bounded per-cell jitter. The authoritative run seed translates player, objective, guard, route, signal, rescue, and storehouse positions together so every client sees the same geography and a replay can reproduce it. A compact HUD map begins with only the camp sector visible; entering a sector clears its fog for the entire Merry Band, while the target marker remains hidden until discovery. Searching the wrong sectors raises a three-step Sheriff pressure floor and can add target guards before discovery; exploration is therefore a mastery decision, not empty travel. A fresh run token must produce another valid placement without revealing the target sector in either the compact or expanded map.
+
+The map is a record of band knowledge, not a target detector. Before authoritative discovery, hidden target position must not influence sector highlights, question marks, gradients, search rings, bearings, distances, or explanatory copy. Search pressure remains a global danger state and cannot narrow a spatial hint around the objective. Given the same explored sectors and player positions, two undiscovered layouts with different target positions must produce identical map output. Expanding the map may explain symbols and show the band, camp, signals, committed routes, and discovered locations, but cannot grant additional world knowledge.
 
 Later regions may include Nottingham, Locksley, royal estates, woodland settlements, and connected wilderness routes.
 
@@ -244,6 +248,9 @@ Later regions may include Nottingham, Locksley, royal estates, woodland settleme
 - The persistent HUD should show only health, role resources, carried loot, Wanted pressure, and the current objective.
 - Party status should remain compact and readable without covering the playfield.
 - Contextual pings and interaction prompts should reduce dependence on chat.
+- The fixed signal vocabulary is 1 danger, 2 target, 3 route, 4 loot, and 5 regroup; labels must follow remapped inputs where applicable.
+- First-run hero and mission briefings belong at the campfire before Ready. Active multiplayer missions must never open a blocking tutorial automatically because the authoritative room does not pause.
+- Compact and expanded maps must share the learned-map visibility contract; zoom changes presentation, not discovery state.
 - Menus, party setup, mission results, and accessibility settings should use DOM overlays.
 - Keyboard, pointer, and controller input should share an explicit action map.
 - Mobile may support spectating or lightweight interaction initially; full mobile gameplay is not required for the first social MVP.

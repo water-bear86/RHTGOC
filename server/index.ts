@@ -1076,10 +1076,22 @@ sockets.on("connection", (socket) => {
       send(socket, { type: "error", code: "NOT_JOINED", message: "Join a room before sending mission actions" })
       return
     }
-    if (message.type === "set_ready" && !joinedRoom.setReady(playerId, message.ready) && message.ready) {
-      send(socket, { type: "error", code: "FORBIDDEN", message: joinedRoom.hasConfirmedRole(playerId) ? "That daily target expired or requires a different party size" : "Choose an available outlaw before readying up" })
+    if (message.type === "set_ready") {
+      const expected = message.expectedMissionSlug && message.expectedCharacterId
+        ? { missionSlug: message.expectedMissionSlug, characterId: message.expectedCharacterId }
+        : undefined
+      const accepted = joinedRoom.setReady(playerId, message.ready, Date.now(), expected)
+      if (!accepted && message.ready) {
+        send(socket, {
+          type: "error",
+          code: "FORBIDDEN",
+          message: joinedRoom.hasConfirmedRole(playerId)
+            ? "The target, outlaw, or party requirements changed — review the campfire and ready again"
+            : "Choose an available outlaw before readying up",
+        })
+      }
+      if (accepted && message.ready) telemetry.increment("players_ready_total")
     }
-    if (message.type === "set_ready" && message.ready) telemetry.increment("players_ready_total")
     if (message.type === "select_character") {
       if (!joinedRoom.selectCharacter(playerId, message.characterId)) {
         send(socket, { type: "error", code: "ROLE_FULL", message: "That role is full — choose another outlaw" })

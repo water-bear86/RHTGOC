@@ -26,7 +26,7 @@ import {
   setMeshColor,
   setObjectOpacityFactor,
 } from "./toon-materials"
-import type { BandContribution, ContributionType, LastMissionResult, LoadoutId, MerryBandState, MissionAlarm, MissionCaptive, MissionEvent, MissionLootCache, MissionPreparation, MissionSnapshot, MissionTrap, PingKind, PublicHubPlayer, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { BandContribution, ContributionType, LastMissionResult, LoadoutId, MerryBandState, MissionAlarm, MissionCaptive, MissionEvent, MissionKind, MissionLootCache, MissionPreparation, MissionSnapshot, MissionTrap, PingKind, PublicHubPlayer, RescueOffer, RoomPlayer, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition, MISSION_CATALOG, PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import type { SherwoodSeasonSnapshot } from "../shared/sherwood-season"
@@ -59,8 +59,8 @@ import { createHeroCharacter, disposeHeroCharacter, poseHeroCharacter, type Hero
 import { HERO_ACTION_DURATIONS, normalizedHeroActionProgress } from "./character-animation"
 import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
-import { sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
-import { buildRegionMapCells, regionMapCellClassName } from "./region-map"
+import { regionCellIndexAt, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } from "./region-map"
 import { createForestDressing } from "./forest-dressing"
 import { createSherwoodLandmarks, type SherwoodLandmarks } from "./world-landmarks"
 import { composeSherwoodWorld } from "../shared/world-composer"
@@ -77,6 +77,8 @@ import { getProductAnalyticsConsent, setProductAnalyticsConsent } from "./analyt
 import { ClientDiagnosticReporter } from "./client-diagnostics"
 import { versionedAssetUrl } from "./release"
 import type { RoomExperimentAssignment } from "../shared/experiments"
+import { buildTutorialPlan, type TutorialLesson, type TutorialPlan } from "./tutorial-content"
+import { completeTutorialPlan, loadTutorialProgress, saveTutorialProgress } from "./tutorial-progress"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -129,6 +131,27 @@ const missionRoomCode = document.querySelector<HTMLElement>("#mission-room-code"
 const regionMap = document.querySelector<HTMLElement>("#region-map")!
 const regionMapGrid = document.querySelector<HTMLElement>("#region-map-grid")!
 const regionMapCount = document.querySelector<HTMLElement>("#region-map-count")!
+const regionMapExpand = document.querySelector<HTMLButtonElement>("#region-map-expand")!
+const fieldMapPanel = document.querySelector<HTMLElement>("#field-map-panel")!
+const closeFieldMap = document.querySelector<HTMLButtonElement>("#close-field-map")!
+const fieldMapGrid = document.querySelector<HTMLElement>("#field-map-grid")!
+const fieldMapCount = document.querySelector<HTMLElement>("#field-map-count")!
+const tutorialScrim = document.querySelector<HTMLElement>("#tutorial-scrim")!
+const tutorialPanel = document.querySelector<HTMLElement>("#tutorial-panel")!
+const closeTutorial = document.querySelector<HTMLButtonElement>("#close-tutorial")!
+const tutorialEyebrow = document.querySelector<HTMLElement>("#tutorial-eyebrow")!
+const tutorialTitle = document.querySelector<HTMLElement>("#tutorial-title")!
+const tutorialCopy = document.querySelector<HTMLElement>("#tutorial-copy")!
+const tutorialVisual = document.querySelector<HTMLElement>("#tutorial-visual")!
+const tutorialPoints = document.querySelector<HTMLUListElement>("#tutorial-points")!
+const tutorialTip = document.querySelector<HTMLElement>("#tutorial-tip")!
+const tutorialProgressBar = document.querySelector<HTMLElement>(".tutorial-progress")!
+const tutorialProgressFill = document.querySelector<HTMLElement>("#tutorial-progress-fill")!
+const tutorialStepCount = document.querySelector<HTMLElement>("#tutorial-step-count")!
+const tutorialBack = document.querySelector<HTMLButtonElement>("#tutorial-back")!
+const tutorialNext = document.querySelector<HTMLButtonElement>("#tutorial-next")!
+const replayTutorialButton = document.querySelector<HTMLButtonElement>("#replay-tutorial-button")!
+const fieldMapSignalKeys = [...document.querySelectorAll<HTMLElement>("[data-signal-key]")]
 const resultsPanel = document.querySelector<HTMLDivElement>("#results-panel")!
 const closeResults = document.querySelector<HTMLButtonElement>("#close-results")!
 const resultGrade = document.querySelector<HTMLElement>("#result-grade")!
@@ -268,6 +291,8 @@ renderer.outputColorSpace = THREE.SRGBColorSpace
 renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.toneMappingExposure = 1.05
 renderer.setClearColor(0x91aa83, 1)
+renderer.domElement.tabIndex = 0
+renderer.domElement.setAttribute("aria-label", "Sherwood game field")
 container.appendChild(renderer.domElement)
 
 let selectedCharacter: CharacterId = "robin"
@@ -290,6 +315,8 @@ let unsubscribeLeaderboard: (() => void) | null = null
 let multiplayerActive = false
 let inHub = false
 let roomConnected = false
+let roomSessionActive = false
+let pendingRoomSelection = false
 let localReady = false
 let currentRoomPlayers: RoomPlayer[] = []
 let lastMissionEventSequence = 0
@@ -325,6 +352,32 @@ let publicHubIsLooking = false
 let localRoleConfirmed = false
 let cameraQuarterTurns = 0
 let currentExperimentAssignments: RoomExperimentAssignment[] = []
+let regionMapRenderSignature = ""
+let activeTutorialPlan: TutorialPlan | null = null
+let activeTutorialLessonIndex = 0
+let activeTutorialContinuation: (() => void) | null = null
+let activeTutorialRecordsProgress = false
+let activeTutorialShowsTacticalTip = false
+let activeTutorialCompletionLabel = "CONTINUE"
+let tutorialProgress = loadTutorialProgress(localStorage)
+
+const PING_MAP_ICONS: Readonly<Record<PingKind, string>> = Object.freeze({
+  danger: "!",
+  target: "◎",
+  route: "➜",
+  loot: "$",
+  regroup: "✦",
+})
+
+type TutorialSignalAction = "pingDanger" | "pingTarget" | "pingRoute" | "pingLoot" | "pingRegroup"
+
+const TUTORIAL_SIGNALS: readonly { action: TutorialSignalAction; label: string }[] = Object.freeze([
+  { action: "pingDanger", label: "DANGER" },
+  { action: "pingTarget", label: "TARGET" },
+  { action: "pingRoute", label: "ROUTE" },
+  { action: "pingLoot", label: "LOOT" },
+  { action: "pingRegroup", label: "REGROUP" },
+])
 
 const guardViews: THREE.Group[] = []
 const lastGuardPositions = new Map<number, Vec2>()
@@ -1097,6 +1150,11 @@ const multiplayer = new MultiplayerClient({
     publicHubParticipantId = null
     publicHubPanel.classList.add("hidden")
     roomConnected = true
+    roomSessionActive = true
+    localReady = false
+    localRoleConfirmed = false
+    pendingRoomSelection = false
+    currentRoomPlayers = []
     localStorage.setItem("sherwood:last-room-code", roomCode)
     lobbyCode.textContent = roomCode
     missionRoomCode.textContent = roomCode
@@ -1108,6 +1166,7 @@ const multiplayer = new MultiplayerClient({
     void syncPresence("in-band", roomCode)
   },
   onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer, contributions, nextSelectedContributionIds, season, band) => {
+    pendingRoomSelection = false
     currentRoomPlayers = players
     currentMissionSlug = missionSlug
     currentVillage = { ...village }
@@ -1148,6 +1207,7 @@ const multiplayer = new MultiplayerClient({
       return
     }
     if (phase === "mission") {
+      const enteringMission = inHub
       multiplayerActive = true
       inHub = false
       running = true
@@ -1159,6 +1219,7 @@ const multiplayer = new MultiplayerClient({
       ensureRemotePlayers(players)
       partyHud.classList.remove("hidden")
       clock.getDelta()
+      if (enteringMission) queueMicrotask(() => renderer.domElement.focus())
     }
   },
   onSnapshot: (_tick, players, mission) => {
@@ -1195,16 +1256,22 @@ const multiplayer = new MultiplayerClient({
     applyMissionSnapshot(mission)
   },
   onError: (message) => {
+    if (pendingRoomSelection) {
+      pendingRoomSelection = false
+      if (inHub) renderHub()
+      if (!roleChoicePanel.classList.contains("hidden")) renderRoleChoice(currentRoomPlayers)
+    }
     lobbyStatus.textContent = message
     showToast(message)
   },
   onConnection: (connected) => {
     roomConnected = connected
     lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
-    if (inHub) hubState.textContent = connected ? "Connected · choose a target and ready together." : "Connection lost · attempting to return to this camp."
+    if (inHub) renderHub()
     if (!connected) void syncPresence("available", null)
   },
   onHubWelcome: (_instanceId, participantId, capacity) => {
+    roomSessionActive = false
     inPublicHub = true
     inHub = false
     multiplayerActive = false
@@ -1264,7 +1331,7 @@ function renderRoleChoice(players: RoomPlayer[]): void {
     const characterId = button.dataset.roomCharacter as CharacterId
     const selected = players.filter((player) => player.roleConfirmed && player.characterId === characterId).length
     const full = selected >= 2
-    button.disabled = full
+    button.disabled = full || pendingRoomSelection
     button.classList.toggle("selected", localRoleConfirmed && selectedCharacter === characterId)
     const availability = button.querySelector("i")
     if (availability) availability.textContent = full ? "FULL" : `${2 - selected} SLOT${2 - selected === 1 ? "" : "S"} OPEN`
@@ -1316,14 +1383,15 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
 }
 
 function renderHub(): void {
-  const isLeader = !roomConnected || currentRoomPlayers[0]?.id === multiplayer.playerId
+  const online = roomSessionActive
+  const isLeader = !online || currentRoomPlayers[0]?.id === multiplayer.playerId
   missionTitle.textContent = getMissionDefinition(currentMissionSlug).name.toUpperCase()
   hubRotations.replaceChildren()
   for (const rotation of currentRotations) {
     const mission = getMissionDefinition(rotation.missionSlug)
     const button = document.createElement("button")
     button.classList.toggle("selected", rotation.id === selectedRotationId)
-    button.disabled = !roomConnected || !isLeader || rotationsPaused
+    button.disabled = !online || !roomConnected || !isLeader || rotationsPaused
     const name = document.createElement("b")
     const detail = document.createElement("small")
     name.textContent = `${rotation.partySize}P · ${mission.name}`
@@ -1334,7 +1402,7 @@ function renderHub(): void {
   }
   if (currentRotations.length === 0 && !rotationsPaused) {
     const empty = document.createElement("small")
-    empty.textContent = roomConnected ? "The Sheriff has posted no valid target." : "Form a band to load today's server-owned targets."
+    empty.textContent = online ? "The Sheriff has posted no valid target." : "Form a band to load today's server-owned targets."
     hubRotations.append(empty)
   }
   renderRotationCountdown()
@@ -1343,25 +1411,41 @@ function renderHub(): void {
   renderSeason()
   hubMissions.replaceChildren()
   for (const mission of MISSION_CATALOG.values()) {
+    const missionKind = mission.scenario?.kind ?? "tax-cart"
+    const bandOnly = !online && missionKind !== "tax-cart"
     const button = document.createElement("button")
     button.classList.toggle("selected", mission.slug === currentMissionSlug)
-    button.disabled = roomConnected && !isLeader
+    button.disabled = (online && (!roomConnected || !isLeader || pendingRoomSelection)) || bandOnly
     const name = document.createElement("b")
     const detail = document.createElement("small")
     name.textContent = mission.name
-    detail.textContent = `${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par · v${mission.missionVersion}`
+    detail.textContent = bandOnly
+      ? `BAND REQUIRED · ${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par`
+      : `${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par · v${mission.missionVersion}`
+    if (bandOnly) button.title = "This mission currently requires a multiplayer Merry Band"
     button.append(name, detail)
     button.addEventListener("click", () => {
-      currentMissionSlug = mission.slug
-      if (roomConnected) multiplayer.selectMission(mission.slug)
-      else renderHub()
+      if (online) {
+        pendingRoomSelection = true
+        renderHub()
+        multiplayer.selectMission(mission.slug)
+      }
+      else {
+        currentMissionSlug = mission.slug
+        renderHub()
+      }
     })
     hubMissions.append(button)
   }
-  for (const button of hubRoles) button.classList.toggle("selected", button.dataset.hubCharacter === selectedCharacter)
-  hubRoomCode.textContent = roomConnected ? multiplayer.roomCode ?? "------" : "SOLO"
-  hubCopyCode.disabled = !roomConnected
-  hubReady.textContent = roomConnected ? (localReady ? "NOT READY" : "READY UP") : "START MISSION"
+  for (const button of hubRoles) {
+    button.classList.toggle("selected", button.dataset.hubCharacter === selectedCharacter)
+    button.disabled = online && (!roomConnected || pendingRoomSelection)
+  }
+  hubLoadout.disabled = online && !roomConnected
+  hubRoomCode.textContent = online ? multiplayer.roomCode ?? "------" : "SOLO"
+  hubCopyCode.disabled = !online || !roomConnected
+  hubReady.textContent = online ? (localReady ? "NOT READY" : "READY UP") : "START MISSION"
+  hubReady.disabled = online && (!roomConnected || !localRoleConfirmed || pendingRoomSelection)
   hubBand.classList.toggle("hidden", !currentBand)
   if (currentBand) {
     const localBandRole = currentRoomPlayers.find((player) => player.id === multiplayer.playerId)?.bandRole ?? null
@@ -1375,9 +1459,11 @@ function renderHub(): void {
   hubRecent.textContent = currentLastResult
     ? `Last heist: ${currentLastResult.status === "succeeded" ? currentLastResult.grade : "PARTIAL"} · ${currentLastResult.score.toLocaleString()} renown${currentLastResult.totalCaptives > 0 ? ` · ${currentLastResult.rescuedCaptives}/${currentLastResult.totalCaptives} rescued` : ""}. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
     : `Village works: granary ${currentVillage.granary}, infirmary ${currentVillage.infirmary}, watchtower ${currentVillage.watchtower}.`
-  hubState.textContent = roomConnected
-    ? `${isLeader ? "Band leader chooses the target." : "The band leader chooses the target."} Ready together when roles and kits are set.`
-    : "Move around the fire or start the selected mission."
+  hubState.textContent = online
+    ? roomConnected
+      ? `${isLeader ? "Band leader chooses the target." : "The band leader chooses the target."} Ready together when roles and kits are set.`
+      : "Connection lost · returning to this camp before any readiness can change."
+    : "Start the People's Purse solo, or form a Merry Band for the prison wagon and storehouse."
 }
 
 function renderPublicHub(): void {
@@ -1422,7 +1508,7 @@ function renderRotationCountdown(): void {
   }
   const expiry = currentRotations[0]?.endsAt
   if (!expiry) {
-    hubRotationState.textContent = roomConnected ? "Waiting for a valid target schedule." : "Daily targets are server-owned."
+    hubRotationState.textContent = roomSessionActive ? "Waiting for a valid target schedule." : "Daily targets are server-owned."
     return
   }
   const remaining = Math.max(0, expiry - Date.now())
@@ -1510,11 +1596,13 @@ function renderContributions(): void {
   }
   if (currentContributions.length === 0) {
     const empty = document.createElement("li")
-    empty.textContent = roomConnected ? "No shared preparations yet." : "Online bands can leave bounded preparations here."
+    empty.textContent = roomSessionActive ? "No shared preparations yet." : "Online bands can leave bounded preparations here."
     hubContributionList.append(empty)
   }
-  hubContributionState.textContent = roomConnected
-    ? `${selectedContributionIds.length}/3 selected for the next mission · ${available.length}/6 available · readiness locks the set.`
+  hubContributionState.textContent = roomSessionActive
+    ? roomConnected
+      ? `${selectedContributionIds.length}/3 selected for the next mission · ${available.length}/6 available · readiness locks the set.`
+      : "Reconnecting before shared preparations can change."
     : "Form a band to share preparation."
 }
 
@@ -1566,9 +1654,12 @@ function visibleVillageState(village: VillageState): VillageState {
 }
 
 function enterHub(online: boolean): void {
+  const enteringHub = !inHub
   inHub = true
   multiplayerActive = false
-  roomConnected = online
+  roomSessionActive = online
+  if (!online) roomConnected = false
+  if (!online) currentMissionSlug = PEOPLES_PURSE_MISSION.slug
   running = true
   ended = false
   resetMissionRuntimeState()
@@ -1590,9 +1681,16 @@ function enterHub(online: boolean): void {
   lastPlayerPosition = { ...state.player.position }
   renderHub()
   clock.getDelta()
+  if (enteringHub && roleChoicePanel.classList.contains("hidden")) queueMicrotask(() => hubReady.focus())
 }
 
 function startSoloMission(): void {
+  if (missionKindForSlug(currentMissionSlug) !== "tax-cart") {
+    currentMissionSlug = PEOPLES_PURSE_MISSION.slug
+    renderHub()
+    showToast("PRISON WAGON AND STOREHOUSE MISSIONS REQUIRE A MERRY BAND")
+    return
+  }
   inHub = false
   multiplayerActive = false
   hubPanel.classList.add("hidden")
@@ -1608,10 +1706,11 @@ function startSoloMission(): void {
   objectiveElement.textContent = "Search Sherwood for the Sheriff's shipment"
   missionModifiers.textContent = ""
   clock.getDelta()
+  queueMicrotask(() => renderer.domElement.focus())
 }
 
 const controllerActions = GAME_ACTIONS.filter((action) => !action.startsWith("move")) as Array<keyof InputSettings["controller"]>
-const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel, socialPanel]
+const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel, socialPanel, tutorialPanel, fieldMapPanel]
 const controllerButtonLabels = ["A / Cross", "B / Circle", "X / Square", "Y / Triangle", "LB / L1", "RB / R1", "LT / L2", "RT / R2", "View / Share", "Menu / Options", "Left stick", "Right stick", "D-pad up", "D-pad down", "D-pad left", "D-pad right"]
 const pointerActionLabels: Record<PointerAction, string> = {
   move: "Move to ground",
@@ -1629,6 +1728,196 @@ const pointerActionLabels: Record<PointerAction, string> = {
   pingRegroup: ACTION_LABELS.pingRegroup,
 }
 
+function missionKindForSlug(slug: string): MissionKind {
+  return getMissionDefinition(slug).scenario?.kind ?? "tax-cart"
+}
+
+function resetActiveTutorial(): void {
+  activeTutorialPlan = null
+  activeTutorialLessonIndex = 0
+  activeTutorialContinuation = null
+  activeTutorialRecordsProgress = false
+  activeTutorialShowsTacticalTip = false
+  activeTutorialCompletionLabel = "CONTINUE"
+}
+
+function renderTutorialVisual(lesson: TutorialLesson): void {
+  tutorialVisual.replaceChildren()
+  if (lesson.visual === "signals") {
+    const ribbon = document.createElement("div")
+    ribbon.className = "tutorial-signal-ribbon"
+    for (const signal of TUTORIAL_SIGNALS) {
+      const item = document.createElement("span")
+      const key = document.createElement("kbd")
+      key.textContent = keyLabel(inputSettings.keyboard[signal.action])
+      item.append(key, signal.label)
+      ribbon.append(item)
+    }
+    tutorialVisual.append(ribbon)
+    return
+  }
+  if (lesson.visual === "character") {
+    const mark = document.createElement("div")
+    mark.className = "tutorial-character-mark"
+    mark.textContent = ({ robin: "RH", marian: "MM", "little-john": "LJ", much: "M" } as const)[activeTutorialPlan?.characterId ?? selectedCharacter]
+    tutorialVisual.append(mark)
+    return
+  }
+  const map = document.createElement("div")
+  map.className = "tutorial-visual-map"
+  const route = new Set([20, 16, 12, 8, 4])
+  for (let index = 0; index < 25; index += 1) {
+    const cell = document.createElement("i")
+    cell.classList.toggle("seen", route.has(index))
+    if (index === 20) cell.textContent = "▲"
+    else if (index === 12) {
+      cell.classList.add("signal")
+      cell.textContent = "!"
+    } else if (index === 4) cell.textContent = "◆"
+    map.append(cell)
+  }
+  tutorialVisual.append(map)
+}
+
+function renderTutorialStep(): void {
+  const plan = activeTutorialPlan
+  if (!plan) return
+  const lesson = plan.lessons[activeTutorialLessonIndex]
+  const lastStep = activeTutorialLessonIndex === plan.lessons.length - 1
+  tutorialEyebrow.textContent = lesson.eyebrow
+  tutorialTitle.textContent = lesson.title
+  tutorialCopy.textContent = lesson.body
+  const lessonPoints = lesson.moduleId === "fieldcraft"
+    ? lesson.points.map((point, index) => {
+        const signal = TUTORIAL_SIGNALS[index]
+        return signal ? point.replace(/^\d+/, keyLabel(inputSettings.keyboard[signal.action])) : point
+      })
+    : lesson.points
+  const points = lesson.moduleId === "fieldcraft"
+    ? [
+        `${keyLabel(inputSettings.keyboard.moveUp)} / ${keyLabel(inputSettings.keyboard.moveLeft)} / ${keyLabel(inputSettings.keyboard.moveDown)} / ${keyLabel(inputSettings.keyboard.moveRight)} move by perspective · ${keyLabel(inputSettings.keyboard.cameraLeft)} / ${keyLabel(inputSettings.keyboard.cameraRight)} rotate 90° · ${keyLabel(inputSettings.keyboard.interact)} interacts · ${keyLabel(inputSettings.keyboard.fire)} fires · ${keyLabel(inputSettings.keyboard.signature)} uses your signature.`,
+        ...lessonPoints,
+      ]
+    : lessonPoints
+  tutorialPoints.replaceChildren(...points.map((point) => {
+    const item = document.createElement("li")
+    item.textContent = point
+    return item
+  }))
+  renderTutorialVisual(lesson)
+  tutorialTip.classList.toggle("hidden", !lastStep || !activeTutorialShowsTacticalTip)
+  tutorialTip.textContent = lastStep && activeTutorialShowsTacticalTip
+    ? `${plan.tacticalTip.label} — ${plan.tacticalTip.body}`
+    : ""
+  tutorialBack.disabled = activeTutorialLessonIndex === 0
+  tutorialNext.textContent = lastStep ? activeTutorialCompletionLabel : "CONTINUE"
+  tutorialStepCount.textContent = `${activeTutorialLessonIndex + 1} / ${plan.lessons.length}`
+  tutorialProgressFill.style.width = `${((activeTutorialLessonIndex + 1) / plan.lessons.length) * 100}%`
+  tutorialProgressBar.setAttribute("aria-valuemax", String(plan.lessons.length))
+  tutorialProgressBar.setAttribute("aria-valuenow", String(activeTutorialLessonIndex + 1))
+}
+
+function openTutorial(
+  plan: TutorialPlan,
+  options: {
+    continuation?: () => void
+    completionLabel: string
+    recordProgress: boolean
+    showTacticalTip: boolean
+    trigger: HTMLElement
+  },
+): void {
+  activeTutorialPlan = plan
+  activeTutorialLessonIndex = 0
+  activeTutorialContinuation = options.continuation ?? null
+  activeTutorialRecordsProgress = options.recordProgress
+  activeTutorialShowsTacticalTip = options.showTacticalTip
+  activeTutorialCompletionLabel = options.completionLabel
+  renderTutorialStep()
+  openPanel(tutorialPanel, options.trigger)
+}
+
+function finishTutorial(): void {
+  const plan = activeTutorialPlan
+  if (!plan) return
+  const continuation = activeTutorialContinuation
+  let saved = true
+  if (activeTutorialRecordsProgress) {
+    tutorialProgress = completeTutorialPlan(tutorialProgress, plan)
+    saved = saveTutorialProgress(localStorage, tutorialProgress)
+  }
+  closePanel(tutorialPanel)
+  if (!saved) showToast("FIELD LESSON COMPLETE · PROGRESS COULD NOT BE SAVED")
+  continuation?.()
+}
+
+function runCampfireTutorialGate(action: () => void, trigger: HTMLElement, completionLabel: string): void {
+  const fullPlan = buildTutorialPlan(selectedCharacter, missionKindForSlug(currentMissionSlug), tutorialProgress.completed)
+  const lessons = fullPlan?.lessons.filter((lesson) => lesson.moduleId === "fieldcraft" || lesson.moduleId === `character:${selectedCharacter}`) ?? []
+  if (!fullPlan || lessons.length === 0) {
+    action()
+    return
+  }
+  const plan: TutorialPlan = { ...fullPlan, lessons, moduleIds: lessons.map((lesson) => lesson.moduleId) }
+  openTutorial(plan, {
+    continuation: () => runCampfireTutorialGate(action, trigger, completionLabel),
+    completionLabel,
+    recordProgress: true,
+    showTacticalTip: false,
+    trigger,
+  })
+}
+
+function requestMissionReady(trigger: HTMLElement): void {
+  if (roomSessionActive && !roomConnected) {
+    showToast("RETURNING TO YOUR BAND · READY AGAIN WHEN RECONNECTED")
+    renderHub()
+    return
+  }
+  if (pendingRoomSelection) {
+    showToast("WAITING FOR THE BAND'S TARGET AND OUTLAW CHOICES")
+    return
+  }
+  if (roomSessionActive) {
+    const localPlayer = currentRoomPlayers.find((player) => player.id === multiplayer.playerId)
+    if (!localPlayer?.roleConfirmed) {
+      showToast("SECURE AN AVAILABLE OUTLAW BEFORE READYING")
+      renderRoleChoice(currentRoomPlayers)
+      return
+    }
+    if (localPlayer.characterId !== selectedCharacter) selectLocalCharacter(localPlayer.characterId, false)
+  }
+  if (roomSessionActive && localReady) {
+    multiplayer.setReady(false)
+    return
+  }
+  const plan = buildTutorialPlan(selectedCharacter, missionKindForSlug(currentMissionSlug), tutorialProgress.completed)
+  if (plan) {
+    openTutorial(plan, {
+      continuation: () => requestMissionReady(trigger),
+      completionLabel: roomSessionActive ? "READY UP" : "START MISSION",
+      recordProgress: true,
+      showTacticalTip: true,
+      trigger,
+    })
+    return
+  }
+  if (roomSessionActive) multiplayer.setReady(true, { missionSlug: currentMissionSlug, characterId: selectedCharacter })
+  else startSoloMission()
+}
+
+function replayCurrentTutorial(): void {
+  const missionKind = latestMissionSnapshot?.missionKind ?? missionKindForSlug(currentMissionSlug)
+  const plan = buildTutorialPlan(selectedCharacter, missionKind, {})
+  if (!plan) return
+  openTutorial(plan, {
+    completionLabel: "CLOSE NOTES",
+    recordProgress: false,
+    showTacticalTip: true,
+    trigger: helpButton,
+  })
+}
+
 function isMobileSpectator(): boolean {
   return inputSettings.mobileSpectator && window.innerWidth <= 720
 }
@@ -1642,6 +1931,10 @@ function refreshControlCopy(): void {
   signatureKeyElement.textContent = keyLabel(key.signature)
   helpSignals.textContent = `${keyLabel(key.pingDanger)} / ${keyLabel(key.pingTarget)} / ${keyLabel(key.pingRoute)} / ${keyLabel(key.pingLoot)} / ${keyLabel(key.pingRegroup)} place symbol-coded signals`
   helpSupport.textContent = `${keyLabel(key.revive)} revives a nearby outlaw · ${keyLabel(key.transferLoot)} transfers up to 60 coin`
+  for (const label of fieldMapSignalKeys) {
+    const action = label.dataset.signalKey as "pingDanger" | "pingTarget" | "pingRoute" | "pingLoot" | "pingRegroup"
+    label.textContent = keyLabel(key[action])
+  }
   introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE`
   missionPrompt = missionPromptForPhase(currentMissionPhase)
 }
@@ -1732,23 +2025,31 @@ function renderBindingControls(): void {
 
 function openPanel(panel: HTMLElement, trigger?: HTMLElement): void {
   keys.clear()
+  if (panel !== tutorialPanel && !tutorialPanel.classList.contains("hidden")) resetActiveTutorial()
   for (const candidate of panelElements) {
     if (candidate !== panel) candidate.classList.add("hidden")
     candidate.setAttribute("aria-hidden", String(candidate !== panel))
   }
+  tutorialScrim.classList.toggle("hidden", panel !== tutorialPanel)
   lastPanelTrigger = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
   panel.classList.remove("hidden")
   queueMicrotask(() => panel.focus())
 }
 
-function closePanel(panel: HTMLElement): void {
+function closePanel(panel: HTMLElement, restoreFocus = true): void {
   panel.classList.add("hidden")
   panel.setAttribute("aria-hidden", "true")
+  if (panel === tutorialPanel) {
+    tutorialScrim.classList.add("hidden")
+    resetActiveTutorial()
+  }
   if (panel === settingsPanel && capturingAction) {
     capturingAction = null
     renderBindingControls()
   }
-  lastPanelTrigger?.focus()
+  const trigger = lastPanelTrigger
+  lastPanelTrigger = null
+  if (restoreFocus) trigger?.focus()
 }
 
 function closeActivePanel(): boolean {
@@ -1916,7 +2217,6 @@ function applyMissionSnapshot(mission: MissionSnapshot): void {
   const rotationState = mission.rotationId ? ` · DAILY ${mission.rotationId.split("-").slice(-2).join(" ").toUpperCase()}` : ""
   const preparationState = mission.preparations.length > 0 ? ` · PREP ${mission.preparations.filter((preparation) => preparation.status === "consumed").length}/${mission.preparations.length}` : ""
   missionModifiers.textContent = `5×5 SHERWOOD · SEARCH ${mission.searchPressure}/3 · ${mission.modifiers.map((modifier) => modifier.label).join(" · ")} · ${mission.sheriffPlan.toUpperCase()} PLAN${sabotageState}${rotationState}${preparationState} · OPTIONAL ${completedOptional}/${mission.optionalObjectives.length}`
-  if (mission.phase === "robbery") localStorage.setItem("sherwood:tutorial-complete", "true")
   state.guards = synchronizeMissionGuards(state.guards, mission.guards)
   if (mission.latestEvent && mission.latestEvent.sequence > lastMissionEventSequence) {
     lastMissionEventSequence = mission.latestEvent.sequence
@@ -2325,6 +2625,7 @@ async function refreshSocialPanel(): Promise<void> {
         if (!code) throw new Error("That invitation expired")
         multiplayer.close()
         roomConnected = false
+        roomSessionActive = false
         multiplayerActive = false
         running = false
         hubPanel.classList.add("hidden")
@@ -3041,10 +3342,64 @@ function updateUI(): void {
       : "Search all 25 Sherwood sectors"
 }
 
+function renderRegionMapGrid(grid: HTMLElement, cells: readonly RegionMapCellState[], pings: readonly WorldPing[]): number {
+  if (grid.children.length !== cells.length) {
+    grid.replaceChildren(...cells.map(() => {
+      const cell = document.createElement("span")
+      cell.className = "region-map-cell"
+      return cell
+    }))
+  }
+  const pingsByCell = new Map<number, PingKind[]>()
+  for (const ping of pings) {
+    const cellIndex = regionCellIndexAt(ping.position)
+    const kinds = pingsByCell.get(cellIndex) ?? []
+    if (!kinds.includes(ping.kind)) kinds.push(ping.kind)
+    pingsByCell.set(cellIndex, kinds)
+  }
+  let exploredCount = 0
+  cells.forEach((cell, index) => {
+    const view = grid.children[index] as HTMLElement
+    if (cell.explored) exploredCount += 1
+    view.className = regionMapCellClassName(cell)
+    view.replaceChildren()
+    if (cell.index === state.layout.campfireCell.index) {
+      const camp = document.createElement("span")
+      camp.className = "region-map-cell-camp"
+      camp.textContent = "⌂"
+      view.append(camp)
+    }
+    if (cell.current) {
+      const player = document.createElement("span")
+      player.className = "region-map-cell-player"
+      player.textContent = "▲"
+      view.append(player)
+    }
+    const signalKinds = pingsByCell.get(cell.index)
+    if (signalKinds?.length) {
+      const signals = document.createElement("span")
+      signals.className = "region-map-cell-signals"
+      for (const kind of signalKinds) {
+        const signal = document.createElement("i")
+        signal.className = `region-map-cell-signal signal-${kind}`
+        signal.textContent = PING_MAP_ICONS[kind]
+        signals.append(signal)
+      }
+      view.append(signals)
+    }
+    view.setAttribute("aria-hidden", "true")
+  })
+  return exploredCount
+}
+
 function renderRegionMap(): void {
   const missionVisible = running && !inHub && !inPublicHub && intro.classList.contains("closed")
   regionMap.classList.toggle("hidden", !missionVisible)
-  if (!missionVisible) return
+  if (!missionVisible) {
+    regionMapRenderSignature = ""
+    if (!fieldMapPanel.classList.contains("hidden")) closePanel(fieldMapPanel)
+    return
+  }
   const explored = latestMissionSnapshot?.exploredCellIndices ?? state.exploredCellIndices
   const objectiveDiscovered = latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered
   const searchPressure = latestMissionSnapshot?.searchPressure ?? state.searchPressure
@@ -3052,23 +3407,17 @@ function renderRegionMap(): void {
     ? missionObjectivePosition(latestMissionSnapshot)
     : state.layout.objectivePosition
   const cells = buildRegionMapCells(state.layout, explored, state.player.position, objectiveDiscovered, searchPressure, objectivePosition)
-  if (regionMapGrid.children.length !== cells.length) {
-    regionMapGrid.replaceChildren(...cells.map(() => {
-      const cell = document.createElement("span")
-      cell.className = "region-map-cell"
-      return cell
-    }))
-  }
-  let exploredCount = 0
-  cells.forEach((cell, index) => {
-    const view = regionMapGrid.children[index] as HTMLElement
-    if (cell.explored) exploredCount += 1
-    view.className = regionMapCellClassName(cell)
-    view.textContent = cell.current ? "▲" : ""
-    view.setAttribute("aria-hidden", "true")
-  })
+  const pings = latestMissionSnapshot?.pings ?? []
+  const missionMapEpoch = latestMissionSnapshot?.seed ?? soloRunSequence
+  const nextSignature = `${missionMapEpoch}|${state.layout.campfireCell.index}|${cells.map((cell) => `${Number(cell.explored)}${Number(cell.current)}${Number(cell.objective)}`).join("")}|${pings.map((ping) => `${ping.id}:${ping.kind}:${regionCellIndexAt(ping.position)}`).join(",")}`
+  if (nextSignature === regionMapRenderSignature) return
+  regionMapRenderSignature = nextSignature
+  const exploredCount = renderRegionMapGrid(regionMapGrid, cells, pings)
+  renderRegionMapGrid(fieldMapGrid, cells, pings)
   regionMapCount.textContent = `${exploredCount}/25`
+  fieldMapCount.textContent = `${exploredCount}/25 EXPLORED`
   regionMapGrid.setAttribute("aria-label", `${exploredCount} of 25 Sherwood regions explored`)
+  fieldMapGrid.setAttribute("aria-label", `${exploredCount} of 25 Sherwood regions explored; map shows only discovered information and player signals`)
 }
 
 function showEnding(won: boolean): void {
@@ -3461,14 +3810,14 @@ startButton.addEventListener("click", () => {
     accessStatus.textContent = "Buy a 30-day token pass before entering Sherwood."
     return
   }
-  enterHub(false)
+  runCampfireTutorialGate(() => enterHub(false), startButton, "ENTER CAMPFIRE")
 })
 
 rejoinRoomButton.addEventListener("click", () => {
   const code = localStorage.getItem("sherwood:last-room-code")
   const displayName = playerNameInput.value.trim().slice(0, 20)
   if (!code || !displayName) return
-  multiplayer.joinRoom(code, displayName, selectedCharacter)
+  runCampfireTutorialGate(() => multiplayer.joinRoom(code, displayName, selectedCharacter), rejoinRoomButton, "REJOIN BAND")
 })
 
 joinPublicHubButton.addEventListener("click", () => void (async () => {
@@ -3483,7 +3832,7 @@ joinPublicHubButton.addEventListener("click", () => void (async () => {
   const displayName = playerNameInput.value.trim().slice(0, 20)
   if (!displayName) return
   localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  multiplayer.joinPublicHub(displayName, selectedCharacter)
+  runCampfireTutorialGate(() => multiplayer.joinPublicHub(displayName, selectedCharacter), joinPublicHubButton, "ENTER CAMPFIRE")
 })())
 
 createRoomButton.addEventListener("click", () => {
@@ -3493,7 +3842,7 @@ createRoomButton.addEventListener("click", () => {
     return
   }
   localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  multiplayer.createRoom(displayName, selectedCharacter)
+  runCampfireTutorialGate(() => multiplayer.createRoom(displayName, selectedCharacter), createRoomButton, "FORM BAND")
 })
 
 joinRoomButton.addEventListener("click", () => {
@@ -3505,18 +3854,23 @@ joinRoomButton.addEventListener("click", () => {
     return
   }
   localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  multiplayer.joinRoom(code, displayName, selectedCharacter)
+  runCampfireTutorialGate(() => multiplayer.joinRoom(code, displayName, selectedCharacter), joinRoomButton, "JOIN BAND")
 })
 
-readyButton.addEventListener("click", () => multiplayer.setReady(!localReady))
-hubReady.addEventListener("click", () => {
-  if (roomConnected) multiplayer.setReady(!localReady)
-  else startSoloMission()
-})
+readyButton.addEventListener("click", () => requestMissionReady(readyButton))
+hubReady.addEventListener("click", () => requestMissionReady(hubReady))
 hubRoles.forEach((button) => button.addEventListener("click", () => {
   const characterId = button.dataset.hubCharacter
-  if (characterId === "robin" || characterId === "marian" || characterId === "little-john" || characterId === "much") selectLocalCharacter(characterId, roomConnected)
-  renderHub()
+  if (characterId !== "robin" && characterId !== "marian" && characterId !== "little-john" && characterId !== "much") return
+  if (roomSessionActive) {
+    pendingRoomSelection = true
+    renderHub()
+    multiplayer.selectCharacter(characterId)
+  }
+  else {
+    selectLocalCharacter(characterId, false)
+    renderHub()
+  }
 }))
 hubLoadout.addEventListener("change", () => {
   if (roomConnected) multiplayer.selectLoadout(hubLoadout.value as LoadoutId)
@@ -3555,6 +3909,8 @@ publicHubPings.forEach((button) => button.addEventListener("click", () => multip
 publicHubLeave.addEventListener("click", () => {
   multiplayer.leavePublicHub()
   window.setTimeout(() => multiplayer.close(), 80)
+  roomConnected = false
+  roomSessionActive = false
   inPublicHub = false
   publicHubIsLooking = false
   publicHubParticipantId = null
@@ -3582,7 +3938,9 @@ roleChoiceButtons.forEach((button) => button.addEventListener("click", () => {
   const characterId = button.dataset.roomCharacter
   if (characterId !== "robin" && characterId !== "marian" && characterId !== "little-john" && characterId !== "much") return
   roleChoiceStatus.textContent = `Securing ${characterName(characterId)}…`
-  selectLocalCharacter(characterId, true)
+  pendingRoomSelection = true
+  renderRoleChoice(currentRoomPlayers)
+  multiplayer.selectCharacter(characterId)
 }))
 
 function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): void {
@@ -3608,6 +3966,24 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
 
 helpButton.addEventListener("click", () => openPanel(helpPanel, helpButton))
 closeHelp.addEventListener("click", () => closePanel(helpPanel))
+replayTutorialButton.addEventListener("click", replayCurrentTutorial)
+closeTutorial.addEventListener("click", () => closePanel(tutorialPanel))
+tutorialBack.addEventListener("click", () => {
+  if (!activeTutorialPlan || activeTutorialLessonIndex === 0) return
+  activeTutorialLessonIndex -= 1
+  renderTutorialStep()
+})
+tutorialNext.addEventListener("click", () => {
+  if (!activeTutorialPlan) return
+  if (activeTutorialLessonIndex < activeTutorialPlan.lessons.length - 1) {
+    activeTutorialLessonIndex += 1
+    renderTutorialStep()
+    return
+  }
+  finishTutorial()
+})
+regionMapExpand.addEventListener("click", () => openPanel(fieldMapPanel, regionMapExpand))
+closeFieldMap.addEventListener("click", () => closePanel(fieldMapPanel))
 missionDebugButton.addEventListener("click", () => {
   missionDebug.classList.toggle("hidden")
   updateMissionDebug()
