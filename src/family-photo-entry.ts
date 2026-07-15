@@ -67,6 +67,7 @@ async function initialize(): Promise<void> {
     loadCatalog(versionedAssetUrl("/assets/environment/sherwood-tree-catalog.glb")),
   ])
   const portrait = createFamilyPhotoScene({ villageCatalog, treeCatalog })
+  await portrait.ready
 
   const renderFrame = (elapsed = FAMILY_PHOTO_CAPTURE_TIME_SECONDS): void => {
     portrait.renderFrame(elapsed)

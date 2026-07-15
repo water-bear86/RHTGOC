@@ -39,20 +39,35 @@ The complete scene remains capped at 220 draw calls on the desktop profile and 1
 
 The validator hashes the shipping file and compares it with the declared SHA-256. Provenance records the original filename, who supplied it, the license or project-use basis, the evidence location, and the repeatable conversion document. Never record a local absolute path, credential, private download URL, or unverifiable license claim.
 
-## Robin Ranger measurement
+## Authored Merry Band measurement
 
-| Metric | Before | Shipping |
-| --- | ---: | ---: |
-| GLB transfer | 4.40 MB | 2.29 MB |
-| Base-color texture | 2048² PNG, 2.93 MB | 1024² WebP, 61.7 KB |
-| Estimated texture VRAM | 22.37 MB | 5.59 MB |
-| Upload vertices | 35,374 | 35,374 |
-| Draw calls | 13 | 6 |
-| Named clips | 3 | 3 |
+| Character | Shipping GLB bytes | Triangles | Upload vertices | Draws | Palette texture | Clips |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Robin / Ranger | 621,436 | 9,584 | 8,693 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
+| Marian / Rogue | 570,504 | 8,246 | 7,429 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
+| Little John / Barbarian | 545,488 | 7,807 | 7,017 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
+| Much / Hooded Rogue | 539,096 | 7,869 | 6,839 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
 
-The shipping pass joins repeated quiver shafts and arrowheads offline, then uses glTF Transform deduplication, weld, animation resampling, pruning, sparse accessors, 1024-pixel resizing, and WebP compression. Position quantization is deliberately disabled: applying a mesh-centered normalized position accessor to this sibling-root skin moved its feet below the origin and doubled the apparent model scale. The accepted GLB retains floating-point positions, a true `minY=0` pivot, one skin, all three clips, and six measured scene draws. Manifest bounds conservatively enclose transformed accessor AABBs, so they may be slightly wider than exact-vertex inspection while remaining safe for culling and pivot validation.
+The active Merry Band uses KayKit's complete character parts rather than modifying the rejected Meshy meshes. Ranger, Rogue, Barbarian, and Hooded Rogue have the same exact 23-bone `Rig_Medium` rest skeleton. Their native weighted hand geometry is already a closed stylized fist, so the conversion adds no finger bones, hand remodelling, fused geometry, metaballs, or runtime retargeting. Independent comparison keeps the source arm surfaces within floating-point export tolerance and all 23 bones receive channels in every clip.
 
-Run `tools/rig_robin_ranger.py` in Blender, then `tools/optimize-robin-ranger.sh INPUT.glb OUTPUT.glb`. Both steps are repeatable and the optimizer pins glTF Transform 4.4.1.
+`tools/build-kaykit-characters.py` is the deterministic offline builder. It reads the Adventurers character pack and Character Animations 1.1 outside `public/`, verifies the exact 23-bone Medium rig, equips every role with `bow_withString`, and emits self-contained GLBs. `Ranged_Bow_Idle` becomes `Idle`, `Running_HoldingBow` becomes `Walk`, and `Attack` is a measured 0.8-second NLA composition: the final 0.12 seconds of `Ranged_Bow_Draw`, then `Ranged_Bow_Release`, with the release seam at normalized progress 0.15. `Signature` remains a separate clip: Robin reuses the bow shot, Marian and Little John retain `Use_Item`, and Much retains `Throw`. The builder applies each role palette and reloads the authored palette before WebP export. Robin maps blue cloth to Sherwood green, Marian maps green cloth to burgundy, Little John retains the readable leather-and-bear palette, and Much maps green cloth to olive. Ranger and Hooded Rogue capes are consolidated into their body objects without moving existing body vertices, keeping every hero at the eight-draw ceiling after the bow is added.
+
+Build all four from the untouched local pack with Blender 5.1 or newer:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender \
+  --background --factory-startup \
+  --python tools/build-kaykit-characters.py -- \
+  --source-dir /path/to/KayKit_Adventurers_2.0_FREE \
+  --animation-dir /path/to/KayKit_Character_Animations_1.1/Animations \
+  --output-dir public/assets/characters
+```
+
+Every KayKit bow keeps its `Basis` and `Draw` morph targets and is parented directly to `handslot.l`. The native equipment-space transform is XYZ `(-90°, 0°, -180°)` at uniform scale `0.91`; front, both side views, full draw, the Draw-to-Release seam, separation, and recovery were rendered before acceptance. Runtime samples the authored one-shot deterministically from gameplay `actionProgress`: the string rises from 0 to 1 through progress 0–0.15, falls to 0 through 0.1925 while the release hand separates, and remains at rest afterward. Robin's bow-driven signature uses the same curve; the other three role signatures leave the string at rest.
+
+The runtime wrapper creates the procedural character synchronously, then atomically replaces it with a cloned authored skeleton after the GLB, bow morph, and all four required clips validate. Load failure and the currently unauthored downed pose retain the deterministic procedural model. Character-only deformed bounds drive scale, grounding, and horizontal centering, so the asymmetric bow cannot shift the gameplay body root. One-shot animation time is sampled from normalized action progress; idle/walk local time respects reduced motion while mixer time continues so crossfades still complete. This preserves startup, multiplayer spawning, and failure behavior without making asset loading part of simulation state. Native walk clips can dip a foot roughly six centimetres below the source ground plane; a dedicated foot-lock pass remains the appropriate later fix if gameplay review finds it noticeable.
+
+The older Meshy/Rigify scripts remain only for the explicit `character.robin.meshy-rollback` artifact and historical audit reproduction. They are not the active hero pipeline.
 
 ## Validation
 
@@ -71,7 +86,7 @@ Regression fixtures prove that falsified accessor bounds and arbitrary license
 replacement text fail. Asset conversion uses only lockfile-pinned local tools;
 the release gate performs no install-time executable fetch.
 
-Then verify Idle, Walk, Shoot, bow, quiver, silhouette, shadow behavior, and local/remote skeleton cloning in a real browser room. The renderer selects a degraded profile for low texture limits, caps device pixel ratio, disables expensive shadows when needed, responds to resize, and handles WebGL context loss/restoration.
+Then verify Idle, Walk, Attack, role equipment, silhouette, shadow behavior, family-photo readiness, and local/remote skeleton cloning in a real browser room. The renderer selects a degraded profile for low texture limits, caps device pixel ratio, disables expensive shadows when needed, responds to resize, and handles WebGL context loss/restoration.
 
 ## Visual audition
 
@@ -96,3 +111,19 @@ An environment asset is not accepted if its render mesh silently becomes collisi
 - LOD2: hide the world model beyond 48 meters while retaining party HUD presence.
 
 Environment props should move to instanced GLBs as authored assets arrive. The desktop scene budget is 220 draw calls; degraded mode targets 130.
+
+## Textured ground dressing
+
+`tools/build-stylized-nature-dressing.py` curates nine CC0 ground-cover models from the supplied Stylized Nature MegaKit into `sherwood-nature-dressing.glb`. Each variant is bottom-centered, normalized to one meter, limited to 512-pixel embedded WebP textures, and indexed by a stable runtime name. The game instances those shared meshes for grass, ferns, bushes, flowers, mushrooms, rocks, pebbles, and the farm's golden wheat. The earlier primitives remain only as an asset-load fallback.
+
+Build the catalogue with Blender 5.1 or newer:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender \
+  --background --factory-startup \
+  --python tools/build-stylized-nature-dressing.py -- \
+  --source-dir /path/to/Stylized\ Nature\ MegaKit\[Standard\]/glTF \
+  --output public/assets/environment/sherwood-nature-dressing.glb
+```
+
+The CraftPix medieval prop builder accepts either the original directory or zip. It assigns the pack's 32-pixel palette atlas to all ten curated meshes and exports it as one opaque embedded WebP material. Regional set dressing and secured mission caches share the resulting catalogue geometry; the animated treasure chest remains the authored bow-cache asset.

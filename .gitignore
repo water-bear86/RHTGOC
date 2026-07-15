@@ -3,6 +3,10 @@ dist/
 *.tsbuildinfo
 .env.local
 .DS_Store
+__pycache__/
+*.pyc
+*.swp
+*.blend1
 .playwright-cli/
 output/playwright/
 output/pdf/

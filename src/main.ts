@@ -55,16 +55,27 @@ import { SHERWOOD_GUARD_SEPARATION, activeGuardPositions } from "../shared/guard
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
 import { createArcheryEquipment } from "./archery-equipment"
-import { createHeroCharacter, disposeHeroCharacter, poseHeroCharacter, type HeroAction } from "./character-visuals"
+import type { HeroAction } from "./character-visuals"
+import { createCharacterVisual, disposeCharacterVisual, poseCharacterVisual } from "./character-assets"
 import { HERO_ACTION_DURATIONS, normalizedHeroActionProgress } from "./character-animation"
 import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
 import { regionCellIndexAt, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } from "./region-map"
-import { createForestDressing } from "./forest-dressing"
+import { createAuthoredForestDressing, createForestDressing } from "./forest-dressing"
+import { indexNatureCatalog, type NatureCatalog } from "./nature-assets"
 import { createSherwoodLandmarks, type SherwoodLandmarks } from "./world-landmarks"
 import { composeSherwoodWorld } from "../shared/world-composer"
-import { createSherwoodTerrain, sherwoodHeightAt } from "./sherwood-terrain"
+import {
+  SHERWOOD_BRIDGE_CENTER_Y,
+  SHERWOOD_BRIDGE_HEIGHT,
+  SHERWOOD_BRIDGE_LENGTH,
+  SHERWOOD_BRIDGE_ROTATION,
+  SHERWOOD_BRIDGE_WIDTH,
+  createSherwoodTerrain,
+  sherwoodHeightAt,
+  sherwoodWalkableHeightAt,
+} from "./sherwood-terrain"
 import { createProceduralRoads } from "./procedural-roads"
 import { createSettlementWorld, disposeSettlementWorld } from "./settlement-renderer"
 import { animateObjectiveMarker, createObjectiveMarker, setObjectiveMarkerLabel } from "./objective-marker"
@@ -429,6 +440,7 @@ const missionCampfire = createCampfireVisuals({ degraded: renderProfile.tier ===
 let missionCampfireHalo: THREE.Mesh | null = null
 let windmillRotor: THREE.Group | null = null
 let landmarkViews: SherwoodLandmarks | null = null
+let forestDressingView: THREE.Group | null = null
 let composedWorldView: THREE.Group | null = null
 let composedRoadView: THREE.Group | null = null
 let settlementWorldView: THREE.Group | null = null
@@ -441,6 +453,9 @@ let treeCatalogAssetPromise: Promise<THREE.Group> | null = null
 let villageAssetPromise: Promise<THREE.Group> | null = null
 let villageCatalogSource: THREE.Group | null = null
 let medievalPropsPromise: Promise<THREE.Group> | null = null
+let medievalPropsCatalogSource: THREE.Group | null = null
+let natureCatalogPromise: Promise<NatureCatalog> | null = null
+let natureCatalogSource: NatureCatalog | null = null
 let treasureChestPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
 let bowCacheLoadGeneration = 0
 const bowCacheAnimations: Array<{ view: THREE.Group; mixer: THREE.AnimationMixer; open: THREE.AnimationAction }> = []
@@ -622,23 +637,9 @@ function createWorld(): void {
   positionMissionCampfire(state.layout.campfirePosition)
   scene.add(missionCampfireView)
 
-  let seed = 7331
-  const random = (): number => {
-    seed = (seed * 16807) % 2147483647
-    return (seed - 1) / 2147483646
-  }
-  for (let i = 0; i < 18; i += 1) {
-    const rock = mesh(new THREE.DodecahedronGeometry(0.25 + random() * 0.45, 0), 0x687060)
-    rock.scale.y = 0.55
-    const rockX = random() * 128 - 64
-    const rockZ = random() * 128 - 64
-    rock.position.set(rockX, sherwoodHeightAt(rockX, rockZ) + 0.2, rockZ)
-    rock.rotation.set(random(), random(), random())
-    scene.add(rock)
-  }
-
   const exclusions = sherwoodRegionCells().map((cell) => ({ x: cell.center.x, z: cell.center.z, radius: 8.5 }))
   const dressing = createForestDressing({ degraded: renderProfile.tier === "degraded", exclusions })
+  forestDressingView = dressing.group
   scene.add(dressing.group)
 
   rebuildLandmarks(state.layout)
@@ -650,7 +651,7 @@ function rebuildLandmarks(layout: RegionalMissionLayout): void {
     landmarkViews.dispose()
     scene.remove(landmarkViews.group)
   }
-  landmarkViews = createSherwoodLandmarks(layout)
+  landmarkViews = createSherwoodLandmarks(layout, { natureCatalog: natureCatalogSource ?? undefined })
   windmillRotor = landmarkViews.windmillRotor
   scene.add(landmarkViews.group)
 }
@@ -711,16 +712,22 @@ function rebuildCrossingInfrastructure(layout: RegionalMissionLayout): void {
   crossingInfrastructure.clear()
   const riverNormal = { x: Math.cos(0.1), z: Math.sin(0.1) }
   for (const crossing of layout.crossingPositions) {
-    const bridge = mesh(new THREE.BoxGeometry(8.4, 0.3, 3.2), 0x8b653d)
-    bridge.position.set(crossing.x, 0.18, crossing.z)
-    bridge.rotation.y = -0.1
-    crossingInfrastructure.add(bridge)
+    const crossingView = new THREE.Group()
+    crossingView.name = `SherwoodBridge:${crossing.x}:${crossing.z}`
+    crossingView.position.set(crossing.x, 0, crossing.z)
+    crossingView.rotation.y = SHERWOOD_BRIDGE_ROTATION
+    const bridge = mesh(
+      new THREE.BoxGeometry(SHERWOOD_BRIDGE_LENGTH, SHERWOOD_BRIDGE_HEIGHT, SHERWOOD_BRIDGE_WIDTH),
+      0x8b653d,
+    )
+    bridge.position.y = SHERWOOD_BRIDGE_CENTER_Y
+    crossingView.add(bridge)
     for (let index = -3; index <= 3; index += 1) {
-      const plank = mesh(new THREE.BoxGeometry(0.12, 0.1, 3.45), 0x4b382a)
-      plank.position.set(crossing.x + index, 0.38, crossing.z - index * 0.1)
-      plank.rotation.y = -0.1
-      crossingInfrastructure.add(plank)
+      const plank = mesh(new THREE.BoxGeometry(0.12, 0.1, SHERWOOD_BRIDGE_WIDTH + 0.25), 0x4b382a)
+      plank.position.set(index, 0.38, 0)
+      crossingView.add(plank)
     }
+    crossingInfrastructure.add(crossingView)
   }
   for (const origin of [layout.campfirePosition, layout.objectivePosition]) {
     const nearest = [...layout.crossingPositions].sort((left, right) => Math.hypot(origin.x - left.x, origin.z - left.z) - Math.hypot(origin.x - right.x, origin.z - right.z))[0]
@@ -813,7 +820,7 @@ function openNearbyBowCache(): void {
 }
 
 function createCharacter(role: CharacterId): THREE.Group {
-  return createHeroCharacter(role)
+  return createCharacterVisual(role)
 }
 
 function loadTreeCatalog(): Promise<THREE.Group> {
@@ -837,6 +844,28 @@ function loadMedievalProps(): Promise<THREE.Group> {
   return medievalPropsPromise
 }
 
+function loadNatureCatalog(): Promise<NatureCatalog> {
+  natureCatalogPromise ??= gltfLoader.loadAsync(versionedAssetUrl("/assets/environment/sherwood-nature-dressing.glb"))
+    .then((asset) => indexNatureCatalog(convertObjectToToon(asset.scene)))
+    .catch((error) => { void diagnosticReporter?.report("asset_load_failed", error); throw error })
+  return natureCatalogPromise
+}
+
+function attachNatureDressing(): void {
+  void loadNatureCatalog().then((catalog) => {
+    natureCatalogSource = catalog
+    const exclusions = sherwoodRegionCells().map((cell) => ({ x: cell.center.x, z: cell.center.z, radius: 8.5 }))
+    const authored = createAuthoredForestDressing(catalog, { degraded: renderProfile.tier === "degraded", exclusions })
+    if (forestDressingView) {
+      scene.remove(forestDressingView)
+      disposeOwnedMeshResources(forestDressingView)
+    }
+    forestDressingView = authored.group
+    scene.add(authored.group)
+    rebuildLandmarks(state.layout)
+  }).catch(() => showToast("Textured forest dressing could not be loaded; using the lightweight fallback"))
+}
+
 function attachMedievalProps(): void {
   const placements = [
     ["Prop_Well", -30, -31, 0.2], ["Prop_Signpost", -17, -39, -0.5],
@@ -846,6 +875,7 @@ function attachMedievalProps(): void {
     ["Prop_Firewood", -3, 48, 0.5], ["Prop_Pot", 5, -48, -0.3],
   ] as const
   void loadMedievalProps().then((catalog) => {
+    medievalPropsCatalogSource = catalog
     for (const [name, x, z, rotation] of placements) {
       const source = catalog.getObjectByName(name)
       if (!source) continue
@@ -859,6 +889,10 @@ function attachMedievalProps(): void {
       })
       medievalPropViews.push(prop)
       scene.add(prop)
+    }
+    if (latestMissionSnapshot) {
+      syncLootCacheViews([])
+      syncLootCacheViews(latestMissionSnapshot.lootCaches)
     }
   }).catch(() => showToast("Regional props could not be loaded; the mission remains playable"))
 }
@@ -1113,6 +1147,7 @@ addLighting()
 createWorld()
 attachStylizedTrees()
 attachMedievalProps()
+attachNatureDressing()
 
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
@@ -2504,6 +2539,21 @@ function syncAlarmViews(alarms: MissionAlarm[], elapsed = clock.elapsedTime): vo
 }
 
 function createLootCacheView(cache: MissionLootCache): THREE.Group {
+  const authoredName = cache.kind === "coin" ? "Prop_Chest" : "Prop_Box"
+  const authoredSource = medievalPropsCatalogSource?.getObjectByName(authoredName)
+  if (authoredSource) {
+    const authored = authoredSource.clone(true) as THREE.Group
+    authored.name = `MissionLootCache:${cache.kind}`
+    authored.userData.sherwoodSharedGeometry = true
+    authored.position.set(cache.position.x, sherwoodHeightAt(cache.position.x, cache.position.z), cache.position.z)
+    authored.rotation.y = cache.kind === "intel" ? Math.PI / 5 : cache.kind === "ledger" ? -Math.PI / 6 : 0
+    authored.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return
+      child.castShadow = true
+      child.receiveShadow = true
+    })
+    return authored
+  }
   const group = new THREE.Group()
   const color = cache.kind === "coin" ? 0x7e532e : cache.kind === "intel" ? 0x38556b : 0x6c3431
   const chest = mesh(new THREE.BoxGeometry(cache.kind === "coin" ? 1.35 : 0.9, 0.72, cache.kind === "coin" ? 0.95 : 0.65), color)
@@ -2511,7 +2561,7 @@ function createLootCacheView(cache: MissionLootCache): THREE.Group {
   const band = mesh(new THREE.BoxGeometry(0.16, 0.82, cache.kind === "coin" ? 1 : 0.7), 0xb28c48)
   band.position.y = 0.4
   group.add(chest, band)
-  group.position.set(cache.position.x, 0, cache.position.z)
+  group.position.set(cache.position.x, sherwoodHeightAt(cache.position.x, cache.position.z), cache.position.z)
   return group
 }
 
@@ -3011,7 +3061,7 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
     if (existing) {
       existing.downedFor = player.downedFor
       if (existing.characterId !== player.characterId) {
-        disposeHeroCharacter(existing.fallback)
+        disposeCharacterVisual(existing.fallback)
         existing.view.remove(existing.fallback)
         existing.fallback = createCharacter(player.characterId)
         existing.characterId = player.characterId
@@ -3048,7 +3098,7 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
   }
   for (const [id, remote] of remoteViews) {
     if (activeIds.has(id)) continue
-    disposeHeroCharacter(remote.fallback)
+    disposeCharacterVisual(remote.fallback)
     scene.remove(remote.view)
     remoteViews.delete(id)
   }
@@ -3570,7 +3620,7 @@ function syncViews(elapsed: number, dt: number): void {
     const pulse = 1 + Math.sin(elapsed * 8) * 0.14 * renderProfile.motionScale
     view.scale.setScalar(pulse)
   }
-  const playerGroundY = sherwoodHeightAt(player.x, player.z)
+  const playerGroundY = sherwoodWalkableHeightAt(player.x, player.z, state.layout)
   const playerRootBob = localDownedFor > 0 ? 0 : Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale
   playerView.position.set(player.x, playerGroundY + playerRootBob, player.z)
   setObjectOpacityFactor(playerView, state.player.veilFor > 0 ? 0.48 : 1)
@@ -3589,7 +3639,7 @@ function syncViews(elapsed: number, dt: number): void {
     : playerAction === "attack"
       ? heroAttackStartedAt
       : elapsed
-  poseHeroCharacter(playerView, {
+  poseCharacterVisual(playerView, {
     elapsed,
     moving: playerMoving,
     action: playerAction,
@@ -3612,7 +3662,7 @@ function syncViews(elapsed: number, dt: number): void {
     }
     const stunned = guard.stunnedFor > 0
     const moving = !stunned && (guardMovingUntil.get(guard.id) ?? 0) > elapsed
-    const guardGroundY = sherwoodHeightAt(guard.position.x, guard.position.z)
+    const guardGroundY = sherwoodWalkableHeightAt(guard.position.x, guard.position.z, state.layout)
     view.position.set(guard.position.x, guardGroundY, guard.position.z)
     view.rotation.z = 0
     poseGuardVisual(view, {
@@ -3633,7 +3683,7 @@ function syncViews(elapsed: number, dt: number): void {
   const snapshotNow = performance.now()
   for (const remote of remoteViews.values()) {
     const sampled = remote.snapshots.sample(snapshotNow)
-    if (sampled) remote.view.position.set(sampled.x, sherwoodHeightAt(sampled.x, sampled.z), sampled.z)
+    if (sampled) remote.view.position.set(sampled.x, sherwoodWalkableHeightAt(sampled.x, sampled.z, state.layout), sampled.z)
     const remoteDx = remote.view.position.x - remote.lastPosition.x
     const remoteDz = remote.view.position.z - remote.lastPosition.z
     const moving = Math.hypot(remoteDx, remoteDz) > 0.0001
@@ -3642,7 +3692,7 @@ function syncViews(elapsed: number, dt: number): void {
     if (moving) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
     remote.view.rotation.z = 0
     if (elapsed >= remote.actionUntil) remote.action = "idle"
-    poseHeroCharacter(remote.fallback, {
+    poseCharacterVisual(remote.fallback, {
       elapsed,
       moving,
       action: remote.action,
@@ -3956,7 +4006,7 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   })
   state = createInitialState(selectedCharacter)
   lastPlayerPosition = { ...state.player.position }
-  disposeHeroCharacter(playerView)
+  disposeCharacterVisual(playerView)
   scene.remove(playerView)
   playerView = createCharacter(selectedCharacter)
   scene.add(playerView)
