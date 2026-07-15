@@ -57,7 +57,7 @@ import { createSherwoodWater } from "./water"
 import { createArcheryEquipment } from "./archery-equipment"
 import type { HeroAction } from "./character-visuals"
 import { createCharacterVisual, disposeCharacterVisual, poseCharacterVisual } from "./character-assets"
-import { HERO_ACTION_DURATIONS, normalizedHeroActionProgress } from "./character-animation"
+import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, normalizedHeroActionProgress } from "./character-animation"
 import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
 import { regionCellIndexAt, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
@@ -467,6 +467,7 @@ let heroAttackUntil = 0
 let heroSignatureUntil = 0
 let heroAttackStartedAt = 0
 let heroSignatureStartedAt = 0
+let pendingLocalShot: { releaseAt: number; multiplayer: boolean } | null = null
 
 function beginLocalHeroAction(action: Exclude<HeroAction, "idle">): void {
   const now = clock.elapsedTime
@@ -479,16 +480,26 @@ function beginLocalHeroAction(action: Exclude<HeroAction, "idle">): void {
   heroSignatureUntil = now + HERO_ACTION_DURATIONS.signature
 }
 
-function beginRemoteHeroAction(remote: RemoteView, action: Exclude<HeroAction, "idle">): void {
+function beginRemoteHeroAction(
+  remote: RemoteView,
+  action: Exclude<HeroAction, "idle">,
+  initialProgress = 0,
+): void {
   const now = clock.elapsedTime
+  const progress = THREE.MathUtils.clamp(initialProgress, 0, 1)
+  const startedAt = now - HERO_ACTION_DURATIONS[action] * progress
   remote.action = action
-  remote.actionStartedAt = now
-  remote.actionUntil = now + HERO_ACTION_DURATIONS[action]
+  remote.actionStartedAt = startedAt
+  remote.actionUntil = startedAt + HERO_ACTION_DURATIONS[action]
 }
 
-function ensureRemoteHeroAction(remote: RemoteView, action: Exclude<HeroAction, "idle">): void {
+function ensureRemoteHeroAction(
+  remote: RemoteView,
+  action: Exclude<HeroAction, "idle">,
+  initialProgress = 0,
+): void {
   if (remote.action === action && clock.elapsedTime < remote.actionUntil) return
-  beginRemoteHeroAction(remote, action)
+  beginRemoteHeroAction(remote, action, initialProgress)
 }
 
 function resetLocalHeroActions(): void {
@@ -496,6 +507,7 @@ function resetLocalHeroActions(): void {
   heroAttackUntil = 0
   heroSignatureStartedAt = 0
   heroSignatureUntil = 0
+  pendingLocalShot = null
 }
 
 function resetMissionRuntimeState(): void {
@@ -1275,7 +1287,7 @@ const multiplayer = new MultiplayerClient({
         remote?.snapshots.push(player.position, receivedAt)
         if (remote) {
           remote.downedFor = player.downedFor
-          if (player.arrows < remote.lastArrows) beginRemoteHeroAction(remote, "attack")
+          if (player.arrows < remote.lastArrows) beginRemoteHeroAction(remote, "attack", HERO_ATTACK_RELEASE_PROGRESS)
           if (player.signatureCooldown > remote.lastSignatureCooldown + 0.25) beginRemoteHeroAction(remote, "signature")
           remote.lastArrows = player.arrows
           remote.lastSignatureCooldown = player.signatureCooldown
@@ -2331,7 +2343,7 @@ function showMissionEvent(event: MissionEvent): void {
     }
   } else if (event.type === "guard_stunned" && event.playerId && event.playerId !== multiplayer.playerId) {
     const remote = remoteViews.get(event.playerId)
-    if (remote) ensureRemoteHeroAction(remote, "attack")
+    if (remote) ensureRemoteHeroAction(remote, "attack", HERO_ATTACK_RELEASE_PROGRESS)
   }
   if (event.type === "signature_used" && event.detail === "little-john-sweep" && event.playerId !== multiplayer.playerId) showVanguardImpact(event.playerId)
   const message = event.type === "signature_used" && event.detail === "little-john-sweep"
@@ -3176,28 +3188,47 @@ function fireArrow(): void {
     showToast("Weapons stay lowered at the campfire")
     return
   }
-  if (multiplayerActive) {
-    if (clock.elapsedTime < heroAttackUntil) return
-    if (state.player.arrows <= 0) {
-      showToast("Your quiver is empty")
-      return
-    }
-    multiplayer.sendAction("shoot")
-    beginLocalHeroAction("attack")
+  if (clock.elapsedTime < heroAttackUntil || pendingLocalShot) return
+  if (state.player.arrows <= 0) {
+    showToast("Your quiver is empty")
     return
   }
+  if (state.won || state.lost || localDownedFor > 0) return
+
+  beginLocalHeroAction("attack")
+  pendingLocalShot = {
+    releaseAt: heroAttackStartedAt + HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS,
+    multiplayer: multiplayerActive,
+  }
+}
+
+function createArrowEffect(guardId: number): void {
+  const guard = state.guards.find((candidate) => candidate.id === guardId)
+  if (!guard) return
+  const start = new THREE.Vector3(state.player.position.x, 1.45, state.player.position.z)
+  const target = new THREE.Vector3(guard.position.x, 1.3, guard.position.z)
+  const geometry = new THREE.BufferGeometry().setFromPoints([start, target])
+  const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffe3a0 }))
+  scene.add(line)
+  arrowEffects.push({ line, age: 0 })
+}
+
+function commitPendingLocalShot(elapsed: number): void {
+  const pending = pendingLocalShot
+  if (!pending || elapsed < pending.releaseAt) return
+  pendingLocalShot = null
+  if (localDownedFor > 0 || state.won || state.lost) return
+  if (pending.multiplayer) {
+    multiplayer.sendAction("shoot")
+    return
+  }
+
   const guardId = shoot(state)
   if (guardId === null) {
     showToast(state.player.arrows === 0 ? "Your quiver is empty" : "No guard in range")
     return
   }
-  const start = new THREE.Vector3(state.player.position.x, 1.45, state.player.position.z)
-  const target = new THREE.Vector3(state.guards[guardId].position.x, 1.3, state.guards[guardId].position.z)
-  const geometry = new THREE.BufferGeometry().setFromPoints([start, target])
-  const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffe3a0 }))
-  scene.add(line)
-  arrowEffects.push({ line, age: 0 })
-  beginLocalHeroAction("attack")
+  createArrowEffect(guardId)
   showToast("Guard stunned")
 }
 
@@ -3766,6 +3797,7 @@ function animate(): void {
   const dt = Math.min(clock.getDelta(), 0.05)
   const elapsed = clock.elapsedTime
   pollControllerActions()
+  if (running) commitPendingLocalShot(elapsed)
   if (running && isModalOpen()) {
     syncViews(elapsed, dt)
     renderer.render(scene, camera)

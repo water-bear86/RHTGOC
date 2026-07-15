@@ -163,7 +163,10 @@ async function makeFixture() {
     provenance: {
       sourceAsset: "test-hero-source.glb",
       sourceSha256: "1".repeat(64),
+      sourceBytes: 1_234,
+      sourceGenerator: "Fixture generator 1.0",
       suppliedBy: "fixture artist",
+      conversionScript: "tools/build-test-hero.mjs",
       conversionDoc: "docs/assets/conversion.md",
     },
     license: {
@@ -174,7 +177,7 @@ async function makeFixture() {
     },
     geometry: { uniquePrimitives: 2, sceneDrawCalls: 2, renderVertices: 6, uploadVertices: 3, triangles: 2 },
     materials: { count: 2, names: ["cloth", "metal"] },
-    texture: { count: 1, format: "png", width: 2, height: 2, gpuBytesApprox: 20 },
+    texture: { count: 1, format: "png", width: 2, height: 2, encodedBytes: png.length, gpuBytesApprox: 20 },
     clips: ["Idle"],
     pivot: { policy: "feet-at-origin", passes: true, evidence: "bounds min Y=0" },
     scale: { units: "meters", metersPerUnit: 1, boundsMin: [-1, 0, -1], boundsMax: [1, 2, 1] },
@@ -342,7 +345,7 @@ describe("browser 3D asset quality gate", () => {
     expectFailure(failures, "conversionDoc: required")
   })
 
-  it.each(["sourceAsset", "sourceSha256", "suppliedBy", "conversionDoc"])(
+  it.each(["sourceAsset", "sourceSha256", "sourceBytes", "sourceGenerator", "suppliedBy", "conversionScript", "conversionDoc"])(
     "rejects missing provenance.%s",
     async (field) => {
       const fixture = await makeFixture()
@@ -350,6 +353,17 @@ describe("browser 3D asset quality gate", () => {
       expectFailure(await validate(fixture), `provenance.${field}: required`)
     },
   )
+
+  it("rejects malformed primary provenance details", async () => {
+    const fixture = await makeFixture()
+    fixture.asset.provenance.sourceBytes = 0
+    fixture.asset.provenance.sourceGenerator = " "
+    fixture.asset.provenance.conversionScript = ""
+    const failures = await validate(fixture)
+    expectFailure(failures, "provenance.sourceBytes: required positive integer")
+    expectFailure(failures, "provenance.sourceGenerator: required")
+    expectFailure(failures, "provenance.conversionScript: required")
+  })
 
   it("accepts optional additional source provenance with minimal or extended metadata", async () => {
     const fixture = await makeFixture()
@@ -515,6 +529,12 @@ describe("browser 3D asset quality gate", () => {
     const fixture = await makeFixture()
     fixture.asset.clips = ["Idle", "Attack"]
     expectFailure(await validate(fixture), "clips: declaration does not match GLB (Idle)")
+  })
+
+  it("rejects incorrect encoded texture bytes", async () => {
+    const fixture = await makeFixture()
+    fixture.asset.texture.encodedBytes += 1
+    expectFailure(await validate(fixture), "texture.encodedBytes: declared")
   })
 
   it("rejects an animation clip present in the GLB but absent from the manifest", async () => {

@@ -107,7 +107,7 @@ An environment asset is not accepted if its render mesh silently becomes collisi
 ## LOD policy
 
 - LOD0: authored hero within 24 meters.
-- LOD1: procedural hero silhouette from 24–48 meters.
+- LOD1: the same authored KayKit hero from 24–48 meters; no old-model swap is permitted.
 - LOD2: hide the world model beyond 48 meters while retaining party HUD presence.
 
 Environment props should move to instanced GLBs as authored assets arrive. The desktop scene budget is 220 draw calls; degraded mode targets 130.

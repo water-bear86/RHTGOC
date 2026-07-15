@@ -540,6 +540,7 @@ function deriveGlbMetrics(container, label, failures) {
   const formats = new Set()
   let textureWidth = 0
   let textureHeight = 0
+  let textureEncodedBytes = 0
   let textureGpuBytes = 0
   for (const imageIndex of imageIndices) {
     const image = json.images?.[imageIndex]
@@ -555,6 +556,7 @@ function deriveGlbMetrics(container, label, failures) {
       data = decoded?.data
       mimeType ??= decoded?.mimeType
     }
+    if (data) textureEncodedBytes += data.length
     const dimensions = data ? imageDimensions(data, mimeType) : undefined
     if (!dimensions || !isPositiveInteger(dimensions.width) || !isPositiveInteger(dimensions.height)) {
       failures.push(`${label}: cannot derive dimensions for image ${imageIndex}`)
@@ -594,6 +596,7 @@ function deriveGlbMetrics(container, label, failures) {
       format: formats.size === 0 ? "none" : formats.size === 1 ? [...formats][0] : "mixed",
       width: textureWidth,
       height: textureHeight,
+      encodedBytes: textureEncodedBytes,
       gpuBytesApprox: textureGpuBytes,
     },
     bounds: hasBounds ? { min: boundsMin.toArray(), max: boundsMax.toArray() } : undefined,
@@ -628,7 +631,10 @@ async function validateProvenance(asset, label, rootDir, failures) {
   if (sourceSha256 && !SHA256.test(sourceSha256)) {
     failures.push(`${label}.provenance.sourceSha256: must be 64 lowercase hexadecimal characters`)
   }
+  requirePositiveInteger(asset.provenance, "sourceBytes", `${label}.provenance`, failures)
+  requireText(asset.provenance, "sourceGenerator", `${label}.provenance`, failures)
   requireText(asset.provenance, "suppliedBy", `${label}.provenance`, failures)
+  requireText(asset.provenance, "conversionScript", `${label}.provenance`, failures)
   const conversionDoc = requireText(asset.provenance, "conversionDoc", `${label}.provenance`, failures)
   if (conversionDoc) await validateEvidencePath(rootDir, conversionDoc, `${label}.provenance.conversionDoc`, failures)
 
@@ -769,15 +775,16 @@ function validateTexture(asset, label, failures) {
   const count = requireNonNegativeInteger(asset.texture, "count", `${label}.texture`, failures)
   const width = requireNonNegativeInteger(asset.texture, "width", `${label}.texture`, failures)
   const height = requireNonNegativeInteger(asset.texture, "height", `${label}.texture`, failures)
+  const encodedBytes = requireNonNegativeInteger(asset.texture, "encodedBytes", `${label}.texture`, failures)
   const gpuBytesApprox = requireNonNegativeInteger(asset.texture, "gpuBytesApprox", `${label}.texture`, failures)
   if (format === "none") {
-    if (count !== 0 || width !== 0 || height !== 0 || gpuBytesApprox !== 0) {
-      failures.push(`${label}.texture: format none requires zero count, dimensions, and GPU bytes`)
+    if (count !== 0 || width !== 0 || height !== 0 || encodedBytes !== 0 || gpuBytesApprox !== 0) {
+      failures.push(`${label}.texture: format none requires zero count, dimensions, encoded bytes, and GPU bytes`)
     }
-  } else if (format !== undefined && (count === 0 || width === 0 || height === 0 || gpuBytesApprox === 0)) {
-    failures.push(`${label}.texture: textured assets require positive count, dimensions, and GPU bytes`)
+  } else if (format !== undefined && (count === 0 || width === 0 || height === 0 || encodedBytes === 0 || gpuBytesApprox === 0)) {
+    failures.push(`${label}.texture: textured assets require positive count, dimensions, encoded bytes, and GPU bytes`)
   }
-  return { count, format, width, height, gpuBytesApprox }
+  return { count, format, width, height, encodedBytes, gpuBytesApprox }
 }
 
 function validateTransformAndCollision(asset, label, failures) {
@@ -940,7 +947,7 @@ function compareDerivedMetrics(asset, derived, label, failures) {
   for (const [group, fields] of Object.entries({
     geometry: ["uniquePrimitives", "sceneDrawCalls", "renderVertices", "uploadVertices", "triangles"],
     materials: ["count"],
-    texture: ["count", "format", "width", "height", "gpuBytesApprox"],
+    texture: ["count", "format", "width", "height", "encodedBytes", "gpuBytesApprox"],
   })) {
     for (const field of fields) {
       if (asset[group]?.[field] !== derived[group][field]) {

@@ -16,7 +16,7 @@
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
         "sourceSha256": "abe48f4763fba0896bab486ee9e6d08ca6b5b3884b9601f235c8847ae94dc479",
         "sourceBytes": 13024345,
-        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33",
+        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33 characters; v3.4.50 bow_withString",
         "additionalSources": [
           {
             "sourceAsset": "KayKit_Character_Animations_1.1.zip",
@@ -74,7 +74,7 @@
       "collision": { "type": "capsule", "radius": 0.55, "height": 2.1, "centerY": 1.05 },
       "lod": [
         { "level": 0, "maxDistance": 24, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "procedural hero silhouette" },
+        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
         { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
       ]
     },
@@ -90,7 +90,7 @@
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
         "sourceSha256": "abe48f4763fba0896bab486ee9e6d08ca6b5b3884b9601f235c8847ae94dc479",
         "sourceBytes": 13024345,
-        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33",
+        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33 characters; v3.4.50 bow_withString",
         "additionalSources": [
           {
             "sourceAsset": "KayKit_Character_Animations_1.1.zip",
@@ -148,7 +148,7 @@
       "collision": { "type": "capsule", "radius": 0.5, "height": 1.95, "centerY": 0.975 },
       "lod": [
         { "level": 0, "maxDistance": 24, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "procedural hero silhouette" },
+        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
         { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
       ]
     },
@@ -164,7 +164,7 @@
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
         "sourceSha256": "abe48f4763fba0896bab486ee9e6d08ca6b5b3884b9601f235c8847ae94dc479",
         "sourceBytes": 13024345,
-        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33",
+        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33 characters; v3.4.50 bow_withString",
         "additionalSources": [
           {
             "sourceAsset": "KayKit_Character_Animations_1.1.zip",
@@ -222,7 +222,7 @@
       "collision": { "type": "capsule", "radius": 0.65, "height": 2.25, "centerY": 1.125 },
       "lod": [
         { "level": 0, "maxDistance": 24, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "procedural hero silhouette" },
+        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
         { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
       ]
     },
@@ -238,7 +238,7 @@
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
         "sourceSha256": "abe48f4763fba0896bab486ee9e6d08ca6b5b3884b9601f235c8847ae94dc479",
         "sourceBytes": 13024345,
-        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33",
+        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33 characters; v3.4.50 bow_withString",
         "additionalSources": [
           {
             "sourceAsset": "KayKit_Character_Animations_1.1.zip",
@@ -296,7 +296,7 @@
       "collision": { "type": "capsule", "radius": 0.48, "height": 1.75, "centerY": 0.875 },
       "lod": [
         { "level": 0, "maxDistance": 24, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "procedural hero silhouette" },
+        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
         { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
       ]
     },
@@ -533,7 +533,7 @@
         "format": "webp",
         "width": 512,
         "height": 512,
-        "encodedBytes": 41636,
+        "encodedBytes": 40656,
         "gpuBytesApprox": 1398100
       },
       "clips": [

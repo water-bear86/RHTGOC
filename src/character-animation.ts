@@ -63,6 +63,9 @@ export const HERO_ACTION_DURATIONS: Readonly<Record<Exclude<HeroAction, "idle">,
   signature: 0.9,
 })
 
+/** The authored bow reaches its Draw -> Release seam 0.12s into Attack. */
+export const HERO_ATTACK_RELEASE_PROGRESS = 0.15
+
 const canonicalZero = (value: number): number => value === 0 ? 0 : value
 const rotation = (x = 0, y = 0, z = 0): JointRotation => ({
   x: canonicalZero(x),
