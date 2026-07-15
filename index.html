@@ -58,11 +58,39 @@
       <button class="social-button" id="social-button" aria-label="Open friends and invitations">♥</button>
       <button class="safety-button" id="safety-button" aria-label="Open band safety">♢</button>
       <button class="settings-button" id="settings-button" aria-label="Open accessibility and controls">⚙</button>
+      <button class="chat-button hidden" id="chat-button" aria-label="Open chat" aria-haspopup="dialog" aria-controls="chat-drawer" aria-expanded="false">✎<b class="hidden" id="chat-unread-badge">0</b></button>
       <div class="spectator-banner hidden" id="spectator-banner">MOBILE SPECTATOR · VIEW ONLY</div>
       <div class="prompt" id="prompt">Click the ground or use WASD to move</div>
       <div class="objective-pointer hidden" id="objective-pointer" aria-hidden="true"><i>▲</i><b id="objective-pointer-distance">0m</b></div>
       <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+      <ol class="chat-peek hidden" id="chat-peek" aria-hidden="true"></ol>
+      <form class="quick-chat hidden" id="quick-chat" autocomplete="off">
+        <label for="quick-chat-input"><b id="quick-chat-channel">BAND</b> QUICK MESSAGE</label>
+        <div><input id="quick-chat-input" maxlength="320" enterkeyhint="send" placeholder="Message your band" aria-label="Quick chat message" /><button type="submit">SEND</button></div>
+        <small>ENTER SENDS · ESC CANCELS</small>
+      </form>
     </div>
+    <aside class="chat-drawer hidden" id="chat-drawer" role="dialog" aria-hidden="true" aria-labelledby="chat-title">
+      <header>
+        <div><span class="eyebrow">SHERWOOD COMMS</span><h2 id="chat-title">Trollbox</h2></div>
+        <button id="close-chat" type="button" aria-label="Close chat">×</button>
+      </header>
+      <nav class="chat-tabs" aria-label="Chat channels">
+        <button id="chat-tab-band" type="button" aria-pressed="true" data-chat-channel="band">BAND <b class="hidden">0</b></button>
+        <button id="chat-tab-camp" type="button" aria-pressed="false" data-chat-channel="camp" disabled>CAMP <b class="hidden">0</b></button>
+      </nav>
+      <p class="chat-status" id="chat-status" role="status" aria-live="polite">Join a band or authenticated camp to chat.</p>
+      <div class="chat-log-wrap">
+        <ol class="chat-log" id="chat-log" role="log" aria-live="polite" aria-relevant="additions" aria-label="Band chat messages"></ol>
+        <button class="chat-new-messages hidden" id="chat-new-messages" type="button">NEW MESSAGES</button>
+      </div>
+      <form class="chat-composer" id="chat-form" autocomplete="off">
+        <label class="sr-only" for="chat-input">Chat message</label>
+        <input id="chat-input" maxlength="320" enterkeyhint="send" placeholder="Message your band" disabled />
+        <button type="submit" disabled>SEND</button>
+      </form>
+      <small class="chat-rules">Plain text only · 160 characters · mute, block, and fixed-reason reports are available on each message.</small>
+    </aside>
     <div class="intro" id="intro">
       <div class="intro-card">
         <span class="eyebrow">RHTGOC · A 3D OUTLAW ADVENTURE</span>
@@ -124,6 +152,7 @@
         <dt>Signature</dt><dd id="help-signature">Q uses Robin's Twin Shot or Marian's Veil</dd>
         <dt>Signal</dt><dd id="help-signals">1–5 place danger, target, route, loot, and regroup pings</dd>
         <dt>Rescue / share</dt><dd id="help-support">R revives a nearby outlaw · T transfers up to 60 coin</dd>
+        <dt>Chat</dt><dd>Press Enter for a quick message, or use the pencil button for the full Band / Camp trollbox</dd>
         <dt>Survive</dt><dd>Break line of pursuit among the trees</dd>
       </dl>
       <div class="panel-actions">
@@ -228,7 +257,7 @@
       <h2 id="safety-title">Keep Sherwood civil</h2>
       <p class="board-state">Mute is local. Reports use fixed reasons. The room leader can remove or block a player from the current room.</p>
       <ul id="safety-party-list"></ul>
-      <small class="board-note">No public chat, voice, trading, or user-generated content is enabled.</small>
+      <small class="board-note">Typed chat is bounded to your band or current camp instance. Voice, trading, links, and attachments remain disabled.</small>
     </div>
     <div class="panel social-panel hidden" id="social-panel" role="dialog" aria-modal="true" aria-labelledby="social-title" tabindex="-1">
       <button id="close-social" aria-label="Close friends and invitations">×</button>
@@ -343,7 +372,7 @@
     <section class="public-hub-panel hidden" id="public-hub-panel" aria-label="Opt-in public campfire">
       <span class="eyebrow">OPT-IN PUBLIC CAMP</span>
       <div class="hub-heading"><h2>Find a band</h2><b id="public-hub-count">0/12</b></div>
-      <p>No public text or voice. Use fixed intent, pings, emotes, mute, block, and report.</p>
+      <p>Authenticated Camp chat appears when moderation storage is online and stays inside this 12-player instance. Voice remains off; mute, block, and report are always available.</p>
       <label>TARGET <select id="public-hub-target"><option value="any">Any trusted mission</option><option value="peoples-purse">People's Purse</option><option value="prison-wagon">Iron Road</option><option value="royal-storehouse">Nottingham Ledger</option></select></label>
       <label>PARTY SIZE <select id="public-hub-size"><option value="2">2 outlaws</option><option value="3">3 outlaws</option><option value="4">4 outlaws</option></select></label>
       <div class="public-hub-actions"><button id="public-hub-looking">FIND A BAND</button></div>

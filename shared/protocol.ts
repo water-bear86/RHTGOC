@@ -4,6 +4,9 @@ import protocolVersion from "./protocol-version.json"
 import type { RegionalMissionLayout } from "./regional-layout"
 import type { SherwoodSeasonSnapshot } from "./sherwood-season"
 import type { RoomExperimentAssignment } from "./experiments"
+import { ChatChannelSchema, ChatReportReasonSchema, ChatTextSchema, type ChatErrorCode, type ChatMessage } from "./chat"
+
+export type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "./chat"
 
 export const PROTOCOL_VERSION = protocolVersion.version
 export const MAX_ROOM_PLAYERS = 4
@@ -78,6 +81,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("respond_band_membership"), accept: z.boolean() }),
   z.object({ type: z.literal("update_band_identity"), name: z.string().trim().min(3).max(28).regex(/^[A-Za-z0-9 _-]+$/), bannerId: z.enum(["oak", "fox", "arrow", "stag"]) }),
   z.object({ type: z.literal("remove_band_member"), targetPlayerId: z.string().uuid() }),
+  z.object({ type: z.literal("chat_send"), channel: ChatChannelSchema, text: ChatTextSchema }),
+  z.object({ type: z.literal("chat_report"), channel: ChatChannelSchema, messageId: z.string().uuid(), reason: ChatReportReasonSchema }),
   z.object({ type: z.literal("join_public_hub"), ...ClientHandshakeSchema, displayName: DisplayNameSchema, characterId: CharacterIdSchema, accessToken: z.string().min(20).max(4_096) }),
   z.object({ type: z.literal("hub_intent"), looking: z.boolean(), targetPreference: z.enum(["any", "peoples-purse", "prison-wagon", "royal-storehouse"]), desiredPartySize: z.number().int().min(2).max(4) }),
   z.object({ type: z.literal("hub_move"), sequence: z.number().int().nonnegative(), move: z.object({ x: z.number().min(-1).max(1), z: z.number().min(-1).max(1) }) }),
@@ -363,6 +368,9 @@ export type ServerMessage =
   | { type: "hub_welcome"; instanceId: string; participantId: string; capacity: number }
   | { type: "hub_state"; instanceId: string; players: PublicHubPlayer[] }
   | { type: "hub_band_ready"; roomCode: string; leader: boolean }
+  | { type: "chat_history"; channel: "band" | "camp"; messages: ChatMessage[] }
+  | { type: "chat_message"; message: ChatMessage }
+  | { type: "chat_error"; channel: "band" | "camp"; code: ChatErrorCode; message: string; retryAfterMs?: number }
   | { type: "snapshot"; tick: number; experiments: RoomExperimentAssignment[]; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string; buildId?: string }

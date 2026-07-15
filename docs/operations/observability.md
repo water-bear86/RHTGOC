@@ -22,7 +22,9 @@ Key counters:
 - `leaderboard_review_<approved|rejected|failure|conflict|unauthorized|forbidden>_total`; review logs contain the decision and promotion result, never quarantine, reviewer, or player identifiers.
 - `leaderboard_<seasons_finalized|snapshots_created|finalization_failure|dead_letter>_total` and `leaderboard_persistence_<success|retry>_total`; dead-letter logs use a fixed reason code and mission trace, never player identity.
 - `season_admin_persistence_<barrier|pending>_total` identifies operator transitions held behind or awaiting durable campaign storage.
-- `public_hub_instances`, `public_hub_players`, `hub_opt_ins_total`, `hub_private_bands_formed_total`, `hub_<emote|ping>_*`, `hub_*_rate_limited_total`, `hub_reports_total`, and `hub_blocks_total`.
+- `public_hub_instances`, `public_hub_players`, `hub_opt_ins_total`, `hub_private_bands_formed_total`, `chat_<band|camp>_<accepted|rejected>_total`, `hub_<emote|ping>_*`, `hub_*_rate_limited_total`, `hub_reports_total`, and `hub_blocks_total`.
+
+Chat counters describe accepted or fixed-reason rejected actions only. Never attach message text, display name, user/player ID, message ID, room code, or instance ID to a metric or structured log. A moderation report may persist bounded evidence through the private social store, but that evidence is not observability data and must not be copied into alerts or dashboards.
 
 Key gauges: `active_connections`, `active_rooms`, and `active_players`.
 

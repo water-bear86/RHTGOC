@@ -10,7 +10,13 @@ Merry Bands, active membership, preset banners, mission history, community grant
 
 Seasonal campaign snapshots and immutable mission/contribution/operator events live in `sherwood_campaigns` and `sherwood_campaign_events`. They are service-role-only: clients receive the current projection through the room server and cannot author totals. On startup, a configured room service prefers the newest non-archived snapshot and processed-event ledger, then falls back to the newest archived campaign so its successor can be started after a restart. Recovery failure fails closed rather than silently starting a competing season.
 
-The secret key is a runtime secret. It must never use a `VITE_` prefix, enter the browser bundle, appear in screenshots, or be committed. If it is absent, the server must leave persistent-band features unavailable rather than opening anonymous writes.
+The secret key is a runtime secret. It must never use a `VITE_` prefix, enter the browser bundle, appear in screenshots, or be committed. If it is absent, the server must leave persistent-band features and public Camp chat unavailable rather than opening anonymous writes. Private Band chat remains bounded to process memory and does not depend on Supabase.
+
+## Chat moderation evidence
+
+General Band and Camp history is never persisted. Private Band reports stay in their room's bounded in-memory audit. When an authenticated player reports a server-known Camp message with a fixed reason, the authoritative server stores the reporter and target Auth UUIDs, message identity, normalized text, and bounded surrounding context in a service-role-only moderation table. Browser roles receive no table or RPC access. Camp chat is enabled only when `PUBLIC_CAMP_CHAT_ENABLED=true`, the social store has server-only credentials, and the startup retention-RPC probe succeeds. `/health` then reports `publicCampChat: true` without exposing content. Any missing prerequisite leaves the channel unavailable while private Band chat continues.
+
+Reported-message evidence expires after 30 days. Run the service-only retention RPC from an operator environment, then record only the execution time and deleted-row count in the release log. Never copy evidence text or identities into that log. A production release must prove the RPC, access revocations, RLS posture, retention path, and local/remote migration-ledger match before enabling Camp chat.
 
 When the room creator has a verified Supabase session, the server calls the service-only `ensure_merry_band` RPC before opening the room. The RPC serializes concurrent creation per user, restores the one active membership, updates the recorded hero role, and returns the privacy-safe band/camp/village projection. Public-hub private-room handoff follows the same path for its first authenticated leader. Guests can still play but never create or mutate persistent records.
 
