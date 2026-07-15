@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
 import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MerryBandState, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
+import { normalizeChatText, type ChatErrorCode, type ChatMessage, type ChatReportReason } from "../shared/chat"
 import { Mission } from "./mission"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import { isRotationActive, rotationWindowAt, type SheriffRotationWindow } from "../shared/sheriff-rotation"
@@ -43,6 +44,23 @@ export interface BandMembershipMutation {
   actorUserId: string
   memberUserId: string
   heroRole: CharacterId
+}
+
+export type BandChatSendResult =
+  | { ok: true; message: ChatMessage }
+  | { ok: false; code: ChatErrorCode; retryAfterMs?: number }
+
+export interface BandChatReport {
+  at: number
+  reporterPlayerId: string
+  reason: ChatReportReason
+  message: ChatMessage
+}
+
+interface BandChatRateState {
+  sentAt: number[]
+  lastTextKey: string | null
+  lastTextAt: number
 }
 
 function maxArrows(characterId: CharacterId): number {
@@ -91,7 +109,11 @@ export class Room {
   lastResult: LastMissionResult | null = null
   experimentAssignments: RoomExperimentAssignment[] = []
   readonly moderationEvents: Array<{ at: number; actorId: string; targetId: string; action: "report" | "remove" | "block"; reason?: string }> = []
+  readonly bandChatHistory: ChatMessage[] = []
+  readonly bandChatReports: BandChatReport[] = []
   private readonly bannedReconnectTokens = new Set<string>()
+  private readonly bandChatRateByPlayer = new Map<string, BandChatRateState>()
+  private bandChatSequence = 0
   private missionId = randomUUID()
   private bandActorUserId: string | null = null
   private readonly bandMemberRoles = new Map<string, "leader" | "member">()
@@ -231,7 +253,10 @@ export class Room {
 
   pruneDisconnected(now: number): void {
     for (const [id, player] of this.players) {
-      if (player.disconnectedAt !== null && now - player.disconnectedAt > RECONNECT_GRACE_MS) this.players.delete(id)
+      if (player.disconnectedAt !== null && now - player.disconnectedAt > RECONNECT_GRACE_MS) {
+        this.players.delete(id)
+        this.bandChatRateByPlayer.delete(id)
+      }
     }
   }
 
@@ -531,6 +556,85 @@ export class Room {
     this.mission?.castVote(playerId, choice)
   }
 
+  sendBandChat(playerId: string, text: string, now = Date.now()): BandChatSendResult {
+    const player = this.players.get(playerId)
+    if (!player?.connected) return { ok: false, code: "FORBIDDEN" }
+    const normalized = normalizeChatText(text)
+    if (normalized === null) return this.rejectBandChat(player, "INVALID_MESSAGE", "Messages must be 1-160 visible characters")
+
+    const rate = this.bandChatRateByPlayer.get(playerId) ?? { sentAt: [], lastTextKey: null, lastTextAt: Number.NEGATIVE_INFINITY }
+    const textKey = normalized.toLocaleLowerCase("en-US")
+    if (rate.lastTextKey === textKey && now - rate.lastTextAt < 30_000) {
+      return this.rejectBandChat(player, "DUPLICATE", "That message was already sent")
+    }
+
+    rate.sentAt = rate.sentAt.filter((sentAt) => now - sentAt < 10_000)
+    const lastSentAt = rate.sentAt.at(-1)
+    if (lastSentAt !== undefined && now - lastSentAt < 1_000) {
+      const retryAfterMs = Math.max(1, lastSentAt + 1_000 - now)
+      return this.rejectBandChat(player, "RATE_LIMITED", "Slow down before sending another message", retryAfterMs)
+    }
+    if (rate.sentAt.length >= 5) {
+      const retryAfterMs = Math.max(1, rate.sentAt[0] + 10_000 - now)
+      return this.rejectBandChat(player, "RATE_LIMITED", "Band chat is moving too quickly", retryAfterMs)
+    }
+
+    rate.sentAt.push(now)
+    rate.lastTextKey = textKey
+    rate.lastTextAt = now
+    this.bandChatRateByPlayer.set(playerId, rate)
+    const message: ChatMessage = {
+      id: randomUUID(),
+      channel: "band",
+      sequence: ++this.bandChatSequence,
+      sentAt: now,
+      sender: {
+        playerId: player.id,
+        displayName: player.displayName,
+        characterId: player.characterId,
+      },
+      text: normalized,
+    }
+    this.bandChatHistory.push(message)
+    if (this.bandChatHistory.length > 50) this.bandChatHistory.splice(0, this.bandChatHistory.length - 50)
+    this.broadcast({ type: "chat_message", message })
+    return { ok: true, message }
+  }
+
+  sendBandChatHistory(playerId: string): boolean {
+    const player = this.players.get(playerId)
+    if (!player?.connected) return false
+    this.sendTo(player, { type: "chat_history", channel: "band", messages: this.bandChatHistory.map((message) => ({ ...message, sender: { ...message.sender } })) })
+    return true
+  }
+
+  reportBandChat(reporterPlayerId: string, messageId: string, reason: ChatReportReason, now = Date.now()): BandChatReport | null {
+    const reporter = this.players.get(reporterPlayerId)
+    if (!reporter?.connected) return null
+    const message = this.bandChatHistory.find((candidate) => candidate.id === messageId)
+    if (!message) {
+      this.sendTo(reporter, { type: "chat_error", channel: "band", code: "MESSAGE_NOT_FOUND", message: "That message is no longer available to report" })
+      return null
+    }
+    if (message.sender.playerId === reporterPlayerId) {
+      this.sendTo(reporter, { type: "chat_error", channel: "band", code: "FORBIDDEN", message: "You cannot report your own message" })
+      return null
+    }
+    if (this.bandChatReports.some((report) => report.reporterPlayerId === reporterPlayerId && report.message.id === messageId)) {
+      this.sendTo(reporter, { type: "chat_error", channel: "band", code: "FORBIDDEN", message: "That message has already been reported" })
+      return null
+    }
+    const report: BandChatReport = {
+      at: now,
+      reporterPlayerId,
+      reason,
+      message: { ...message, sender: { ...message.sender } },
+    }
+    this.bandChatReports.push(report)
+    if (this.bandChatReports.length > 200) this.bandChatReports.splice(0, this.bandChatReports.length - 200)
+    return report
+  }
+
   moderate(
     actorId: string,
     targetId: string,
@@ -548,6 +652,7 @@ export class Room {
     if (action === "block") this.bannedReconnectTokens.add(target.reconnectToken)
     target.socket?.close(4003, action === "block" ? "Blocked from this band" : "Removed from this band")
     this.players.delete(targetId)
+    this.bandChatRateByPlayer.delete(targetId)
     this.broadcastRoomState()
     return true
   }
@@ -840,6 +945,15 @@ export class Room {
     for (const player of this.players.values()) {
       if (player.socket?.readyState === WebSocket.OPEN) player.socket.send(payload)
     }
+  }
+
+  private sendTo(player: ConnectedPlayer, message: ServerMessage): void {
+    if (player.socket?.readyState === WebSocket.OPEN) player.socket.send(JSON.stringify(message))
+  }
+
+  private rejectBandChat(player: ConnectedPlayer, code: ChatErrorCode, message: string, retryAfterMs?: number): BandChatSendResult {
+    this.sendTo(player, { type: "chat_error", channel: "band", code, message, ...(retryAfterMs === undefined ? {} : { retryAfterMs }) })
+    return { ok: false, code, ...(retryAfterMs === undefined ? {} : { retryAfterMs }) }
   }
 
   private resetPlayerForHub(player: ConnectedPlayer): void {

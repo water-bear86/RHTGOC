@@ -10,6 +10,16 @@ function fakeSocket(): WebSocket {
   return { readyState: WebSocket.CLOSED, OPEN: WebSocket.OPEN, send: () => undefined, close: () => undefined } as unknown as WebSocket
 }
 
+function recordingSocket(): { socket: WebSocket; messages: Array<Record<string, unknown>> } {
+  const messages: Array<Record<string, unknown>> = []
+  const socket = {
+    readyState: WebSocket.OPEN,
+    send: (value: string) => messages.push(JSON.parse(String(value)) as Record<string, unknown>),
+    close: () => undefined,
+  } as unknown as WebSocket
+  return { socket, messages }
+}
+
 const persistedBand: PersistentBandRecord = {
   state: { id: "8c820e61-d711-4c0e-9020-789ea98d315a", name: "Oak Hearts", bannerId: "oak", camp: { hearth: 1, workbench: 0, stores: 0 }, progressionVersion: 1, missionCount: 0, memberCount: 1 },
   village: { granary: 2, infirmary: 1, watchtower: 0 },
@@ -228,6 +238,89 @@ describe("Merry Band room", () => {
     expect(room.moderate(leader.id, member.id, "block", undefined, 2_000)).toBe(true)
     expect(room.players.has(member.id)).toBe(false)
     expect(room.reconnect(fakeSocket(), member.reconnectToken, 2_001)).toBeNull()
+  })
+
+  it("broadcasts authoritative normalized Band chat and sends bounded history", () => {
+    const leaderSocket = recordingSocket()
+    const memberSocket = recordingSocket()
+    const room = new Room("CHAT24")
+    const leader = room.addPlayer(leaderSocket.socket, "Robin", "robin")
+    const member = room.addPlayer(memberSocket.socket, "Marian", "marian")
+
+    expect(room.sendBandChat(leader.id, "  Meet\nby the \u202eoak  ", 1_000)).toMatchObject({
+      ok: true,
+      message: {
+        channel: "band",
+        sequence: 1,
+        sentAt: 1_000,
+        sender: { playerId: leader.id, displayName: "Robin", characterId: "robin" },
+        text: "Meet by the oak",
+      },
+    })
+    expect(memberSocket.messages.at(-1)).toMatchObject({ type: "chat_message", message: { sequence: 1, text: "Meet by the oak" } })
+    memberSocket.messages.length = 0
+    expect(room.sendBandChatHistory(member.id)).toBe(true)
+    expect(memberSocket.messages).toEqual([
+      expect.objectContaining({ type: "chat_history", channel: "band", messages: [expect.objectContaining({ sequence: 1, text: "Meet by the oak" })] }),
+    ])
+  })
+
+  it("enforces Band chat duplicate, interval, and rolling burst limits", () => {
+    const connection = recordingSocket()
+    const room = new Room("RATE24")
+    const player = room.addPlayer(connection.socket, "Robin", "robin")
+
+    expect(room.sendBandChat(player.id, "First", 0)).toMatchObject({ ok: true })
+    expect(room.sendBandChat(player.id, "first", 1_000)).toEqual({ ok: false, code: "DUPLICATE" })
+    expect(room.sendBandChat(player.id, "Too soon", 500)).toEqual({ ok: false, code: "RATE_LIMITED", retryAfterMs: 500 })
+    for (let index = 1; index < 5; index += 1) {
+      expect(room.sendBandChat(player.id, `Message ${index}`, index * 1_000)).toMatchObject({ ok: true })
+    }
+    expect(room.sendBandChat(player.id, "Sixth", 5_000)).toEqual({ ok: false, code: "RATE_LIMITED", retryAfterMs: 5_000 })
+    expect(room.sendBandChat(player.id, "After window", 10_000)).toMatchObject({ ok: true })
+  })
+
+  it("retains only the latest 50 Band messages while preserving sequence order", () => {
+    const room = new Room("HIST50")
+    const player = room.addPlayer(fakeSocket(), "Robin", "robin")
+    for (let index = 1; index <= 55; index += 1) {
+      expect(room.sendBandChat(player.id, `Message ${index}`, index * 10_001)).toMatchObject({ ok: true })
+    }
+    expect(room.bandChatHistory).toHaveLength(50)
+    expect(room.bandChatHistory[0]).toMatchObject({ sequence: 6, text: "Message 6" })
+    expect(room.bandChatHistory.at(-1)).toMatchObject({ sequence: 55, text: "Message 55" })
+  })
+
+  it("resolves Band reports from server-known messages and rejects self or stale reports", () => {
+    const leaderSocket = recordingSocket()
+    const memberSocket = recordingSocket()
+    const room = new Room("RPRT24")
+    const leader = room.addPlayer(leaderSocket.socket, "Robin", "robin")
+    const member = room.addPlayer(memberSocket.socket, "Marian", "marian")
+    const sent = room.sendBandChat(leader.id, "A server-known message", 1_000)
+    expect(sent.ok).toBe(true)
+    if (!sent.ok) throw new Error("Expected the message to be accepted")
+
+    expect(room.reportBandChat(member.id, sent.message.id, "harassment", 2_000)).toMatchObject({
+      at: 2_000,
+      reporterPlayerId: member.id,
+      reason: "harassment",
+      message: { id: sent.message.id, sender: { playerId: leader.id }, text: "A server-known message" },
+    })
+    expect(room.reportBandChat(member.id, sent.message.id, "griefing", 2_001)).toBeNull()
+    expect(room.reportBandChat(leader.id, sent.message.id, "harassment", 2_001)).toBeNull()
+    expect(room.reportBandChat(member.id, "8c02777e-2bb5-5afd-9f42-7a7b1ca4c622", "harassment", 2_002)).toBeNull()
+    expect(leaderSocket.messages.at(-1)).toMatchObject({ type: "chat_error", code: "FORBIDDEN" })
+    expect(memberSocket.messages.at(-1)).toMatchObject({ type: "chat_error", code: "MESSAGE_NOT_FOUND" })
+  })
+
+  it("defensively rejects invalid Band chat even when the protocol parser is bypassed", () => {
+    const connection = recordingSocket()
+    const room = new Room("SAFE24")
+    const player = room.addPlayer(connection.socket, "Robin", "robin")
+    expect(room.sendBandChat(player.id, "\u202e\u0000", 1_000)).toEqual({ ok: false, code: "INVALID_MESSAGE" })
+    expect(room.bandChatHistory).toEqual([])
+    expect(connection.messages.at(-1)).toMatchObject({ type: "chat_error", code: "INVALID_MESSAGE" })
   })
 
   it("captures the active season when a mission starts and claims its authoritative leaderboard runs once", () => {

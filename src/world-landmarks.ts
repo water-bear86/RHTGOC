@@ -3,6 +3,7 @@ import type { RegionalMissionLayout } from "../shared/regional-layout"
 import { createStylizedBuildingVisual, disposeStylizedBuildingVisuals } from "./building-visuals"
 import { createToonMaterial } from "./toon-materials"
 import { sherwoodHeightAt } from "./sherwood-terrain"
+import { createNatureVariantInstances, type NatureCatalog } from "./nature-assets"
 
 export interface SherwoodLandmarks {
   group: THREE.Group
@@ -41,49 +42,129 @@ export function chooseFarmPosition(layout: RegionalMissionLayout): Readonly<{ x:
   })[0]
 }
 
-function addFence(parent: THREE.Group, x: number, z: number, length: number, rotation: number): void {
+interface TerrainFrame {
+  x: number
+  z: number
+  y: number
+  rotation: number
+}
+
+function worldPointInFrame(frame: TerrainFrame, x: number, z: number): Readonly<{ x: number; z: number }> {
+  const cosine = Math.cos(frame.rotation)
+  const sine = Math.sin(frame.rotation)
+  return {
+    x: frame.x + cosine * x + sine * z,
+    z: frame.z - sine * x + cosine * z,
+  }
+}
+
+function terrainYInFrame(frame: TerrainFrame, x: number, z: number, offset = 0): number {
+  const world = worldPointInFrame(frame, x, z)
+  return sherwoodHeightAt(world.x, world.z) - frame.y + offset
+}
+
+function setOnTerrainInFrame(
+  object: THREE.Object3D,
+  frame: TerrainFrame,
+  x: number,
+  z: number,
+  offset = 0,
+): void {
+  object.position.set(x, terrainYInFrame(frame, x, z, offset), z)
+}
+
+function createDrapedFarmSoil(frame: TerrainFrame): THREE.Mesh {
+  const geometry = new THREE.PlaneGeometry(15, 10, 12, 8)
+  geometry.rotateX(-Math.PI / 2)
+  const positions = geometry.getAttribute("position")
+  for (let index = 0; index < positions.count; index += 1) {
+    positions.setY(index, terrainYInFrame(frame, positions.getX(index) - 1, positions.getZ(index) - 0.2, 0.018))
+    positions.setX(index, positions.getX(index) - 1)
+    positions.setZ(index, positions.getZ(index) - 0.2)
+  }
+  positions.needsUpdate = true
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  const soil = mesh("FarmFieldSoil", geometry, 0x80613d)
+  soil.castShadow = false
+  return soil
+}
+
+function addFence(
+  parent: THREE.Group,
+  frame: TerrainFrame,
+  x: number,
+  z: number,
+  length: number,
+  rotation: number,
+): void {
   const fence = new THREE.Group()
   fence.name = "FarmFence"
   fence.position.set(x, 0, z)
   fence.rotation.y = rotation
+  const terrainAt = (localX: number): number => terrainYInFrame(
+    frame,
+    x + Math.cos(rotation) * localX,
+    z - Math.sin(rotation) * localX,
+  )
   for (const localX of [-length / 2, 0, length / 2]) {
     const post = mesh("FencePost", new THREE.BoxGeometry(0.16, 1.15, 0.16), 0x604329)
-    post.position.set(localX, 0.57, 0)
+    post.position.set(localX, terrainAt(localX) + 0.575, 0)
     fence.add(post)
   }
+  const startY = terrainAt(-length / 2)
+  const endY = terrainAt(length / 2)
+  const railAngle = Math.atan2(endY - startY, length)
+  const railLength = Math.hypot(length, endY - startY)
   for (const y of [0.42, 0.85]) {
-    const rail = mesh("FenceRail", new THREE.BoxGeometry(length, 0.12, 0.12), 0x765536)
-    rail.position.y = y
+    const rail = mesh("FenceRail", new THREE.BoxGeometry(railLength, 0.12, 0.12), 0x765536)
+    rail.position.y = (startY + endY) / 2 + y
+    rail.rotation.z = railAngle
     fence.add(rail)
   }
   parent.add(fence)
 }
 
-function createWheatField(): { group: THREE.Group; count: number } {
+function createWheatField(frame: TerrainFrame, natureCatalog?: NatureCatalog): { group: THREE.Group; count: number } {
   const group = new THREE.Group()
   group.name = "GoldenWheatField"
-  const geometry = new THREE.ConeGeometry(0.1, 0.82, 4)
-  geometry.translate(0, 0.41, 0)
   const rows = 15
   const columns = 22
   const count = rows * columns
-  const wheat = new THREE.InstancedMesh(geometry, material(0xd7a938), count)
-  wheat.name = "WheatInstances"
   const matrix = new THREE.Matrix4()
+  const matrices: THREE.Matrix4[] = []
   let index = 0
   for (let row = 0; row < rows; row += 1) {
     for (let column = 0; column < columns; column += 1) {
       const x = -6.4 + column * 0.58 + Math.sin(row * 2.3 + column) * 0.06
       const z = -4.1 + row * 0.56
       const height = 0.78 + ((row * 17 + column * 7) % 9) * 0.025
-      matrix.compose(new THREE.Vector3(x, 0, z), new THREE.Quaternion(), new THREE.Vector3(1, height, 1))
-      wheat.setMatrixAt(index++, matrix)
+      const localX = x - 1
+      matrix.compose(
+        new THREE.Vector3(localX, terrainYInFrame(frame, localX, z, 0.03), z),
+        new THREE.Quaternion(),
+        new THREE.Vector3(1, height, 1),
+      )
+      matrices.push(matrix.clone())
+      index += 1
     }
   }
-  wheat.castShadow = false
-  wheat.receiveShadow = true
-  wheat.instanceMatrix.needsUpdate = true
-  group.add(wheat)
+  if (natureCatalog) {
+    const wheat = createNatureVariantInstances(natureCatalog, "Nature_Wheat_Tall", matrices)
+    wheat.name = "WheatInstances"
+    group.add(wheat)
+  } else {
+    const geometry = new THREE.ConeGeometry(0.1, 0.82, 4)
+    geometry.translate(0, 0.41, 0)
+    const wheat = new THREE.InstancedMesh(geometry, material(0xd7a938), count)
+    wheat.name = "WheatInstances"
+    matrices.forEach((placement, placementIndex) => wheat.setMatrixAt(placementIndex, placement))
+    wheat.castShadow = false
+    wheat.receiveShadow = true
+    wheat.instanceMatrix.needsUpdate = true
+    group.add(wheat)
+  }
   return { group, count }
 }
 
@@ -132,40 +213,42 @@ function createFarmhouse(): THREE.Group {
   })
 }
 
-export function createSherwoodLandmarks(layout: RegionalMissionLayout): SherwoodLandmarks {
+export function createSherwoodLandmarks(layout: RegionalMissionLayout, options: { natureCatalog?: NatureCatalog } = {}): SherwoodLandmarks {
   const group = new THREE.Group()
   group.name = "SherwoodLandmarks"
   const farmPosition = chooseFarmPosition(layout)
   const farm = new THREE.Group()
   farm.name = "WindmillFarm"
-  farm.position.set(farmPosition.x, sherwoodHeightAt(farmPosition.x, farmPosition.z), farmPosition.z)
-  farm.rotation.y = farmPosition.x * farmPosition.z > 0 ? -0.35 : 0.35
+  const farmRotation = farmPosition.x * farmPosition.z > 0 ? -0.35 : 0.35
+  const farmHeight = sherwoodHeightAt(farmPosition.x, farmPosition.z)
+  const farmFrame: TerrainFrame = { x: farmPosition.x, z: farmPosition.z, y: farmHeight, rotation: farmRotation }
+  farm.position.set(farmPosition.x, farmHeight, farmPosition.z)
+  farm.rotation.y = farmRotation
 
-  const soil = mesh("FarmFieldSoil", new THREE.PlaneGeometry(15, 10), 0x80613d)
-  soil.rotation.x = -Math.PI / 2
-  soil.position.set(-1, 0.018, -0.2)
-  soil.castShadow = false
-  const { group: wheat, count: wheatCount } = createWheatField()
-  wheat.position.set(-1, 0.03, 0)
+  const soil = createDrapedFarmSoil(farmFrame)
+  const { group: wheat, count: wheatCount } = createWheatField(farmFrame, options.natureCatalog)
   const { group: windmill, rotor } = createWindmill()
-  windmill.position.set(8.4, 0, -1.2)
+  setOnTerrainInFrame(windmill, farmFrame, 8.4, -1.2)
   const farmhouse = createFarmhouse()
-  farmhouse.position.set(1.7, 0, 7.1)
+  setOnTerrainInFrame(farmhouse, farmFrame, 1.7, 7.1)
   farmhouse.rotation.y = Math.PI
   farm.add(soil, wheat, windmill, farmhouse)
-  addFence(farm, -1, -5.3, 15, 0)
-  addFence(farm, -8.5, -0.2, 10.2, Math.PI / 2)
-  addFence(farm, 6.5, -0.2, 10.2, Math.PI / 2)
+  addFence(farm, farmFrame, -1, -5.3, 15, 0)
+  addFence(farm, farmFrame, -8.5, -0.2, 10.2, Math.PI / 2)
+  addFence(farm, farmFrame, 6.5, -0.2, 10.2, Math.PI / 2)
   group.add(farm)
 
   const stoneCircle = new THREE.Group()
   stoneCircle.name = "AncientStoneCircle"
-  stoneCircle.position.set(-38, sherwoodHeightAt(-38, -8), -8)
+  const stoneCircleHeight = sherwoodHeightAt(-38, -8)
+  stoneCircle.position.set(-38, stoneCircleHeight, -8)
   for (let index = 0; index < 7; index += 1) {
     const stone = mesh("StandingStone", new THREE.DodecahedronGeometry(0.7, 0), 0x777b6d)
     const angle = index / 7 * Math.PI * 2
     stone.scale.set(0.65, 1.8 + (index % 3) * 0.25, 0.55)
-    stone.position.set(Math.cos(angle) * 3.1, stone.scale.y * 0.34, Math.sin(angle) * 3.1)
+    const x = Math.cos(angle) * 3.1
+    const z = Math.sin(angle) * 3.1
+    stone.position.set(x, sherwoodHeightAt(-38 + x, -8 + z) - stoneCircleHeight + stone.scale.y * 0.34, z)
     stone.rotation.y = angle + 0.4
     stoneCircle.add(stone)
   }
@@ -173,11 +256,15 @@ export function createSherwoodLandmarks(layout: RegionalMissionLayout): Sherwood
 
   const logging = new THREE.Group()
   logging.name = "LoggingClearing"
-  logging.position.set(34, sherwoodHeightAt(34, -25), -25)
+  const loggingHeight = sherwoodHeightAt(34, -25)
+  logging.position.set(34, loggingHeight, -25)
   for (let index = 0; index < 8; index += 1) {
     const log = mesh("FelldLog", new THREE.CylinderGeometry(0.28, 0.34, 3.1, 8), 0x65472d)
     log.rotation.z = Math.PI / 2
-    log.position.set((index % 4) * 0.2, 0.32 + Math.floor(index / 4) * 0.48, (index % 4) * 0.58)
+    const x = (index % 4) * 0.2
+    const z = (index % 4) * 0.58
+    const terrainOffset = sherwoodHeightAt(34 + x, -25 + z) - loggingHeight
+    log.position.set(x, terrainOffset + 0.32 + Math.floor(index / 4) * 0.48, z)
     logging.add(log)
   }
   group.add(logging)
@@ -197,7 +284,7 @@ export function createSherwoodLandmarks(layout: RegionalMissionLayout): Sherwood
       const ownedGeometries = new Set<THREE.BufferGeometry>()
       group.traverse((object) => {
         if (!(object instanceof THREE.Mesh) || farmhouseObjects.has(object)) return
-        ownedGeometries.add(object.geometry)
+        if (object.userData.sherwoodSharedGeometry !== true) ownedGeometries.add(object.geometry)
         if (object instanceof THREE.InstancedMesh) object.dispose()
       })
       ownedGeometries.forEach((geometry) => geometry.dispose())

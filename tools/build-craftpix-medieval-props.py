@@ -1,5 +1,5 @@
 """Build a curated CraftPix medieval prop catalog with Blender."""
-import argparse, pathlib, sys, tempfile, zipfile
+import argparse, contextlib, pathlib, sys, tempfile, zipfile
 import bpy
 from mathutils import Vector
 
@@ -26,11 +26,28 @@ output = pathlib.Path(args.output).resolve()
 output.parent.mkdir(parents=True, exist_ok=True)
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete(use_global=False)
-with tempfile.TemporaryDirectory(prefix="sherwood-props-") as temporary:
-    extracted = pathlib.Path(temporary)
-    with zipfile.ZipFile(args.source) as archive:
-        for member, _ in SELECTION.values(): archive.extract(member, extracted)
-        archive.extract("Textures/T_Medieval_ Props.png", extracted)
+with contextlib.ExitStack() as stack:
+    source = pathlib.Path(args.source).expanduser().resolve()
+    if source.is_dir():
+        extracted = source
+    else:
+        temporary = stack.enter_context(tempfile.TemporaryDirectory(prefix="sherwood-props-"))
+        extracted = pathlib.Path(temporary)
+        with zipfile.ZipFile(source) as archive:
+            for member, _ in SELECTION.values(): archive.extract(member, extracted)
+            archive.extract("Textures/T_Medieval_ Props.png", extracted)
+    atlas = bpy.data.images.load(str(extracted / "Textures/T_Medieval_ Props.png"), check_existing=True)
+    atlas.name = "CraftPix_Medieval_Props_Atlas"
+    material = bpy.data.materials.new("CraftPix_Medieval_Props")
+    material.use_nodes = True
+    material.metallic = 0
+    material.roughness = .9
+    principled = material.node_tree.nodes.get("Principled BSDF")
+    texture = material.node_tree.nodes.new("ShaderNodeTexImage")
+    texture.name = "CraftPixAtlas"
+    texture.image = atlas
+    texture.interpolation = "Closest"
+    material.node_tree.links.new(texture.outputs["Color"], principled.inputs["Base Color"])
     for name, (member, target_height) in SELECTION.items():
         before = set(bpy.data.objects)
         bpy.ops.import_scene.fbx(filepath=str(extracted / member), use_image_search=True)
@@ -53,6 +70,8 @@ with tempfile.TemporaryDirectory(prefix="sherwood-props-") as temporary:
         obj.location.y -= (low_y + high_y) / 2
         obj.location.z -= low_z
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+        obj.data.materials.clear()
+        obj.data.materials.append(material)
         obj.name = f"Prop_{name}"
         obj.data.name = f"Prop_{name}_Mesh"
         obj["sherwoodAssetId"] = f"prop.craftpix.{name.lower()}"

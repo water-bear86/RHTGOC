@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
 import { SHERWOOD_PASSES, SHERWOOD_RIDGE_SEGMENTS, SHERWOOD_SETTLEMENT_SITES } from "../shared/world-topology"
-import { createSherwoodTerrain, sherwoodHeightAt } from "./sherwood-terrain"
+import {
+  SHERWOOD_BRIDGE_DECK_Y,
+  SHERWOOD_BRIDGE_ROTATION,
+  SHERWOOD_BRIDGE_WIDTH,
+  createSherwoodTerrain,
+  sherwoodHeightAt,
+  sherwoodWalkableHeightAt,
+} from "./sherwood-terrain"
 
 describe("Sherwood terrain", () => {
   it("creates readable elevation while preserving a low river valley", () => {
@@ -13,6 +20,27 @@ describe("Sherwood terrain", () => {
     const terrain = createSherwoodTerrain(134, 24)
     expect(terrain.name).toBe("SherwoodTopography")
     expect(terrain.geometry.boundingBox).toBeTruthy()
+  })
+
+  it("uses the bridge deck as the visual standing surface only inside its rotated footprint", () => {
+    const crossing = { x: 1, z: 0 }
+    const layout = { crossingPositions: [crossing, { x: -2, z: 30 }] as const }
+    const cosine = Math.cos(SHERWOOD_BRIDGE_ROTATION)
+    const sine = Math.sin(SHERWOOD_BRIDGE_ROTATION)
+    const onDeck = {
+      x: crossing.x + cosine * 3,
+      z: crossing.z - sine * 3,
+    }
+    const beyondSide = {
+      x: crossing.x + sine * (SHERWOOD_BRIDGE_WIDTH / 2 + 0.1),
+      z: crossing.z + cosine * (SHERWOOD_BRIDGE_WIDTH / 2 + 0.1),
+    }
+
+    expect(sherwoodWalkableHeightAt(crossing.x, crossing.z, layout)).toBe(SHERWOOD_BRIDGE_DECK_Y)
+    expect(sherwoodWalkableHeightAt(onDeck.x, onDeck.z, layout)).toBe(SHERWOOD_BRIDGE_DECK_Y)
+    expect(sherwoodWalkableHeightAt(beyondSide.x, beyondSide.z, layout)).toBe(
+      sherwoodHeightAt(beyondSide.x, beyondSide.z),
+    )
   })
 
   it("renders steep shared ridges, cut passes, and level settlement terraces", () => {

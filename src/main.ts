@@ -55,16 +55,27 @@ import { SHERWOOD_GUARD_SEPARATION, activeGuardPositions } from "../shared/guard
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
 import { createArcheryEquipment } from "./archery-equipment"
-import { createHeroCharacter, disposeHeroCharacter, poseHeroCharacter, type HeroAction } from "./character-visuals"
-import { HERO_ACTION_DURATIONS, normalizedHeroActionProgress } from "./character-animation"
+import type { HeroAction } from "./character-visuals"
+import { createCharacterVisual, disposeCharacterVisual, poseCharacterVisual } from "./character-assets"
+import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, normalizedHeroActionProgress } from "./character-animation"
 import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
 import { regionCellIndexAt, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } from "./region-map"
-import { createForestDressing } from "./forest-dressing"
+import { createAuthoredForestDressing, createForestDressing } from "./forest-dressing"
+import { indexNatureCatalog, type NatureCatalog } from "./nature-assets"
 import { createSherwoodLandmarks, type SherwoodLandmarks } from "./world-landmarks"
 import { composeSherwoodWorld } from "../shared/world-composer"
-import { createSherwoodTerrain, sherwoodHeightAt } from "./sherwood-terrain"
+import {
+  SHERWOOD_BRIDGE_CENTER_Y,
+  SHERWOOD_BRIDGE_HEIGHT,
+  SHERWOOD_BRIDGE_LENGTH,
+  SHERWOOD_BRIDGE_ROTATION,
+  SHERWOOD_BRIDGE_WIDTH,
+  createSherwoodTerrain,
+  sherwoodHeightAt,
+  sherwoodWalkableHeightAt,
+} from "./sherwood-terrain"
 import { createProceduralRoads } from "./procedural-roads"
 import { createSettlementWorld, disposeSettlementWorld } from "./settlement-renderer"
 import { animateObjectiveMarker, createObjectiveMarker, setObjectiveMarkerLabel } from "./objective-marker"
@@ -79,6 +90,8 @@ import { versionedAssetUrl } from "./release"
 import type { RoomExperimentAssignment } from "../shared/experiments"
 import { buildTutorialPlan, type TutorialLesson, type TutorialPlan } from "./tutorial-content"
 import { completeTutorialPlan, loadTutorialProgress, saveTutorialProgress } from "./tutorial-progress"
+import type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "../shared/chat"
+import { ChatState, truncateChatInput } from "./chat-state"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -258,6 +271,21 @@ const publicHubPings = [...document.querySelectorAll<HTMLButtonElement>("[data-h
 const publicHubList = document.querySelector<HTMLUListElement>("#public-hub-list")!
 const publicHubLeave = document.querySelector<HTMLButtonElement>("#public-hub-leave")!
 const publicHubStatus = document.querySelector<HTMLElement>("#public-hub-status")!
+const chatButton = document.querySelector<HTMLButtonElement>("#chat-button")!
+const chatUnreadBadge = document.querySelector<HTMLElement>("#chat-unread-badge")!
+const chatDrawer = document.querySelector<HTMLElement>("#chat-drawer")!
+const closeChatButton = document.querySelector<HTMLButtonElement>("#close-chat")!
+const chatTabs = [...document.querySelectorAll<HTMLButtonElement>("[data-chat-channel]")]
+const chatStatus = document.querySelector<HTMLElement>("#chat-status")!
+const chatLog = document.querySelector<HTMLOListElement>("#chat-log")!
+const chatNewMessages = document.querySelector<HTMLButtonElement>("#chat-new-messages")!
+const chatForm = document.querySelector<HTMLFormElement>("#chat-form")!
+const chatInput = document.querySelector<HTMLInputElement>("#chat-input")!
+const chatSubmit = chatForm.querySelector<HTMLButtonElement>("button[type='submit']")!
+const chatPeek = document.querySelector<HTMLOListElement>("#chat-peek")!
+const quickChatForm = document.querySelector<HTMLFormElement>("#quick-chat")!
+const quickChatInput = document.querySelector<HTMLInputElement>("#quick-chat-input")!
+const quickChatChannel = document.querySelector<HTMLElement>("#quick-chat-channel")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
 const invitedRoom = new URLSearchParams(location.search).get("room")?.trim().toUpperCase()
 if (invitedRoom?.match(/^[A-Z2-9]{6}$/)) roomCodeInput.value = invitedRoom
@@ -349,6 +377,7 @@ let inPublicHub = false
 let publicHubParticipantId: string | null = null
 let publicHubPlayers: PublicHubPlayer[] = []
 let publicHubIsLooking = false
+let publicHubCapacity = 12
 let localRoleConfirmed = false
 let cameraQuarterTurns = 0
 let currentExperimentAssignments: RoomExperimentAssignment[] = []
@@ -360,6 +389,14 @@ let activeTutorialRecordsProgress = false
 let activeTutorialShowsTacticalTip = false
 let activeTutorialCompletionLabel = "CONTINUE"
 let tutorialProgress = loadTutorialProgress(localStorage)
+const chatState = new ChatState()
+let quickChatActiveChannel: ChatChannel | null = null
+let quickChatComposing = false
+let fullChatComposing = false
+let quickChatCompositionEndedAt = -Infinity
+let fullChatCompositionEndedAt = -Infinity
+let chatPeekTimer = 0
+let chatDrawerReturnFocus: HTMLElement | null = null
 
 const PING_MAP_ICONS: Readonly<Record<PingKind, string>> = Object.freeze({
   danger: "!",
@@ -429,6 +466,7 @@ const missionCampfire = createCampfireVisuals({ degraded: renderProfile.tier ===
 let missionCampfireHalo: THREE.Mesh | null = null
 let windmillRotor: THREE.Group | null = null
 let landmarkViews: SherwoodLandmarks | null = null
+let forestDressingView: THREE.Group | null = null
 let composedWorldView: THREE.Group | null = null
 let composedRoadView: THREE.Group | null = null
 let settlementWorldView: THREE.Group | null = null
@@ -436,11 +474,15 @@ let composedWorldLayoutKey = ""
 let terrainView: THREE.Mesh | null = null
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
+const blockedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let treeCatalogAssetPromise: Promise<THREE.Group> | null = null
 let villageAssetPromise: Promise<THREE.Group> | null = null
 let villageCatalogSource: THREE.Group | null = null
 let medievalPropsPromise: Promise<THREE.Group> | null = null
+let medievalPropsCatalogSource: THREE.Group | null = null
+let natureCatalogPromise: Promise<NatureCatalog> | null = null
+let natureCatalogSource: NatureCatalog | null = null
 let treasureChestPromise: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null = null
 let bowCacheLoadGeneration = 0
 const bowCacheAnimations: Array<{ view: THREE.Group; mixer: THREE.AnimationMixer; open: THREE.AnimationAction }> = []
@@ -452,6 +494,7 @@ let heroAttackUntil = 0
 let heroSignatureUntil = 0
 let heroAttackStartedAt = 0
 let heroSignatureStartedAt = 0
+let pendingLocalShot: { releaseAt: number; multiplayer: boolean } | null = null
 
 function beginLocalHeroAction(action: Exclude<HeroAction, "idle">): void {
   const now = clock.elapsedTime
@@ -464,16 +507,26 @@ function beginLocalHeroAction(action: Exclude<HeroAction, "idle">): void {
   heroSignatureUntil = now + HERO_ACTION_DURATIONS.signature
 }
 
-function beginRemoteHeroAction(remote: RemoteView, action: Exclude<HeroAction, "idle">): void {
+function beginRemoteHeroAction(
+  remote: RemoteView,
+  action: Exclude<HeroAction, "idle">,
+  initialProgress = 0,
+): void {
   const now = clock.elapsedTime
+  const progress = THREE.MathUtils.clamp(initialProgress, 0, 1)
+  const startedAt = now - HERO_ACTION_DURATIONS[action] * progress
   remote.action = action
-  remote.actionStartedAt = now
-  remote.actionUntil = now + HERO_ACTION_DURATIONS[action]
+  remote.actionStartedAt = startedAt
+  remote.actionUntil = startedAt + HERO_ACTION_DURATIONS[action]
 }
 
-function ensureRemoteHeroAction(remote: RemoteView, action: Exclude<HeroAction, "idle">): void {
+function ensureRemoteHeroAction(
+  remote: RemoteView,
+  action: Exclude<HeroAction, "idle">,
+  initialProgress = 0,
+): void {
   if (remote.action === action && clock.elapsedTime < remote.actionUntil) return
-  beginRemoteHeroAction(remote, action)
+  beginRemoteHeroAction(remote, action, initialProgress)
 }
 
 function resetLocalHeroActions(): void {
@@ -481,6 +534,7 @@ function resetLocalHeroActions(): void {
   heroAttackUntil = 0
   heroSignatureStartedAt = 0
   heroSignatureUntil = 0
+  pendingLocalShot = null
 }
 
 function resetMissionRuntimeState(): void {
@@ -622,23 +676,9 @@ function createWorld(): void {
   positionMissionCampfire(state.layout.campfirePosition)
   scene.add(missionCampfireView)
 
-  let seed = 7331
-  const random = (): number => {
-    seed = (seed * 16807) % 2147483647
-    return (seed - 1) / 2147483646
-  }
-  for (let i = 0; i < 18; i += 1) {
-    const rock = mesh(new THREE.DodecahedronGeometry(0.25 + random() * 0.45, 0), 0x687060)
-    rock.scale.y = 0.55
-    const rockX = random() * 128 - 64
-    const rockZ = random() * 128 - 64
-    rock.position.set(rockX, sherwoodHeightAt(rockX, rockZ) + 0.2, rockZ)
-    rock.rotation.set(random(), random(), random())
-    scene.add(rock)
-  }
-
   const exclusions = sherwoodRegionCells().map((cell) => ({ x: cell.center.x, z: cell.center.z, radius: 8.5 }))
   const dressing = createForestDressing({ degraded: renderProfile.tier === "degraded", exclusions })
+  forestDressingView = dressing.group
   scene.add(dressing.group)
 
   rebuildLandmarks(state.layout)
@@ -650,7 +690,7 @@ function rebuildLandmarks(layout: RegionalMissionLayout): void {
     landmarkViews.dispose()
     scene.remove(landmarkViews.group)
   }
-  landmarkViews = createSherwoodLandmarks(layout)
+  landmarkViews = createSherwoodLandmarks(layout, { natureCatalog: natureCatalogSource ?? undefined })
   windmillRotor = landmarkViews.windmillRotor
   scene.add(landmarkViews.group)
 }
@@ -711,16 +751,22 @@ function rebuildCrossingInfrastructure(layout: RegionalMissionLayout): void {
   crossingInfrastructure.clear()
   const riverNormal = { x: Math.cos(0.1), z: Math.sin(0.1) }
   for (const crossing of layout.crossingPositions) {
-    const bridge = mesh(new THREE.BoxGeometry(8.4, 0.3, 3.2), 0x8b653d)
-    bridge.position.set(crossing.x, 0.18, crossing.z)
-    bridge.rotation.y = -0.1
-    crossingInfrastructure.add(bridge)
+    const crossingView = new THREE.Group()
+    crossingView.name = `SherwoodBridge:${crossing.x}:${crossing.z}`
+    crossingView.position.set(crossing.x, 0, crossing.z)
+    crossingView.rotation.y = SHERWOOD_BRIDGE_ROTATION
+    const bridge = mesh(
+      new THREE.BoxGeometry(SHERWOOD_BRIDGE_LENGTH, SHERWOOD_BRIDGE_HEIGHT, SHERWOOD_BRIDGE_WIDTH),
+      0x8b653d,
+    )
+    bridge.position.y = SHERWOOD_BRIDGE_CENTER_Y
+    crossingView.add(bridge)
     for (let index = -3; index <= 3; index += 1) {
-      const plank = mesh(new THREE.BoxGeometry(0.12, 0.1, 3.45), 0x4b382a)
-      plank.position.set(crossing.x + index, 0.38, crossing.z - index * 0.1)
-      plank.rotation.y = -0.1
-      crossingInfrastructure.add(plank)
+      const plank = mesh(new THREE.BoxGeometry(0.12, 0.1, SHERWOOD_BRIDGE_WIDTH + 0.25), 0x4b382a)
+      plank.position.set(index, 0.38, 0)
+      crossingView.add(plank)
     }
+    crossingInfrastructure.add(crossingView)
   }
   for (const origin of [layout.campfirePosition, layout.objectivePosition]) {
     const nearest = [...layout.crossingPositions].sort((left, right) => Math.hypot(origin.x - left.x, origin.z - left.z) - Math.hypot(origin.x - right.x, origin.z - right.z))[0]
@@ -813,7 +859,7 @@ function openNearbyBowCache(): void {
 }
 
 function createCharacter(role: CharacterId): THREE.Group {
-  return createHeroCharacter(role)
+  return createCharacterVisual(role)
 }
 
 function loadTreeCatalog(): Promise<THREE.Group> {
@@ -837,6 +883,28 @@ function loadMedievalProps(): Promise<THREE.Group> {
   return medievalPropsPromise
 }
 
+function loadNatureCatalog(): Promise<NatureCatalog> {
+  natureCatalogPromise ??= gltfLoader.loadAsync(versionedAssetUrl("/assets/environment/sherwood-nature-dressing.glb"))
+    .then((asset) => indexNatureCatalog(convertObjectToToon(asset.scene)))
+    .catch((error) => { void diagnosticReporter?.report("asset_load_failed", error); throw error })
+  return natureCatalogPromise
+}
+
+function attachNatureDressing(): void {
+  void loadNatureCatalog().then((catalog) => {
+    natureCatalogSource = catalog
+    const exclusions = sherwoodRegionCells().map((cell) => ({ x: cell.center.x, z: cell.center.z, radius: 8.5 }))
+    const authored = createAuthoredForestDressing(catalog, { degraded: renderProfile.tier === "degraded", exclusions })
+    if (forestDressingView) {
+      scene.remove(forestDressingView)
+      disposeOwnedMeshResources(forestDressingView)
+    }
+    forestDressingView = authored.group
+    scene.add(authored.group)
+    rebuildLandmarks(state.layout)
+  }).catch(() => showToast("Textured forest dressing could not be loaded; using the lightweight fallback"))
+}
+
 function attachMedievalProps(): void {
   const placements = [
     ["Prop_Well", -30, -31, 0.2], ["Prop_Signpost", -17, -39, -0.5],
@@ -846,6 +914,7 @@ function attachMedievalProps(): void {
     ["Prop_Firewood", -3, 48, 0.5], ["Prop_Pot", 5, -48, -0.3],
   ] as const
   void loadMedievalProps().then((catalog) => {
+    medievalPropsCatalogSource = catalog
     for (const [name, x, z, rotation] of placements) {
       const source = catalog.getObjectByName(name)
       if (!source) continue
@@ -859,6 +928,10 @@ function attachMedievalProps(): void {
       })
       medievalPropViews.push(prop)
       scene.add(prop)
+    }
+    if (latestMissionSnapshot) {
+      syncLootCacheViews([])
+      syncLootCacheViews(latestMissionSnapshot.lootCaches)
     }
   }).catch(() => showToast("Regional props could not be loaded; the mission remains playable"))
 }
@@ -1113,6 +1186,7 @@ addLighting()
 createWorld()
 attachStylizedTrees()
 attachMedievalProps()
+attachNatureDressing()
 
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
@@ -1144,6 +1218,11 @@ scene.add(objectiveBeacon)
 
 const multiplayer = new MultiplayerClient({
   onWelcome: (_playerId, roomCode) => {
+    blockedPlayerIds.clear()
+    mutedPlayerIds.clear()
+    chatState.reset()
+    closeQuickChat(false)
+    closeChatDrawer(false)
     inPublicHub = false
     publicHubIsLooking = false
     publicHubPlayers = []
@@ -1163,6 +1242,7 @@ const multiplayer = new MultiplayerClient({
     roomLobby.classList.remove("hidden")
     lobbyStatus.textContent = "Choose an outlaw, then ready up together."
     enterHub(true)
+    renderChatChrome()
     void syncPresence("in-band", roomCode)
   },
   onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer, contributions, nextSelectedContributionIds, season, band) => {
@@ -1240,7 +1320,7 @@ const multiplayer = new MultiplayerClient({
         remote?.snapshots.push(player.position, receivedAt)
         if (remote) {
           remote.downedFor = player.downedFor
-          if (player.arrows < remote.lastArrows) beginRemoteHeroAction(remote, "attack")
+          if (player.arrows < remote.lastArrows) beginRemoteHeroAction(remote, "attack", HERO_ATTACK_RELEASE_PROGRESS)
           if (player.signatureCooldown > remote.lastSignatureCooldown + 0.25) beginRemoteHeroAction(remote, "signature")
           remote.lastArrows = player.arrows
           remote.lastSignatureCooldown = player.signatureCooldown
@@ -1268,14 +1348,22 @@ const multiplayer = new MultiplayerClient({
     roomConnected = connected
     lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
     if (inHub) renderHub()
+    if (!connected) closeQuickChat(false)
+    renderChatChrome()
     if (!connected) void syncPresence("available", null)
   },
   onHubWelcome: (_instanceId, participantId, capacity) => {
+    blockedPlayerIds.clear()
+    mutedPlayerIds.clear()
+    chatState.reset()
+    closeQuickChat(false)
+    closeChatDrawer(false)
     roomSessionActive = false
     inPublicHub = true
     inHub = false
     multiplayerActive = false
     publicHubParticipantId = participantId
+    publicHubCapacity = capacity
     running = true
     intro.classList.add("closed")
     hubPanel.classList.add("hidden")
@@ -1287,14 +1375,14 @@ const multiplayer = new MultiplayerClient({
     positionMissionCampfire(HUB_CAMPFIRE_POSITION)
     positionVillageUpgrades(HUB_CAMPFIRE_POSITION)
     objectiveElement.textContent = "Meet outlaws and form a private band"
-    missionModifiers.textContent = `OPT-IN PUBLIC CAMP · CAP ${capacity} · NO PUBLIC CHAT`
+    renderChatChrome()
     void syncPresence("available", null)
   },
   onHubState: (players) => {
     publicHubPlayers = players
     const local = players.find((player) => player.id === publicHubParticipantId)
     if (local) state.player.position = { ...local.position }
-    const remotes = players.filter((player) => player.id !== publicHubParticipantId).map(hubPlayerAsRoomPlayer)
+    const remotes = players.filter((player) => player.id !== publicHubParticipantId && !blockedPlayerIds.has(player.id)).map(hubPlayerAsRoomPlayer)
     ensureRemotePlayers(remotes)
     const receivedAt = performance.now()
     for (const player of remotes) remoteViews.get(player.id)?.snapshots.push(player.position, receivedAt)
@@ -1304,6 +1392,9 @@ const multiplayer = new MultiplayerClient({
     currentExperimentAssignments = assignments
     updateMissionDebug()
   },
+  onChatHistory: receiveChatHistory,
+  onChatMessage: receiveChatMessage,
+  onChatError: receiveChatError,
 })
 
 diagnosticReporter = new ClientDiagnosticReporter(
@@ -1467,30 +1558,51 @@ function renderHub(): void {
 }
 
 function renderPublicHub(): void {
-  publicHubCount.textContent = `${publicHubPlayers.length}/12`
+  const visiblePlayers = publicHubPlayers.filter((player) => !blockedPlayerIds.has(player.id))
+  publicHubCount.textContent = `${visiblePlayers.length}/12`
   publicHubLooking.textContent = publicHubIsLooking ? "CANCEL SEARCH" : "FIND A BAND"
   const desiredPartySize = Number(publicHubSize.value)
-  const compatible = publicHubPlayers.filter((player) => player.id !== publicHubParticipantId && player.looking && player.desiredPartySize === desiredPartySize && (publicHubTarget.value === "any" || player.targetPreference === "any" || player.targetPreference === publicHubTarget.value)).length
+  const compatible = visiblePlayers.filter((player) => player.id !== publicHubParticipantId && player.looking && player.desiredPartySize === desiredPartySize && (publicHubTarget.value === "any" || player.targetPreference === "any" || player.targetPreference === publicHubTarget.value)).length
   publicHubList.replaceChildren()
-  for (const player of publicHubPlayers) {
+  for (const player of visiblePlayers) {
     const item = document.createElement("li")
     const copy = document.createElement("div")
     const name = document.createElement("span")
     const detail = document.createElement("small")
-    name.textContent = `${player.displayName} · ${characterName(player.characterId)}${player.emote ? ` · ${player.emote.toUpperCase()}` : ""}${player.ping ? ` · ${player.ping.toUpperCase()}!` : ""}`
+    const showSignals = !mutedPlayerIds.has(player.id)
+    name.textContent = `${player.displayName} · ${characterName(player.characterId)}${showSignals && player.emote ? ` · ${player.emote.toUpperCase()}` : ""}${showSignals && player.ping ? ` · ${player.ping.toUpperCase()}!` : ""}`
     detail.textContent = player.looking ? `LOOKING · ${player.targetPreference.replaceAll("-", " ")} · ${player.desiredPartySize}P` : "At the fire"
     copy.append(name, detail)
     const actions = document.createElement("div")
     if (player.id !== publicHubParticipantId) {
       const mute = document.createElement("button")
       mute.textContent = mutedPlayerIds.has(player.id) ? "UNMUTE" : "MUTE"
-      mute.addEventListener("click", () => { if (mutedPlayerIds.has(player.id)) mutedPlayerIds.delete(player.id); else mutedPlayerIds.add(player.id); renderPublicHub() })
+      mute.addEventListener("click", () => {
+        if (mutedPlayerIds.has(player.id)) mutedPlayerIds.delete(player.id)
+        else {
+          mutedPlayerIds.add(player.id)
+          chatState.markPlayerRead(player.id)
+        }
+        renderPublicHub()
+        renderChatHistory(false)
+        renderChatPeek()
+      })
       const report = document.createElement("button")
       report.textContent = "REPORT"
-      report.addEventListener("click", () => { multiplayer.reportHubPlayer(player.id, "griefing"); publicHubStatus.textContent = "Fixed-reason report recorded without public text." })
+      report.addEventListener("click", () => { multiplayer.reportHubPlayer(player.id, "griefing"); publicHubStatus.textContent = "Fixed-reason player report recorded." })
       const block = document.createElement("button")
       block.textContent = "BLOCK"
-      block.addEventListener("click", () => { mutedPlayerIds.add(player.id); multiplayer.blockHubPlayer(player.id); publicHubStatus.textContent = "Blocked player hidden from this public camp." })
+      block.addEventListener("click", () => {
+        blockedPlayerIds.add(player.id)
+        mutedPlayerIds.add(player.id)
+        chatState.markPlayerRead(player.id)
+        multiplayer.blockHubPlayer(player.id)
+        renderPublicHub()
+        renderChatHistory(false)
+        renderChatPeek()
+        ensureRemotePlayers(publicHubPlayers.filter((candidate) => candidate.id !== publicHubParticipantId && !blockedPlayerIds.has(candidate.id)).map(hubPlayerAsRoomPlayer))
+        publicHubStatus.textContent = "Blocked player hidden from this public camp."
+      })
       actions.append(mute, report, block)
     }
     item.append(copy, actions)
@@ -1935,7 +2047,7 @@ function refreshControlCopy(): void {
     const action = label.dataset.signalKey as "pingDanger" | "pingTarget" | "pingRoute" | "pingLoot" | "pingRegroup"
     label.textContent = keyLabel(key[action])
   }
-  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE`
+  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE · ENTER CHAT`
   missionPrompt = missionPromptForPhase(currentMissionPhase)
 }
 
@@ -2025,6 +2137,8 @@ function renderBindingControls(): void {
 
 function openPanel(panel: HTMLElement, trigger?: HTMLElement): void {
   keys.clear()
+  closeQuickChat(false)
+  closeChatDrawer(false)
   if (panel !== tutorialPanel && !tutorialPanel.classList.contains("hidden")) resetActiveTutorial()
   for (const candidate of panelElements) {
     if (candidate !== panel) candidate.classList.add("hidden")
@@ -2060,6 +2174,7 @@ function closeActivePanel(): boolean {
 }
 
 function performMappedAction(action: GameAction | PointerAction): void {
+  if (isChatCapturingInput()) return
   if (action === "move" || action.startsWith("move")) return
   if (action === "cameraLeft" || action === "cameraRight") {
     cameraQuarterTurns = (cameraQuarterTurns + (action === "cameraLeft" ? -1 : 1) + 4) % 4
@@ -2090,7 +2205,7 @@ function pollControllerActions(): void {
     previousGamepadButtons = []
     return
   }
-  if (running && !isModalOpen() && !isMobileSpectator()) {
+  if (running && !isModalOpen() && !isMobileSpectator() && !isChatCapturingInput()) {
     for (const action of controllerActions) {
       const button = inputSettings.controller[action]
       if (gamepad.buttons[button]?.pressed && !previousGamepadButtons[button]) performMappedAction(action)
@@ -2296,7 +2411,7 @@ function showMissionEvent(event: MissionEvent): void {
     }
   } else if (event.type === "guard_stunned" && event.playerId && event.playerId !== multiplayer.playerId) {
     const remote = remoteViews.get(event.playerId)
-    if (remote) ensureRemoteHeroAction(remote, "attack")
+    if (remote) ensureRemoteHeroAction(remote, "attack", HERO_ATTACK_RELEASE_PROGRESS)
   }
   if (event.type === "signature_used" && event.detail === "little-john-sweep" && event.playerId !== multiplayer.playerId) showVanguardImpact(event.playerId)
   const message = event.type === "signature_used" && event.detail === "little-john-sweep"
@@ -2504,6 +2619,21 @@ function syncAlarmViews(alarms: MissionAlarm[], elapsed = clock.elapsedTime): vo
 }
 
 function createLootCacheView(cache: MissionLootCache): THREE.Group {
+  const authoredName = cache.kind === "coin" ? "Prop_Chest" : "Prop_Box"
+  const authoredSource = medievalPropsCatalogSource?.getObjectByName(authoredName)
+  if (authoredSource) {
+    const authored = authoredSource.clone(true) as THREE.Group
+    authored.name = `MissionLootCache:${cache.kind}`
+    authored.userData.sherwoodSharedGeometry = true
+    authored.position.set(cache.position.x, sherwoodHeightAt(cache.position.x, cache.position.z), cache.position.z)
+    authored.rotation.y = cache.kind === "intel" ? Math.PI / 5 : cache.kind === "ledger" ? -Math.PI / 6 : 0
+    authored.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return
+      child.castShadow = true
+      child.receiveShadow = true
+    })
+    return authored
+  }
   const group = new THREE.Group()
   const color = cache.kind === "coin" ? 0x7e532e : cache.kind === "intel" ? 0x38556b : 0x6c3431
   const chest = mesh(new THREE.BoxGeometry(cache.kind === "coin" ? 1.35 : 0.9, 0.72, cache.kind === "coin" ? 0.95 : 0.65), color)
@@ -2511,7 +2641,7 @@ function createLootCacheView(cache: MissionLootCache): THREE.Group {
   const band = mesh(new THREE.BoxGeometry(0.16, 0.82, cache.kind === "coin" ? 1 : 0.7), 0xb28c48)
   band.position.y = 0.4
   group.add(chest, band)
-  group.position.set(cache.position.x, 0, cache.position.z)
+  group.position.set(cache.position.x, sherwoodHeightAt(cache.position.x, cache.position.z), cache.position.z)
   return group
 }
 
@@ -2544,8 +2674,14 @@ function renderSafetyPanel(players: RoomPlayer[]): void {
     mute.textContent = mutedPlayerIds.has(player.id) ? "UNMUTE" : "MUTE"
     mute.addEventListener("click", () => {
       if (mutedPlayerIds.has(player.id)) mutedPlayerIds.delete(player.id)
-      else mutedPlayerIds.add(player.id)
+      else {
+        mutedPlayerIds.add(player.id)
+        chatState.markPlayerRead(player.id)
+      }
       renderSafetyPanel(currentRoomPlayers)
+      renderChatHistory(false)
+      renderChatPeek()
+      if (latestMissionSnapshot) syncPingViews(latestMissionSnapshot.pings)
     })
     const report = document.createElement("button")
     report.textContent = "REPORT GRIEFING"
@@ -3004,14 +3140,14 @@ function renderParty(players: RoomPlayer[]): void {
 }
 
 function ensureRemotePlayers(players: RoomPlayer[]): void {
-  const activeIds = new Set(players.filter((player) => player.id !== multiplayer.playerId).map((player) => player.id))
+  const activeIds = new Set(players.filter((player) => player.id !== multiplayer.playerId && !blockedPlayerIds.has(player.id)).map((player) => player.id))
   for (const player of players) {
-    if (player.id === multiplayer.playerId) continue
+    if (player.id === multiplayer.playerId || blockedPlayerIds.has(player.id)) continue
     const existing = remoteViews.get(player.id)
     if (existing) {
       existing.downedFor = player.downedFor
       if (existing.characterId !== player.characterId) {
-        disposeHeroCharacter(existing.fallback)
+        disposeCharacterVisual(existing.fallback)
         existing.view.remove(existing.fallback)
         existing.fallback = createCharacter(player.characterId)
         existing.characterId = player.characterId
@@ -3048,14 +3184,14 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
   }
   for (const [id, remote] of remoteViews) {
     if (activeIds.has(id)) continue
-    disposeHeroCharacter(remote.fallback)
+    disposeCharacterVisual(remote.fallback)
     scene.remove(remote.view)
     remoteViews.delete(id)
   }
 }
 
 function getMoveInput(): Vec2 {
-  if (isMobileSpectator()) return { x: 0, z: 0 }
+  if (isMobileSpectator() || isChatCapturingInput()) return { x: 0, z: 0 }
   let x = 0
   let z = 0
   if (keys.has(inputSettings.keyboard.moveLeft)) x -= 1
@@ -3093,6 +3229,312 @@ function showToast(message: string): void {
   toastTimer = 2.4
 }
 
+function contextualChatChannel(): ChatChannel {
+  return inPublicHub ? "camp" : "band"
+}
+
+function hiddenChatPlayerIds(): Set<string> {
+  return new Set([...mutedPlayerIds, ...blockedPlayerIds])
+}
+
+function isChatCapturingInput(): boolean {
+  return chatState.drawerOpen || quickChatActiveChannel !== null
+}
+
+function stopGameplayForChat(): void {
+  keys.clear()
+  clickTarget = null
+  destinationMarker.visible = false
+  if (running && (roomSessionActive || inPublicHub)) multiplayer.stopMovement()
+}
+
+function chatLogIsNearBottom(): boolean {
+  return chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 52
+}
+
+function formatChatTime(sentAt: number): string {
+  return new Date(sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+}
+
+function createChatMessageElement(message: ChatMessage): HTMLLIElement {
+  const item = document.createElement("li")
+  item.className = "chat-message"
+  item.classList.toggle("local", message.sender.playerId === multiplayer.playerId || message.sender.playerId === publicHubParticipantId)
+  item.dataset.messageId = message.id
+
+  const heading = document.createElement("header")
+  const sender = document.createElement("b")
+  sender.textContent = `${message.sender.displayName} · ${characterName(message.sender.characterId)}`
+  const time = document.createElement("span")
+  time.textContent = formatChatTime(message.sentAt)
+  heading.append(sender, time)
+
+  const copy = document.createElement("p")
+  copy.textContent = message.text
+  item.append(heading, copy)
+
+  const isLocal = message.sender.playerId === multiplayer.playerId || message.sender.playerId === publicHubParticipantId
+  if (isLocal) return item
+
+  const actions = document.createElement("div")
+  actions.className = "chat-message-actions"
+  const mute = document.createElement("button")
+  mute.type = "button"
+  mute.textContent = mutedPlayerIds.has(message.sender.playerId) ? "UNMUTE" : "MUTE"
+  mute.addEventListener("click", () => {
+    if (mutedPlayerIds.has(message.sender.playerId)) mutedPlayerIds.delete(message.sender.playerId)
+    else {
+      mutedPlayerIds.add(message.sender.playerId)
+      chatState.markPlayerRead(message.sender.playerId)
+    }
+    renderChatHistory(false)
+    renderChatPeek()
+    renderSafetyPanel(currentRoomPlayers)
+    renderPublicHub()
+    if (latestMissionSnapshot) syncPingViews(latestMissionSnapshot.pings)
+  })
+  actions.append(mute)
+
+  if (message.channel === "camp") {
+    const block = document.createElement("button")
+    block.type = "button"
+    block.textContent = "BLOCK"
+    block.addEventListener("click", () => {
+      blockedPlayerIds.add(message.sender.playerId)
+      mutedPlayerIds.add(message.sender.playerId)
+      chatState.markPlayerRead(message.sender.playerId)
+      multiplayer.blockHubPlayer(message.sender.playerId)
+      renderChatHistory(false)
+      renderChatPeek()
+      renderPublicHub()
+      ensureRemotePlayers(publicHubPlayers.filter((player) => player.id !== publicHubParticipantId && !blockedPlayerIds.has(player.id)).map(hubPlayerAsRoomPlayer))
+      chatStatus.textContent = "Player blocked and hidden from this camp."
+    })
+    actions.append(block)
+  }
+
+  const report = document.createElement("details")
+  report.className = "chat-message-report"
+  const reportSummary = document.createElement("summary")
+  reportSummary.textContent = "REPORT"
+  const reportReasons = document.createElement("div")
+  const reasons: ReadonlyArray<{ value: ChatReportReason; label: string }> = [
+    { value: "harassment", label: "Harassment" },
+    { value: "griefing", label: "Griefing / spam" },
+    { value: "unsafe-name", label: "Unsafe identity" },
+    { value: "cheating", label: "Cheating claim" },
+  ]
+  for (const reason of reasons) {
+    const button = document.createElement("button")
+    button.type = "button"
+    button.textContent = reason.label
+    button.addEventListener("click", () => {
+      multiplayer.reportChat(message.channel, message.id, reason.value)
+      report.open = false
+      chatStatus.textContent = "Message report sent with its server-held context."
+    })
+    reportReasons.append(button)
+  }
+  report.append(reportSummary, reportReasons)
+  actions.append(report)
+  item.append(actions)
+  return item
+}
+
+function renderChatBadges(): void {
+  const totalUnread = chatState.totalUnread()
+  chatUnreadBadge.textContent = totalUnread > 99 ? "99+" : String(totalUnread)
+  chatUnreadBadge.classList.toggle("hidden", totalUnread === 0)
+  chatButton.setAttribute("aria-label", totalUnread > 0 ? `Open chat, ${totalUnread} unread` : "Open chat")
+  for (const tab of chatTabs) {
+    const channel = tab.dataset.chatChannel as ChatChannel
+    const unread = chatState.unread(channel)
+    const badge = tab.querySelector<HTMLElement>("b")!
+    badge.textContent = unread > 99 ? "99+" : String(unread)
+    badge.classList.toggle("hidden", unread === 0)
+  }
+  chatNewMessages.textContent = chatState.unread(chatState.activeChannel) > 0
+    ? `${chatState.unread(chatState.activeChannel)} NEW MESSAGE${chatState.unread(chatState.activeChannel) === 1 ? "" : "S"}`
+    : "NEW MESSAGES"
+}
+
+function renderChatChrome(statusOverride?: string): void {
+  const preferred = contextualChatChannel()
+  if (!chatState.isAvailable(chatState.activeChannel)) {
+    if (chatState.isAvailable(preferred)) chatState.selectChannel(preferred)
+    else if (chatState.isAvailable("band")) chatState.selectChannel("band")
+    else if (chatState.isAvailable("camp")) chatState.selectChannel("camp")
+  }
+  const anyAvailable = chatState.isAvailable("band") || chatState.isAvailable("camp")
+  chatButton.classList.toggle("hidden", !anyAvailable)
+  for (const tab of chatTabs) {
+    const channel = tab.dataset.chatChannel as ChatChannel
+    tab.disabled = !chatState.isAvailable(channel)
+    tab.setAttribute("aria-pressed", String(channel === chatState.activeChannel))
+  }
+  const canSend = roomConnected && chatState.isAvailable(chatState.activeChannel)
+  chatInput.disabled = !canSend
+  chatSubmit.disabled = !canSend
+  chatInput.placeholder = chatState.activeChannel === "camp" ? "Message this camp" : "Message your band"
+  chatLog.setAttribute("aria-label", `${chatState.activeChannel === "camp" ? "Camp" : "Band"} chat messages`)
+  chatStatus.textContent = statusOverride ?? (!chatState.isAvailable(chatState.activeChannel)
+    ? "Join a band or authenticated camp to chat."
+    : !roomConnected
+      ? "Connection lost — history remains visible while Sherwood reconnects."
+      : chatState.activeChannel === "camp"
+        ? "Authenticated · visible only in this 12-player camp instance."
+        : "Private to this Merry Band · Enter opens quick chat.")
+  if (inPublicHub) {
+    const chatLabel = chatState.isAvailable("camp") ? "INSTANCE CHAT" : "CAMP CHAT OFF"
+    missionModifiers.textContent = `OPT-IN PUBLIC CAMP · CAP ${publicHubCapacity} · ${chatLabel}`
+  }
+  renderChatBadges()
+}
+
+function renderChatHistory(scrollToEnd: boolean): void {
+  chatLog.setAttribute("aria-live", "off")
+  const messages = chatState.messages(chatState.activeChannel, hiddenChatPlayerIds())
+  chatLog.replaceChildren(...messages.map(createChatMessageElement))
+  if (scrollToEnd) {
+    chatLog.scrollTop = chatLog.scrollHeight
+    chatState.markRead(chatState.activeChannel)
+    chatNewMessages.classList.add("hidden")
+  } else {
+    chatNewMessages.classList.toggle("hidden", chatState.unread(chatState.activeChannel) === 0)
+  }
+  renderChatChrome()
+  queueMicrotask(() => chatLog.setAttribute("aria-live", "polite"))
+}
+
+function renderChatPeek(): void {
+  if (chatPeekTimer) window.clearTimeout(chatPeekTimer)
+  const channel = contextualChatChannel()
+  const now = performance.now()
+  const hiddenPlayerIds = hiddenChatPlayerIds()
+  const messages = chatState.isAvailable(channel)
+    ? chatState.recent(channel, now, hiddenPlayerIds)
+    : []
+  chatPeek.replaceChildren(...messages.map((message) => {
+    const item = document.createElement("li")
+    const sender = document.createElement("b")
+    sender.textContent = message.sender.displayName
+    item.append(sender, document.createTextNode(message.text))
+    return item
+  }))
+  const visible = messages.length > 0 && !chatState.drawerOpen && quickChatActiveChannel === null
+  chatPeek.classList.toggle("hidden", !visible)
+  const nextExpiry = visible ? chatState.nextRecentExpiry(channel, now, hiddenPlayerIds) : null
+  if (nextExpiry !== null) chatPeekTimer = window.setTimeout(renderChatPeek, Math.max(1, nextExpiry - now + 50))
+}
+
+function receiveChatHistory(channel: ChatChannel, messages: ChatMessage[]): void {
+  chatState.replaceHistory(channel, messages)
+  if (channel === contextualChatChannel()) chatState.selectChannel(channel)
+  renderChatChrome()
+  if (chatState.drawerOpen && chatState.activeChannel === channel) renderChatHistory(true)
+}
+
+function receiveChatMessage(message: ChatMessage): void {
+  const hidden = hiddenChatPlayerIds().has(message.sender.playerId)
+  const ownMessage = message.sender.playerId === multiplayer.playerId || message.sender.playerId === publicHubParticipantId
+  const activeAtBottom = chatState.drawerOpen && chatState.activeChannel === message.channel && chatLogIsNearBottom()
+  if (!chatState.append(message, performance.now(), hidden || ownMessage || activeAtBottom)) return
+
+  if (chatState.drawerOpen && chatState.activeChannel === message.channel && !hidden) {
+    chatLog.append(createChatMessageElement(message))
+    if (activeAtBottom) {
+      chatLog.scrollTop = chatLog.scrollHeight
+      chatState.markRead(message.channel)
+      chatNewMessages.classList.add("hidden")
+    } else chatNewMessages.classList.remove("hidden")
+  }
+  renderChatChrome()
+  renderChatPeek()
+}
+
+function receiveChatError(channel: ChatChannel, code: ChatErrorCode, message: string, retryAfterMs?: number): void {
+  if (code === "NOT_AVAILABLE") chatState.setAvailability(channel, false)
+  const retry = retryAfterMs && retryAfterMs > 0 ? ` Try again in ${Math.ceil(retryAfterMs / 1_000)}s.` : ""
+  renderChatChrome(`${message}${retry}`)
+  showToast(message)
+}
+
+function openQuickChat(): void {
+  const channel = contextualChatChannel()
+  if (!chatState.isAvailable(channel) || !roomConnected) {
+    showToast(channel === "camp" ? "CAMP CHAT IS NOT AVAILABLE" : "JOIN A BAND TO CHAT")
+    return
+  }
+  if (chatState.drawerOpen) closeChatDrawer(false)
+  quickChatActiveChannel = channel
+  quickChatChannel.textContent = channel.toUpperCase()
+  quickChatInput.placeholder = channel === "camp" ? "Message this camp" : "Message your band"
+  quickChatInput.value = ""
+  quickChatForm.classList.remove("hidden")
+  renderChatPeek()
+  stopGameplayForChat()
+  queueMicrotask(() => quickChatInput.focus())
+}
+
+function closeQuickChat(restoreFocus = true): void {
+  quickChatActiveChannel = null
+  quickChatComposing = false
+  quickChatCompositionEndedAt = -Infinity
+  quickChatInput.value = ""
+  quickChatForm.classList.add("hidden")
+  renderChatPeek()
+  if (restoreFocus && running) queueMicrotask(() => renderer.domElement.focus())
+}
+
+function openChatDrawer(): void {
+  const activeElement = document.activeElement
+  chatDrawerReturnFocus = activeElement instanceof HTMLElement && activeElement !== quickChatInput
+    ? activeElement
+    : renderer.domElement
+  closeQuickChat(false)
+  const preferred = contextualChatChannel()
+  if (chatState.isAvailable(preferred)) chatState.selectChannel(preferred)
+  if (!chatState.isAvailable(chatState.activeChannel)) {
+    showToast("CHAT IS NOT AVAILABLE HERE")
+    return
+  }
+  chatState.setDrawerOpen(true)
+  chatDrawer.classList.remove("hidden")
+  chatDrawer.setAttribute("aria-hidden", "false")
+  chatButton.setAttribute("aria-expanded", "true")
+  stopGameplayForChat()
+  renderChatHistory(true)
+  renderChatPeek()
+  queueMicrotask(() => chatInput.focus())
+}
+
+function closeChatDrawer(restoreFocus = true): void {
+  const returnFocus = chatDrawerReturnFocus?.isConnected ? chatDrawerReturnFocus : renderer.domElement
+  chatDrawerReturnFocus = null
+  fullChatComposing = false
+  fullChatCompositionEndedAt = -Infinity
+  chatState.setDrawerOpen(false)
+  chatDrawer.classList.add("hidden")
+  chatDrawer.setAttribute("aria-hidden", "true")
+  chatButton.setAttribute("aria-expanded", "false")
+  chatNewMessages.classList.add("hidden")
+  renderChatChrome()
+  renderChatPeek()
+  if (restoreFocus && running) queueMicrotask(() => returnFocus.focus())
+}
+
+function sendChatInput(input: HTMLInputElement, channel: ChatChannel): boolean {
+  const text = truncateChatInput(input.value.trim())
+  if (!text) return false
+  if (!multiplayer.sendChat(channel, text)) {
+    renderChatChrome("Connection lost — message kept while Sherwood reconnects.")
+    showToast("MESSAGE NOT SENT — RECONNECTING")
+    return false
+  }
+  input.value = ""
+  return true
+}
+
 function handleInteraction(): void {
   if (inHub) {
     hubPanel.classList.remove("hidden")
@@ -3126,28 +3568,47 @@ function fireArrow(): void {
     showToast("Weapons stay lowered at the campfire")
     return
   }
-  if (multiplayerActive) {
-    if (clock.elapsedTime < heroAttackUntil) return
-    if (state.player.arrows <= 0) {
-      showToast("Your quiver is empty")
-      return
-    }
-    multiplayer.sendAction("shoot")
-    beginLocalHeroAction("attack")
+  if (clock.elapsedTime < heroAttackUntil || pendingLocalShot) return
+  if (state.player.arrows <= 0) {
+    showToast("Your quiver is empty")
     return
   }
+  if (state.won || state.lost || localDownedFor > 0) return
+
+  beginLocalHeroAction("attack")
+  pendingLocalShot = {
+    releaseAt: heroAttackStartedAt + HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS,
+    multiplayer: multiplayerActive,
+  }
+}
+
+function createArrowEffect(guardId: number): void {
+  const guard = state.guards.find((candidate) => candidate.id === guardId)
+  if (!guard) return
+  const start = new THREE.Vector3(state.player.position.x, 1.45, state.player.position.z)
+  const target = new THREE.Vector3(guard.position.x, 1.3, guard.position.z)
+  const geometry = new THREE.BufferGeometry().setFromPoints([start, target])
+  const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffe3a0 }))
+  scene.add(line)
+  arrowEffects.push({ line, age: 0 })
+}
+
+function commitPendingLocalShot(elapsed: number): void {
+  const pending = pendingLocalShot
+  if (!pending || elapsed < pending.releaseAt) return
+  pendingLocalShot = null
+  if (localDownedFor > 0 || state.won || state.lost) return
+  if (pending.multiplayer) {
+    multiplayer.sendAction("shoot")
+    return
+  }
+
   const guardId = shoot(state)
   if (guardId === null) {
     showToast(state.player.arrows === 0 ? "Your quiver is empty" : "No guard in range")
     return
   }
-  const start = new THREE.Vector3(state.player.position.x, 1.45, state.player.position.z)
-  const target = new THREE.Vector3(state.guards[guardId].position.x, 1.3, state.guards[guardId].position.z)
-  const geometry = new THREE.BufferGeometry().setFromPoints([start, target])
-  const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffe3a0 }))
-  scene.add(line)
-  arrowEffects.push({ line, age: 0 })
-  beginLocalHeroAction("attack")
+  createArrowEffect(guardId)
   showToast("Guard stunned")
 }
 
@@ -3570,7 +4031,7 @@ function syncViews(elapsed: number, dt: number): void {
     const pulse = 1 + Math.sin(elapsed * 8) * 0.14 * renderProfile.motionScale
     view.scale.setScalar(pulse)
   }
-  const playerGroundY = sherwoodHeightAt(player.x, player.z)
+  const playerGroundY = sherwoodWalkableHeightAt(player.x, player.z, state.layout)
   const playerRootBob = localDownedFor > 0 ? 0 : Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale
   playerView.position.set(player.x, playerGroundY + playerRootBob, player.z)
   setObjectOpacityFactor(playerView, state.player.veilFor > 0 ? 0.48 : 1)
@@ -3589,7 +4050,7 @@ function syncViews(elapsed: number, dt: number): void {
     : playerAction === "attack"
       ? heroAttackStartedAt
       : elapsed
-  poseHeroCharacter(playerView, {
+  poseCharacterVisual(playerView, {
     elapsed,
     moving: playerMoving,
     action: playerAction,
@@ -3612,7 +4073,7 @@ function syncViews(elapsed: number, dt: number): void {
     }
     const stunned = guard.stunnedFor > 0
     const moving = !stunned && (guardMovingUntil.get(guard.id) ?? 0) > elapsed
-    const guardGroundY = sherwoodHeightAt(guard.position.x, guard.position.z)
+    const guardGroundY = sherwoodWalkableHeightAt(guard.position.x, guard.position.z, state.layout)
     view.position.set(guard.position.x, guardGroundY, guard.position.z)
     view.rotation.z = 0
     poseGuardVisual(view, {
@@ -3633,7 +4094,7 @@ function syncViews(elapsed: number, dt: number): void {
   const snapshotNow = performance.now()
   for (const remote of remoteViews.values()) {
     const sampled = remote.snapshots.sample(snapshotNow)
-    if (sampled) remote.view.position.set(sampled.x, sherwoodHeightAt(sampled.x, sampled.z), sampled.z)
+    if (sampled) remote.view.position.set(sampled.x, sherwoodWalkableHeightAt(sampled.x, sampled.z, state.layout), sampled.z)
     const remoteDx = remote.view.position.x - remote.lastPosition.x
     const remoteDz = remote.view.position.z - remote.lastPosition.z
     const moving = Math.hypot(remoteDx, remoteDz) > 0.0001
@@ -3642,7 +4103,7 @@ function syncViews(elapsed: number, dt: number): void {
     if (moving) remote.view.rotation.y = Math.atan2(remoteDx, remoteDz)
     remote.view.rotation.z = 0
     if (elapsed >= remote.actionUntil) remote.action = "idle"
-    poseHeroCharacter(remote.fallback, {
+    poseCharacterVisual(remote.fallback, {
       elapsed,
       moving,
       action: remote.action,
@@ -3716,6 +4177,7 @@ function animate(): void {
   const dt = Math.min(clock.getDelta(), 0.05)
   const elapsed = clock.elapsedTime
   pollControllerActions()
+  if (running) commitPendingLocalShot(elapsed)
   if (running && isModalOpen()) {
     syncViews(elapsed, dt)
     renderer.render(scene, camera)
@@ -3906,6 +4368,60 @@ for (const select of [publicHubTarget, publicHubSize]) select.addEventListener("
 })
 publicHubEmotes.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubEmote(button.dataset.hubEmote as "wave" | "cheer" | "bow")))
 publicHubPings.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubPing(button.dataset.hubPing as "regroup" | "target")))
+chatButton.addEventListener("click", () => {
+  if (!isModalOpen()) openChatDrawer()
+})
+closeChatButton.addEventListener("click", () => closeChatDrawer())
+chatTabs.forEach((tab) => tab.addEventListener("click", () => {
+  const channel = tab.dataset.chatChannel as ChatChannel
+  if (!chatState.selectChannel(channel)) return
+  chatState.markRead(channel)
+  renderChatHistory(true)
+  chatInput.focus()
+}))
+chatNewMessages.addEventListener("click", () => {
+  chatLog.scrollTop = chatLog.scrollHeight
+  chatState.markRead(chatState.activeChannel)
+  chatNewMessages.classList.add("hidden")
+  renderChatBadges()
+  chatInput.focus()
+})
+chatLog.addEventListener("scroll", () => {
+  if (!chatLogIsNearBottom()) return
+  chatState.markRead(chatState.activeChannel)
+  chatNewMessages.classList.add("hidden")
+  renderChatBadges()
+})
+quickChatForm.addEventListener("submit", (event) => {
+  event.preventDefault()
+  if (quickChatComposing || performance.now() - quickChatCompositionEndedAt < 40 || !quickChatActiveChannel) return
+  if (sendChatInput(quickChatInput, quickChatActiveChannel)) closeQuickChat()
+})
+quickChatInput.addEventListener("compositionstart", () => { quickChatComposing = true; quickChatCompositionEndedAt = -Infinity })
+quickChatInput.addEventListener("compositionend", () => { quickChatComposing = false; quickChatCompositionEndedAt = performance.now() })
+quickChatInput.addEventListener("input", () => { quickChatInput.value = truncateChatInput(quickChatInput.value) })
+quickChatInput.addEventListener("keydown", (event) => {
+  event.stopPropagation()
+  if (event.key === "Escape" && !event.isComposing) {
+    event.preventDefault()
+    closeQuickChat()
+  } else if (event.key === "Enter" && (event.isComposing || event.keyCode === 229 || quickChatComposing)) event.preventDefault()
+})
+chatForm.addEventListener("submit", (event) => {
+  event.preventDefault()
+  if (fullChatComposing || performance.now() - fullChatCompositionEndedAt < 40 || !chatState.isAvailable(chatState.activeChannel)) return
+  sendChatInput(chatInput, chatState.activeChannel)
+})
+chatInput.addEventListener("compositionstart", () => { fullChatComposing = true; fullChatCompositionEndedAt = -Infinity })
+chatInput.addEventListener("compositionend", () => { fullChatComposing = false; fullChatCompositionEndedAt = performance.now() })
+chatInput.addEventListener("input", () => { chatInput.value = truncateChatInput(chatInput.value) })
+chatInput.addEventListener("keydown", (event) => {
+  event.stopPropagation()
+  if (event.key === "Escape" && !event.isComposing) {
+    event.preventDefault()
+    closeChatDrawer()
+  } else if (event.key === "Enter" && (event.isComposing || event.keyCode === 229 || fullChatComposing)) event.preventDefault()
+})
 publicHubLeave.addEventListener("click", () => {
   multiplayer.leavePublicHub()
   window.setTimeout(() => multiplayer.close(), 80)
@@ -3915,6 +4431,12 @@ publicHubLeave.addEventListener("click", () => {
   publicHubIsLooking = false
   publicHubParticipantId = null
   publicHubPlayers = []
+  blockedPlayerIds.clear()
+  mutedPlayerIds.clear()
+  chatState.reset()
+  closeQuickChat(false)
+  closeChatDrawer(false)
+  renderChatChrome()
   publicHubPanel.classList.add("hidden")
   intro.classList.remove("closed")
   running = false
@@ -3956,7 +4478,7 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   })
   state = createInitialState(selectedCharacter)
   lastPlayerPosition = { ...state.player.position }
-  disposeHeroCharacter(playerView)
+  disposeCharacterVisual(playerView)
   scene.remove(playerView)
   playerView = createCharacter(selectedCharacter)
   scene.add(playerView)
@@ -4102,6 +4624,20 @@ window.addEventListener("keydown", (event) => {
     renderBindingControls()
     return
   }
+  if (isChatCapturingInput()) {
+    if (event.code === "Escape") {
+      event.preventDefault()
+      if (quickChatActiveChannel) closeQuickChat()
+      else closeChatDrawer()
+    }
+    return
+  }
+  const chatHotkeyTarget = event.target === document.body || event.target === renderer.domElement
+  if (event.code === "Enter" && chatHotkeyTarget && running && roomConnected && !event.repeat && !event.isComposing && !isModalOpen()) {
+    event.preventDefault()
+    openQuickChat()
+    return
+  }
   const activePanel = !roleChoicePanel.classList.contains("hidden")
     ? roleChoicePanel
     : panelElements.find((panel) => !panel.classList.contains("hidden"))
@@ -4137,7 +4673,7 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("keyup", (event) => keys.delete(event.code))
 
 renderer.domElement.addEventListener("pointerdown", (event) => {
-  if (!running || isModalOpen() || isMobileSpectator()) return
+  if (!running || isModalOpen() || isMobileSpectator() || isChatCapturingInput()) return
   const buttonName = event.button === 1 ? "middle" : event.button === 2 ? "secondary" : "primary"
   const action = inputSettings.pointer[buttonName]
   if (action !== "move") {
@@ -4158,7 +4694,7 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   }
 })
 renderer.domElement.addEventListener("contextmenu", (event) => {
-  if (running) event.preventDefault()
+  if (running && !isChatCapturingInput()) event.preventDefault()
 })
 
 window.addEventListener("resize", () => {
@@ -4182,6 +4718,7 @@ renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sh
 renderBindingControls()
 applyInputSettings()
 updateMissionDebug()
+renderChatChrome()
 void refreshAccessPanel()
 for (const panel of panelElements) panel.setAttribute("aria-hidden", String(panel.classList.contains("hidden")))
 updateUI()

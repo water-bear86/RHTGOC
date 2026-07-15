@@ -67,6 +67,14 @@ async function initialize(): Promise<void> {
     loadCatalog(versionedAssetUrl("/assets/environment/sherwood-tree-catalog.glb")),
   ])
   const portrait = createFamilyPhotoScene({ villageCatalog, treeCatalog })
+  await portrait.ready
+  const unavailableHeroes = [...portrait.heroes.entries()]
+    .filter(([, hero]) => hero.userData.assetStatus !== "authored")
+    .map(([characterId]) => characterId)
+  if (unavailableHeroes.length > 0) {
+    portrait.dispose()
+    throw new Error(`Family photo requires authored KayKit heroes: ${unavailableHeroes.join(", ")}`)
+  }
 
   const renderFrame = (elapsed = FAMILY_PHOTO_CAPTURE_TIME_SECONDS): void => {
     portrait.renderFrame(elapsed)

@@ -77,7 +77,7 @@ See [Tutorials and discovery](./docs/design/tutorials-and-discovery.md) for the 
 - Durable replay storage, regional service scaling, and content operations when measured concurrency requires them.
 - A larger connected world only after instanced hubs and missions prove retention, safety, reliability, and cost.
 
-Open trading, tokenized items, PvP, unrestricted chat, user-generated content, and pay-to-win progression remain out of scope. The bounded exception is the Robinhood Chain project-token access pass; it grants time only and never gameplay power.
+Open trading, tokenized items, PvP, unrestricted or global chat, user-generated content, and pay-to-win progression remain out of scope. The communication exception is bounded private Band chat and authenticated instance-local Camp chat with fixed reporting, ephemeral history, and no voice, DMs, links, or media. The Robinhood Chain project-token access pass grants time only and never gameplay power.
 
 ## Technical guardrails
 

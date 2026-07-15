@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { HERO_ACTION_DURATIONS, heroActionEnvelope, normalizedHeroActionProgress, sampleHeroAnimation } from "./character-animation"
+import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, heroActionEnvelope, normalizedHeroActionProgress, sampleHeroAnimation } from "./character-animation"
 
 const heroes = ["robin", "marian", "little-john", "much"] as const
 
@@ -11,6 +11,7 @@ describe("procedural hero animation sampler", () => {
     expect(heroActionEnvelope(0)).toBe(0)
     expect(heroActionEnvelope(0.5)).toBe(1)
     expect(heroActionEnvelope(1)).toBe(0)
+    expect(HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS).toBeCloseTo(0.12)
   })
 
   it("gives every outlaw a signature distinct from their normal attack", () => {

@@ -1,10 +1,35 @@
 import { randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
 import type { CharacterId, PublicHubPlayer, ServerMessage } from "../shared/protocol"
+import { normalizeChatText, type ChatErrorCode, type ChatMessage, type ChatReportReason } from "../shared/chat"
 import { PUBLIC_HUB_WORLD_BOUNDS, resolveSherwoodPlayerMovement } from "../shared/world-collisions"
+import type { HubChatReportEvidence } from "./social-store"
 
 export const PUBLIC_HUB_CAPACITY = 12
 export const PUBLIC_HUB_IDLE_MS = 60_000
+export const PUBLIC_HUB_CHAT_HISTORY_LIMIT = 100
+export const PUBLIC_HUB_CHAT_MAX_AGE_MS = 30 * 60_000
+export const PUBLIC_HUB_CHAT_MIN_INTERVAL_MS = 1_500
+export const PUBLIC_HUB_CHAT_RATE_WINDOW_MS = 30_000
+export const PUBLIC_HUB_CHAT_RATE_LIMIT = 8
+export const PUBLIC_HUB_CHAT_DUPLICATE_WINDOW_MS = 30_000
+
+interface CampChatRecord {
+  message: ChatMessage
+  senderUserId: string
+}
+
+export type CampChatSendResult =
+  | { ok: true; message: ChatMessage }
+  | { ok: false; code: ChatErrorCode; message: string; retryAfterMs?: number }
+
+export type CampChatReportResult =
+  | { ok: true; evidence: HubChatReportEvidence }
+  | { ok: false; code: ChatErrorCode; message: string; retryAfterMs?: number }
+
+export interface PublicHubServiceOptions {
+  campChatEnabled?: boolean
+}
 
 export interface HubParticipant extends PublicHubPlayer {
   userId: string
@@ -18,19 +43,33 @@ export interface HubParticipant extends PublicHubPlayer {
   lastPingAt: number
   lastReportAt: number
   reportedUserIds: Set<string>
+  chatSentAt: number[]
+  recentChatTexts: Map<string, number>
+  reportedChatMessageIds: Set<string>
 }
 
 interface HubInstance {
   id: string
   participants: Map<string, HubParticipant>
+  chatSequence: number
+  chatMessages: CampChatRecord[]
 }
 
 export class PublicHubService {
   readonly instances = new Map<string, HubInstance>()
   readonly reports: Array<{ at: number; reporterUserId: string; targetUserId: string; reason: string }> = []
   readonly blockedPairs = new Set<string>()
+  campChatEnabled: boolean
   private readonly participants = new Map<string, HubParticipant>()
   private readonly participantInstanceIds = new Map<string, string>()
+
+  constructor(options: PublicHubServiceOptions = {}) {
+    this.campChatEnabled = options.campChatEnabled === true
+  }
+
+  setCampChatEnabled(enabled: boolean): void {
+    this.campChatEnabled = enabled
+  }
 
   join(socket: WebSocket, userId: string, displayName: string, characterId: CharacterId, friendUserIds: string[], now = Date.now(), blockedUserIds: string[] = []): HubParticipant {
     this.cleanup(now)
@@ -53,11 +92,13 @@ export class PublicHubService {
       looking: false, targetPreference: "any", desiredPartySize: 2,
       emote: null, emoteExpiresAt: 0, ping: null, pingExpiresAt: 0,
       lastActivityAt: now, lookingSinceAt: null, lastSequence: 0, lastEmoteAt: 0, lastPingAt: 0, lastReportAt: 0, reportedUserIds: new Set(),
+      chatSentAt: [], recentChatTexts: new Map(), reportedChatMessageIds: new Set(),
     }
     instance.participants.set(participant.id, participant)
     this.participants.set(participant.id, participant)
     this.participantInstanceIds.set(participant.id, instance.id)
     this.send(socket, { type: "hub_welcome", instanceId: instance.id, participantId: participant.id, capacity: PUBLIC_HUB_CAPACITY })
+    if (this.campChatEnabled) this.sendChatHistory(instance, participant, now)
     this.broadcast(instance, now)
     return participant
   }
@@ -117,6 +158,114 @@ export class PublicHubService {
     participant.ping = kind; participant.pingExpiresAt = now + 3_000; participant.lastPingAt = now; participant.lastActivityAt = now
     this.broadcast(instance, now)
     return true
+  }
+
+  sendCampChat(participantId: string, text: string, now = Date.now()): CampChatSendResult {
+    if (!this.campChatEnabled) return this.chatFailure("NOT_AVAILABLE", "Camp chat is unavailable until moderation storage is ready.")
+    const participant = this.participant(participantId)
+    const instance = this.instanceFor(participantId)
+    if (!participant || !instance) return this.chatFailure("FORBIDDEN", "Join a public camp before sending a Camp message.")
+    const normalizedText = normalizeChatText(text)
+    if (normalizedText === null) return this.chatFailure("INVALID_MESSAGE", "Camp messages must contain 1-160 visible characters.")
+
+    this.pruneChat(instance, now)
+    participant.chatSentAt = participant.chatSentAt.filter((sentAt) => now - sentAt < PUBLIC_HUB_CHAT_RATE_WINDOW_MS)
+    for (const [recentText, sentAt] of participant.recentChatTexts) {
+      if (now - sentAt >= PUBLIC_HUB_CHAT_DUPLICATE_WINDOW_MS) participant.recentChatTexts.delete(recentText)
+    }
+
+    const previousSentAt = participant.chatSentAt.at(-1)
+    if (previousSentAt !== undefined && now - previousSentAt < PUBLIC_HUB_CHAT_MIN_INTERVAL_MS) {
+      return this.chatFailure("RATE_LIMITED", "Give the campfire a moment before sending again.", PUBLIC_HUB_CHAT_MIN_INTERVAL_MS - (now - previousSentAt))
+    }
+    if (participant.chatSentAt.length >= PUBLIC_HUB_CHAT_RATE_LIMIT) {
+      const retryAfterMs = PUBLIC_HUB_CHAT_RATE_WINDOW_MS - (now - participant.chatSentAt[0])
+      return this.chatFailure("RATE_LIMITED", "Too many Camp messages. Let the conversation breathe.", retryAfterMs)
+    }
+    const duplicateKey = normalizedText.toLowerCase()
+    const duplicateSentAt = participant.recentChatTexts.get(duplicateKey)
+    if (duplicateSentAt !== undefined && now - duplicateSentAt < PUBLIC_HUB_CHAT_DUPLICATE_WINDOW_MS) {
+      return this.chatFailure("DUPLICATE", "That message was already sent recently.", PUBLIC_HUB_CHAT_DUPLICATE_WINDOW_MS - (now - duplicateSentAt))
+    }
+
+    const message: ChatMessage = {
+      id: randomUUID(),
+      channel: "camp",
+      sequence: ++instance.chatSequence,
+      sentAt: now,
+      sender: {
+        playerId: participant.id,
+        displayName: participant.displayName,
+        characterId: participant.characterId,
+      },
+      text: normalizedText,
+    }
+    instance.chatMessages.push({ message, senderUserId: participant.userId })
+    if (instance.chatMessages.length > PUBLIC_HUB_CHAT_HISTORY_LIMIT) {
+      instance.chatMessages.splice(0, instance.chatMessages.length - PUBLIC_HUB_CHAT_HISTORY_LIMIT)
+    }
+    participant.chatSentAt.push(now)
+    participant.recentChatTexts.set(duplicateKey, now)
+    participant.lastActivityAt = now
+    this.broadcastCampChat(instance, { message, senderUserId: participant.userId })
+    return { ok: true, message }
+  }
+
+  reportCampChat(reporterId: string, messageId: string, reason: ChatReportReason, now = Date.now()): CampChatReportResult {
+    if (!this.campChatEnabled) return this.chatFailure("NOT_AVAILABLE", "Camp chat reporting is unavailable.")
+    const reporter = this.participant(reporterId)
+    const instance = this.instanceFor(reporterId)
+    if (!reporter || !instance) return this.chatFailure("FORBIDDEN", "Join a public camp before reporting a message.")
+    this.pruneChat(instance, now)
+    const record = instance.chatMessages.find((candidate) => candidate.message.id === messageId)
+    if (!record || !this.isChatVisibleTo(reporter, record.senderUserId)) {
+      return this.chatFailure("MESSAGE_NOT_FOUND", "That Camp message is no longer available.")
+    }
+    if (record.senderUserId === reporter.userId) return this.chatFailure("FORBIDDEN", "You cannot report your own message.")
+    if (reporter.reportedChatMessageIds.has(messageId)) return this.chatFailure("DUPLICATE", "That message has already been reported.")
+    if (reporter.lastReportAt > 0 && now - reporter.lastReportAt < 5_000) {
+      return this.chatFailure("RATE_LIMITED", "Wait before filing another report.", 5_000 - (now - reporter.lastReportAt))
+    }
+
+    const visibleRecords = instance.chatMessages.filter((candidate) => this.isChatVisibleTo(reporter, candidate.senderUserId))
+    const reportedIndex = visibleRecords.findIndex((candidate) => candidate.message.id === messageId)
+    const surroundingRecords = [
+      ...visibleRecords.slice(Math.max(0, reportedIndex - 2), reportedIndex),
+      ...visibleRecords.slice(reportedIndex + 1, reportedIndex + 3),
+    ]
+    const evidence: HubChatReportEvidence = {
+      reporterUserId: reporter.userId,
+      targetUserId: record.senderUserId,
+      messageId: record.message.id,
+      instanceId: instance.id,
+      reason,
+      text: record.message.text,
+      messageSentAt: record.message.sentAt,
+      context: {
+        channel: "camp",
+        senderParticipantId: record.message.sender.playerId,
+        senderDisplayName: record.message.sender.displayName,
+        senderCharacterId: record.message.sender.characterId,
+        surroundingMessages: surroundingRecords.map((candidate) => ({
+          messageId: candidate.message.id,
+          senderParticipantId: candidate.message.sender.playerId,
+          senderDisplayName: candidate.message.sender.displayName,
+          senderCharacterId: candidate.message.sender.characterId,
+          text: candidate.message.text,
+          sentAt: candidate.message.sentAt,
+        })),
+      },
+    }
+    reporter.lastReportAt = now
+    reporter.lastActivityAt = now
+    reporter.reportedChatMessageIds.add(messageId)
+    return { ok: true, evidence }
+  }
+
+  releaseCampChatReport(reporterId: string, messageId: string): void {
+    const reporter = this.participant(reporterId)
+    if (!reporter?.reportedChatMessageIds.delete(messageId)) return
+    reporter.lastReportAt = 0
   }
 
   formBand(participantId: string, now = Date.now()): HubParticipant[] | null {
@@ -180,11 +329,13 @@ export class PublicHubService {
     blocker.blockedUserIds.add(target.userId)
     blocker.lastActivityAt = now
     this.broadcast(instance, now)
+    if (this.campChatEnabled) this.broadcastChatHistories(instance, now)
     return { blockerUserId: blocker.userId, blockedUserId: target.userId }
   }
 
   cleanup(now = Date.now()): void {
     for (const instance of this.instances.values()) {
+      this.pruneChat(instance, now)
       for (const participant of instance.participants.values()) if (now - participant.lastActivityAt > PUBLIC_HUB_IDLE_MS || participant.socket.readyState !== WebSocket.OPEN) {
         instance.participants.delete(participant.id)
         this.participants.delete(participant.id)
@@ -200,7 +351,7 @@ export class PublicHubService {
   }
 
   private createInstance(): HubInstance {
-    const instance = { id: randomUUID(), participants: new Map<string, HubParticipant>() }
+    const instance = { id: randomUUID(), participants: new Map<string, HubParticipant>(), chatSequence: 0, chatMessages: [] }
     this.instances.set(instance.id, instance)
     return instance
   }
@@ -258,6 +409,48 @@ export class PublicHubService {
       })
       this.send(participant.socket, { type: "hub_state", instanceId: instance.id, players: visible })
     }
+  }
+
+  private broadcastCampChat(instance: HubInstance, record: CampChatRecord): void {
+    for (const participant of instance.participants.values()) {
+      if (this.isChatVisibleTo(participant, record.senderUserId)) {
+        this.send(participant.socket, { type: "chat_message", message: record.message })
+      }
+    }
+  }
+
+  private broadcastChatHistories(instance: HubInstance, now: number): void {
+    this.pruneChat(instance, now)
+    for (const participant of instance.participants.values()) this.sendChatHistory(instance, participant, now)
+  }
+
+  private sendChatHistory(instance: HubInstance, participant: HubParticipant, now: number): void {
+    this.pruneChat(instance, now)
+    const messages = instance.chatMessages
+      .filter((record) => this.isChatVisibleTo(participant, record.senderUserId))
+      .map((record) => record.message)
+    this.send(participant.socket, { type: "chat_history", channel: "camp", messages })
+  }
+
+  private isChatVisibleTo(recipient: HubParticipant, senderUserId: string): boolean {
+    if (recipient.userId === senderUserId) return true
+    const sender = [...this.participants.values()].find((candidate) => candidate.userId === senderUserId)
+    return !recipient.blockedUserIds.has(senderUserId)
+      && !sender?.blockedUserIds.has(recipient.userId)
+      && !this.blockedPairs.has(`${recipient.userId}:${senderUserId}`)
+      && !this.blockedPairs.has(`${senderUserId}:${recipient.userId}`)
+  }
+
+  private pruneChat(instance: HubInstance, now: number): void {
+    const cutoff = now - PUBLIC_HUB_CHAT_MAX_AGE_MS
+    instance.chatMessages = instance.chatMessages.filter((record) => record.message.sentAt > cutoff)
+    if (instance.chatMessages.length > PUBLIC_HUB_CHAT_HISTORY_LIMIT) {
+      instance.chatMessages.splice(0, instance.chatMessages.length - PUBLIC_HUB_CHAT_HISTORY_LIMIT)
+    }
+  }
+
+  private chatFailure(code: ChatErrorCode, message: string, retryAfterMs?: number): { ok: false; code: ChatErrorCode; message: string; retryAfterMs?: number } {
+    return retryAfterMs === undefined ? { ok: false, code, message } : { ok: false, code, message, retryAfterMs: Math.max(0, Math.ceil(retryAfterMs)) }
   }
 
   private send(socket: WebSocket, message: ServerMessage): void {

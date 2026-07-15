@@ -34,6 +34,8 @@ const rescueOfferStore = createRescueOfferStoreFromEnv()
 const contributionStore = createContributionStoreFromEnv()
 const seasonStore = createSeasonStoreFromEnv()
 const socialStore = createSocialStoreFromEnv()
+const publicCampChatConfigured = process.env.PUBLIC_CAMP_CHAT_ENABLED === "true" && socialStore !== null
+let publicCampChatEnabled = false
 const publicHub = new PublicHubService()
 const tokenAccessService = createTokenAccessServiceFromEnv()
 const tokenAccessGate = tokenAccessGateEnabled(process.env.TOKEN_ACCESS_GATE_ENABLED)
@@ -812,6 +814,7 @@ const httpServer = createServer(async (request, response) => {
       contributionPersistence: contributionStore !== null,
       seasonPersistence: seasonStore !== null,
       socialPersistence: socialStore !== null,
+      publicCampChat: publicCampChatEnabled,
       gameplayAnalytics: gameplayAnalyticsStore !== null,
       experiments: experimentService !== null,
       tokenAccessGate,
@@ -869,7 +872,7 @@ function settleRoomOutcomes(code: string, room: Room): boolean {
   return seasonChanged
 }
 
-const sockets = new WebSocketServer({ server: httpServer, path: "/rooms" })
+const sockets = new WebSocketServer({ server: httpServer, path: "/rooms", maxPayload: 32 * 1_024 })
 sockets.on("connection", (socket) => {
   telemetry.increment("connections_total")
   activeConnections += 1
@@ -974,6 +977,7 @@ sockets.on("connection", (socket) => {
         reservedRoomsUntil.delete(room.code)
         playerId = player.id
         send(socket, { type: "welcome", version: PROTOCOL_VERSION, buildId, playerId: player.id, reconnectToken: player.reconnectToken, roomCode: room.code })
+        room.sendBandChatHistory(player.id)
         room.broadcastRoomState()
       } catch (error) {
         const reason = error instanceof Error ? error.message : "MISSION_STARTED"
@@ -1039,7 +1043,44 @@ sockets.on("connection", (socket) => {
     }
 
     if (hubParticipantId) {
-      if (message.type === "hub_intent") publicHub.setIntent(hubParticipantId, message.looking, message.targetPreference, message.desiredPartySize as 2 | 3 | 4)
+      if (message.type === "chat_send") {
+        if (message.channel !== "camp") {
+          send(socket, { type: "chat_error", channel: message.channel, code: "FORBIDDEN", message: "Band chat is available only inside a private Merry Band" })
+          telemetry.increment("chat_camp_rejected_total")
+        } else {
+          const result = publicHub.sendCampChat(hubParticipantId, message.text)
+          if (result.ok) telemetry.increment("chat_camp_accepted_total")
+          else {
+            telemetry.increment("chat_camp_rejected_total")
+            send(socket, { type: "chat_error", channel: "camp", code: result.code, message: result.message, ...(result.retryAfterMs === undefined ? {} : { retryAfterMs: result.retryAfterMs }) })
+          }
+        }
+      } else if (message.type === "chat_report") {
+        if (message.channel !== "camp") {
+          send(socket, { type: "chat_error", channel: message.channel, code: "FORBIDDEN", message: "Band messages can only be reported from their private room" })
+        } else {
+          const result = publicHub.reportCampChat(hubParticipantId, message.messageId, message.reason)
+          if (!result.ok) {
+            send(socket, { type: "chat_error", channel: "camp", code: result.code, message: result.message, ...(result.retryAfterMs === undefined ? {} : { retryAfterMs: result.retryAfterMs }) })
+          } else if (!socialStore) {
+            publicHub.releaseCampChatReport(hubParticipantId, message.messageId)
+            send(socket, { type: "chat_error", channel: "camp", code: "NOT_AVAILABLE", message: "Camp reporting is temporarily unavailable" })
+          } else {
+            try {
+              await socialStore.recordHubChatReport(result.evidence)
+              telemetry.increment("chat_camp_reports_total")
+              structuredLog("camp_chat_reported", { reason: message.reason })
+            } catch (error) {
+              publicHub.releaseCampChatReport(hubParticipantId, message.messageId)
+              publicCampChatEnabled = false
+              publicHub.setCampChatEnabled(false)
+              telemetry.increment("chat_camp_report_persistence_failure_total")
+              structuredLog("camp_chat_report_persistence_failed", { reason: error instanceof Error ? "store-rejected" : "unknown" }, "error")
+              send(socket, { type: "chat_error", channel: "camp", code: "NOT_AVAILABLE", message: "That report could not be saved. Try again." })
+            }
+          }
+        }
+      } else if (message.type === "hub_intent") publicHub.setIntent(hubParticipantId, message.looking, message.targetPreference, message.desiredPartySize as 2 | 3 | 4)
       else if (message.type === "hub_move") publicHub.move(hubParticipantId, message.sequence, message.move)
       else if (message.type === "hub_emote") {
         if (publicHub.emote(hubParticipantId, message.kind)) telemetry.increment(`hub_emote_${message.kind}_total`)
@@ -1074,6 +1115,25 @@ sockets.on("connection", (socket) => {
 
     if (!joinedRoom || !playerId) {
       send(socket, { type: "error", code: "NOT_JOINED", message: "Join a room before sending mission actions" })
+      return
+    }
+    if (message.type === "chat_send") {
+      if (message.channel !== "band") {
+        send(socket, { type: "chat_error", channel: message.channel, code: "FORBIDDEN", message: "Camp chat is available only inside the authenticated public camp" })
+        telemetry.increment("chat_band_rejected_total")
+      } else {
+        const result = joinedRoom.sendBandChat(playerId, message.text)
+        telemetry.increment(result.ok ? "chat_band_accepted_total" : "chat_band_rejected_total")
+      }
+      return
+    }
+    if (message.type === "chat_report") {
+      if (message.channel !== "band") {
+        send(socket, { type: "chat_error", channel: message.channel, code: "FORBIDDEN", message: "Camp messages can only be reported from the public camp" })
+      } else if (joinedRoom.reportBandChat(playerId, message.messageId, message.reason)) {
+        telemetry.increment("chat_band_reports_total")
+        structuredLog("band_chat_reported", { reason: message.reason })
+      }
       return
     }
     if (message.type === "set_ready") {
@@ -1228,6 +1288,10 @@ sockets.on("connection", (socket) => {
     if (message.type === "ping") send(socket, { type: "pong", clientTime: message.clientTime, serverTime: Date.now() })
   })
 
+  socket.on("error", (error: Error & { code?: string }) => {
+    telemetry.increment(error.code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" ? "protocol_oversized_payload_total" : "websocket_transport_error_total")
+  })
+
   socket.on("close", () => {
     activeConnections = Math.max(0, activeConnections - 1)
     telemetry.gauge("active_connections", activeConnections)
@@ -1346,7 +1410,25 @@ setInterval(() => {
   telemetry.gauge("public_hub_players", [...publicHub.instances.values()].reduce((sum, instance) => sum + instance.participants.size, 0))
 }, 250)
 
+async function pruneChatReportEvidence(): Promise<void> {
+  if (!publicCampChatConfigured || !socialStore) return
+  try {
+    const pruned = await socialStore.pruneHubChatReports()
+    publicCampChatEnabled = true
+    publicHub.setCampChatEnabled(true)
+    telemetry.increment("chat_report_evidence_pruned_total", pruned)
+  } catch (error) {
+    publicCampChatEnabled = false
+    publicHub.setCampChatEnabled(false)
+    telemetry.increment("chat_report_evidence_prune_failure_total")
+    structuredLog("chat_report_evidence_prune_failed", { reason: error instanceof Error ? "store-rejected" : "unknown" }, "error")
+  }
+}
+
+setInterval(() => void pruneChatReportEvidence(), 24 * 60 * 60_000)
+
 async function startServer(): Promise<void> {
+  await pruneChatReportEvidence()
   if (seasonStore) {
     const recovered = await seasonStore.loadCurrent()
     if (recovered) {
@@ -1375,6 +1457,7 @@ async function startServer(): Promise<void> {
       contributionPersistence: contributionStore !== null,
       seasonPersistence: seasonStore !== null,
       socialPersistence: socialStore !== null,
+      publicCampChat: publicCampChatEnabled,
       gameplayAnalytics: gameplayAnalyticsStore !== null,
       experiments: experimentService !== null,
       tokenAccessGate,

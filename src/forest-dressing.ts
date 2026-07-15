@@ -1,13 +1,14 @@
 import * as THREE from "three"
 import { createToonMaterial } from "./toon-materials"
 import { sherwoodHeightAt } from "./sherwood-terrain"
+import { createNatureVariantInstances, type NatureCatalog, type NatureVariantName } from "./nature-assets"
 
 export interface ForestDressing {
   group: THREE.Group
   instanceCount: number
 }
 
-interface DressingOptions {
+export interface DressingOptions {
   seed?: number
   degraded?: boolean
   exclusions?: ReadonlyArray<{ x: number; z: number; radius: number }>
@@ -102,4 +103,30 @@ export function createForestDressing(options: DressingOptions = {}): ForestDress
     instanced("ForestStoneInstances", stone, 0x6e7164, stones),
   )
   return { group, instanceCount: grass.length + ferns.length + shrubs.length + flowers.length + stones.length }
+}
+
+/** Textured normal path using the curated MegaKit catalogue. */
+export function createAuthoredForestDressing(catalog: NatureCatalog, options: DressingOptions = {}): ForestDressing {
+  const random = seededRandom(options.seed ?? 4815)
+  const density = options.degraded ? 0.48 : 1
+  const count = (value: number): number => Math.round(value * density)
+  const placements: ReadonlyArray<[NatureVariantName, THREE.Matrix4[], boolean]> = [
+    ["Nature_Grass_Wispy_Short", scatterMatrices(count(190), random, options.exclusions, [0.55, 1.25]), false],
+    ["Nature_Grass_Common_Tall", scatterMatrices(count(70), random, options.exclusions, [0.65, 1.15]), false],
+    ["Nature_Fern_1", scatterMatrices(count(105), random, options.exclusions, [0.65, 1.35]), false],
+    ["Nature_Bush_Common", scatterMatrices(count(72), random, options.exclusions, [0.65, 1.3]), !options.degraded],
+    ["Nature_Flower_3_Group", scatterMatrices(count(48), random, options.exclusions, [0.65, 1.05]), false],
+    ["Nature_Mushroom_Common", scatterMatrices(count(24), random, options.exclusions, [0.35, 0.8]), false],
+    ["Nature_Rock_Medium_2", scatterMatrices(count(34), random, options.exclusions, [0.45, 1.25]), false],
+    ["Nature_Pebble_Round_3", scatterMatrices(count(18), random, options.exclusions, [0.3, 0.8]), false],
+  ]
+  const group = new THREE.Group()
+  group.name = "SherwoodForestDressing"
+  for (const [name, matrices, castShadow] of placements) {
+    group.add(createNatureVariantInstances(catalog, name, matrices, { castShadow }))
+  }
+  return {
+    group,
+    instanceCount: placements.reduce((total, [, matrices]) => total + matrices.length, 0),
+  }
 }

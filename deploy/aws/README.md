@@ -43,6 +43,7 @@ Runtime secrets are supplied only to the container deployment, never as Docker b
 - `TOKEN_ACCESS_GATE_ENABLED`
 - `BUILD_ID`
 - `GAMEPLAY_ANALYTICS_ENABLED`
+- `PUBLIC_CAMP_CHAT_ENABLED`
 
 Keep them in AWS Secrets Manager or the operator's encrypted password manager and inject them into the container environment. Rotate immediately after suspected disclosure. A deployment without these values remains playable but reports `bandPersistence`, `verifiedLeaderboardWrites`, `rescueOfferPersistence`, `contributionPersistence`, `seasonPersistence`, and `socialPersistence` as `false` at `/health`.
 
@@ -99,7 +100,8 @@ jq -n \
   --arg gate "$TOKEN_ACCESS_GATE_ENABLED" \
   --arg build "$VERSION" \
   --arg analytics "$GAMEPLAY_ANALYTICS_ENABLED" \
-  '{app:{image:$image,environment:{SUPABASE_URL:$url,SUPABASE_PUBLISHABLE_KEY:$publishable,SUPABASE_SECRET_KEY:$secret,OPS_ADMIN_SECRET:$ops,ROBINHOOD_CHAIN:$chain,ROBINHOOD_RPC_URL:$rpc,TOKEN_CONTRACT_ADDRESS:$contract,TOKEN_TREASURY_ADDRESS:$treasury,TOKEN_SYMBOL:$symbol,TOKEN_DECIMALS:$decimals,TOKEN_ACCESS_AMOUNT:$amount,TOKEN_ACCESS_DAYS:$days,TOKEN_PAYMENT_CONFIRMATIONS:$confirmations,PUBLIC_ORIGIN:$origin,TOKEN_ACCESS_GATE_ENABLED:$gate,BUILD_ID:$build,GAMEPLAY_ANALYTICS_ENABLED:$analytics},ports:{"8080":"HTTP"}}}' \
+  --arg camp_chat "$PUBLIC_CAMP_CHAT_ENABLED" \
+  '{app:{image:$image,environment:{SUPABASE_URL:$url,SUPABASE_PUBLISHABLE_KEY:$publishable,SUPABASE_SECRET_KEY:$secret,OPS_ADMIN_SECRET:$ops,ROBINHOOD_CHAIN:$chain,ROBINHOOD_RPC_URL:$rpc,TOKEN_CONTRACT_ADDRESS:$contract,TOKEN_TREASURY_ADDRESS:$treasury,TOKEN_SYMBOL:$symbol,TOKEN_DECIMALS:$decimals,TOKEN_ACCESS_AMOUNT:$amount,TOKEN_ACCESS_DAYS:$days,TOKEN_PAYMENT_CONFIRMATIONS:$confirmations,PUBLIC_ORIGIN:$origin,TOKEN_ACCESS_GATE_ENABLED:$gate,BUILD_ID:$build,GAMEPLAY_ANALYTICS_ENABLED:$analytics,PUBLIC_CAMP_CHAT_ENABLED:$camp_chat},ports:{"8080":"HTTP"}}}' \
   > "$DEPLOY_SPEC"
 
 aws lightsail create-container-service-deployment \
@@ -122,7 +124,7 @@ The checked-in command owns the field-limited query and rejects responses contai
 `environment` map or a known secret name. Its regression test is part of `npm test`. Do not
 replace it with an unfiltered `get-container-services` call, including during incident response.
 
-Then run the health, reconnect, and bounded load checks against the new origin and inspect `/metrics` for persistence failures. A persistence-enabled release is not accepted until `/health` reports all six persistence flags true and one authenticated production mission proves the band-history and verified-leaderboard write paths.
+Then run the health, reconnect, and bounded load checks against the new origin and inspect `/metrics` for persistence failures. A persistence-enabled release is not accepted until `/health` reports all six persistence flags true and one authenticated production mission proves the band-history and verified-leaderboard write paths. Keep `PUBLIC_CAMP_CHAT_ENABLED=false` until the chat-report migration ledger, database advisors, retention RPC, and authenticated report proof are complete; after activation, `publicCampChat` must also report `true`.
 
 Keep `TOKEN_ACCESS_GATE_ENABLED=false` through initial wallet and token-payment validation. Test on Robinhood Chain testnet first. Before switching mainnet access on, apply the token-access migration, enable Ethereum Web3 Auth in Supabase, configure the production Reown origin, set the exact minted token and treasury addresses, set the operator-maintained token quantity that approximates USD $6, and prove valid payment, underpayment rejection, replay rejection, expiration, and renewal. After enabling it, `/health` must report both `tokenAccessGate: true` and `tokenPaymentConfigured: true`; a `true/false` combination is a failed deployment and blocks promotion.
 

@@ -73,13 +73,16 @@ async function makeFixture() {
     1, 0,
     0.5, 1,
   ].forEach((value, index) => texcoords.writeFloatLE(value, index * 4))
+  const animationTimes = Buffer.alloc(4)
+  animationTimes.writeFloatLE(0, 0)
+  const animationTranslations = Buffer.alloc(12)
   const png = VALID_2X2_PNG
-  const binary = Buffer.concat([positions, texcoords, png])
+  const binary = Buffer.concat([positions, texcoords, animationTimes, animationTranslations, png])
   const gltf = {
     asset: { version: "2.0" },
     scene: 0,
-    scenes: [{ nodes: [0] }],
-    nodes: [{ mesh: 0 }],
+    scenes: [{ nodes: [0, 1] }],
+    nodes: [{ mesh: 0 }, { name: "AnimationTarget" }],
     meshes: [{ primitives: [
       { attributes: { POSITION: 0, TEXCOORD_0: 1 }, material: 0 },
       { attributes: { POSITION: 0, TEXCOORD_0: 1 }, material: 1 },
@@ -99,19 +102,48 @@ async function makeFixture() {
         count: 3,
         type: "VEC2",
       },
+      {
+        bufferView: 2,
+        componentType: 5126,
+        count: 1,
+        type: "SCALAR",
+        min: [0],
+        max: [0],
+      },
+      {
+        bufferView: 3,
+        componentType: 5126,
+        count: 1,
+        type: "VEC3",
+      },
     ],
     bufferViews: [
       { buffer: 0, byteOffset: 0, byteLength: positions.length },
       { buffer: 0, byteOffset: positions.length, byteLength: texcoords.length },
-      { buffer: 0, byteOffset: positions.length + texcoords.length, byteLength: png.length },
+      { buffer: 0, byteOffset: positions.length + texcoords.length, byteLength: animationTimes.length },
+      {
+        buffer: 0,
+        byteOffset: positions.length + texcoords.length + animationTimes.length,
+        byteLength: animationTranslations.length,
+      },
+      {
+        buffer: 0,
+        byteOffset: positions.length + texcoords.length + animationTimes.length + animationTranslations.length,
+        byteLength: png.length,
+      },
     ],
     buffers: [{ byteLength: binary.length }],
-    images: [{ bufferView: 2, mimeType: "image/png" }],
+    images: [{ bufferView: 4, mimeType: "image/png" }],
     textures: [{ source: 0 }],
     materials: [
       { name: "cloth", pbrMetallicRoughness: { baseColorTexture: { index: 0 } } },
       { name: "metal" },
     ],
+    animations: [{
+      name: "Idle",
+      samplers: [{ input: 2, output: 3, interpolation: "LINEAR" }],
+      channels: [{ sampler: 0, target: { node: 1, path: "translation" } }],
+    }],
   }
   const glb = makeGlb(gltf, binary)
   await writeFile(join(rootDir, "public/assets/models/test-hero.glb"), glb)
@@ -131,7 +163,10 @@ async function makeFixture() {
     provenance: {
       sourceAsset: "test-hero-source.glb",
       sourceSha256: "1".repeat(64),
+      sourceBytes: 1_234,
+      sourceGenerator: "Fixture generator 1.0",
       suppliedBy: "fixture artist",
+      conversionScript: "tools/build-test-hero.mjs",
       conversionDoc: "docs/assets/conversion.md",
     },
     license: {
@@ -142,7 +177,7 @@ async function makeFixture() {
     },
     geometry: { uniquePrimitives: 2, sceneDrawCalls: 2, renderVertices: 6, uploadVertices: 3, triangles: 2 },
     materials: { count: 2, names: ["cloth", "metal"] },
-    texture: { count: 1, format: "png", width: 2, height: 2, gpuBytesApprox: 20 },
+    texture: { count: 1, format: "png", width: 2, height: 2, encodedBytes: png.length, gpuBytesApprox: 20 },
     clips: ["Idle"],
     pivot: { policy: "feet-at-origin", passes: true, evidence: "bounds min Y=0" },
     scale: { units: "meters", metersPerUnit: 1, boundsMin: [-1, 0, -1], boundsMax: [1, 2, 1] },
@@ -213,6 +248,7 @@ describe("browser 3D asset quality gate", () => {
       { mesh: 0, translation: [1, 0, 0] },
       { mesh: 0, translation: [-3, 0, 0] },
     ]
+    fixture.gltf.scenes[0].nodes = [0]
     fixture.asset.geometry.sceneDrawCalls = 4
     fixture.asset.geometry.renderVertices = 12
     fixture.asset.geometry.triangles = 4
@@ -309,7 +345,7 @@ describe("browser 3D asset quality gate", () => {
     expectFailure(failures, "conversionDoc: required")
   })
 
-  it.each(["sourceAsset", "sourceSha256", "suppliedBy", "conversionDoc"])(
+  it.each(["sourceAsset", "sourceSha256", "sourceBytes", "sourceGenerator", "suppliedBy", "conversionScript", "conversionDoc"])(
     "rejects missing provenance.%s",
     async (field) => {
       const fixture = await makeFixture()
@@ -317,6 +353,86 @@ describe("browser 3D asset quality gate", () => {
       expectFailure(await validate(fixture), `provenance.${field}: required`)
     },
   )
+
+  it("rejects malformed primary provenance details", async () => {
+    const fixture = await makeFixture()
+    fixture.asset.provenance.sourceBytes = 0
+    fixture.asset.provenance.sourceGenerator = " "
+    fixture.asset.provenance.conversionScript = ""
+    const failures = await validate(fixture)
+    expectFailure(failures, "provenance.sourceBytes: required positive integer")
+    expectFailure(failures, "provenance.sourceGenerator: required")
+    expectFailure(failures, "provenance.conversionScript: required")
+  })
+
+  it("accepts optional additional source provenance with minimal or extended metadata", async () => {
+    const fixture = await makeFixture()
+    fixture.asset.provenance.additionalSources = [
+      {
+        sourceAsset: "KayKit_Character_Animations_1.1.zip",
+        sourceSha256: "2".repeat(64),
+      },
+      {
+        sourceAsset: "source-packs/reference-motion.glb",
+        sourceSha256: "3".repeat(64),
+        sourceBytes: 14_858_957,
+        sourceGenerator: "Khronos glTF Blender I/O v1.7.33",
+      },
+    ]
+    expect(await validate(fixture)).toEqual([])
+  })
+
+  it("rejects a malformed additional source provenance collection", async () => {
+    const fixture = await makeFixture()
+    fixture.asset.provenance.additionalSources = "KayKit_Character_Animations_1.1.zip"
+    expectFailure(await validate(fixture), "provenance.additionalSources: optional array")
+
+    fixture.asset.provenance.additionalSources = [
+      null,
+      {
+        sourceAsset: "../KayKit_Character_Animations_1.1.zip",
+        sourceSha256: "A".repeat(64),
+        sourceBytes: 0,
+        sourceGenerator: " ",
+      },
+      {},
+    ]
+    const failures = await validate(fixture)
+    expectFailure(failures, "additionalSources[0]: required object")
+    expectFailure(failures, "additionalSources[1].sourceAsset: absolute, external")
+    expectFailure(failures, "additionalSources[1].sourceSha256: must be 64 lowercase hexadecimal characters")
+    expectFailure(failures, "additionalSources[1].sourceBytes: must be a positive integer when supplied")
+    expectFailure(failures, "additionalSources[1].sourceGenerator: must be a non-empty string when supplied")
+    expectFailure(failures, "additionalSources[2].sourceAsset: required")
+    expectFailure(failures, "additionalSources[2].sourceSha256: required")
+  })
+
+  it("rejects duplicate additional sources by path or checksum, including the primary source", async () => {
+    const fixture = await makeFixture()
+    fixture.asset.provenance.additionalSources = [
+      {
+        sourceAsset: "KayKit_Character_Animations_1.1.zip",
+        sourceSha256: "2".repeat(64),
+      },
+      {
+        sourceAsset: "KayKit_Character_Animations_1.1.zip",
+        sourceSha256: "3".repeat(64),
+      },
+      {
+        sourceAsset: "different-animation-source.zip",
+        sourceSha256: "2".repeat(64),
+      },
+      {
+        sourceAsset: fixture.asset.provenance.sourceAsset,
+        sourceSha256: fixture.asset.provenance.sourceSha256,
+      },
+    ]
+    const failures = await validate(fixture)
+    expectFailure(failures, "additionalSources[1].sourceAsset: duplicate source")
+    expectFailure(failures, "additionalSources[2].sourceSha256: duplicate source checksum")
+    expectFailure(failures, "additionalSources[3].sourceAsset: duplicate source")
+    expectFailure(failures, "additionalSources[3].sourceSha256: duplicate source checksum")
+  })
 
   it("rejects unverified licenses and missing authorization evidence", async () => {
     const fixture = await makeFixture()
@@ -407,6 +523,37 @@ describe("browser 3D asset quality gate", () => {
     expectFailure(failures, "materials.names: declaration does not match GLB")
     expectFailure(failures, "texture.width: declared 1 does not match GLB 2")
     expectFailure(failures, "scene draw calls 2 exceeds hero budget 1")
+  })
+
+  it("rejects a manifest that declares a clip missing from the GLB", async () => {
+    const fixture = await makeFixture()
+    fixture.asset.clips = ["Idle", "Attack"]
+    expectFailure(await validate(fixture), "clips: declaration does not match GLB (Idle)")
+  })
+
+  it("rejects incorrect encoded texture bytes", async () => {
+    const fixture = await makeFixture()
+    fixture.asset.texture.encodedBytes += 1
+    expectFailure(await validate(fixture), "texture.encodedBytes: declared")
+  })
+
+  it("rejects an animation clip present in the GLB but absent from the manifest", async () => {
+    const fixture = await makeFixture()
+    fixture.gltf.animations.push({
+      ...structuredClone(fixture.gltf.animations[0]),
+      name: "Attack",
+    })
+    await writeFixtureGlb(fixture)
+    expectFailure(await validate(fixture), "clips: declaration does not match GLB (Idle, Attack)")
+  })
+
+  it("rejects duplicate animation names inside the GLB", async () => {
+    const fixture = await makeFixture()
+    fixture.gltf.animations.push(structuredClone(fixture.gltf.animations[0]))
+    await writeFixtureGlb(fixture)
+    const failures = await validate(fixture)
+    expectFailure(failures, "GLB animations contain duplicate clip name(s): Idle")
+    expectFailure(failures, "clips: declaration does not match GLB (Idle, Idle)")
   })
 
   it("counts double-sided transparent primitives as two Three.js submissions", async () => {

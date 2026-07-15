@@ -14,7 +14,7 @@ The browser reuses the existing 3D character pipeline and snapshot interpolation
 
 ## Communication and matchmaking
 
-There is no public text or voice. Players may use:
+The Camp channel is an authenticated, instance-local trollbox, not a global feed. It is available only when durable moderation-evidence storage is configured. It keeps at most 100 in-memory messages for 30 minutes, applies its own send and duplicate limits, and never carries text between public-camp instances. There is no voice, direct messaging, or cross-instance text. Players may also use:
 
 - looking-for-band on/off;
 - one trusted-mission preference;
@@ -26,6 +26,6 @@ Emotes have a one-second cooldown and short visual lifetime. Pings have a two-se
 
 ## Safety
 
-Public discovery requires a verified Supabase access token. Guest room-code play remains available, but there is no anonymous public presence. Mute is local. Reports use the existing four fixed reasons, aggregate telemetry without free text, and persist to a private moderation table when the room service is configured. Block immediately removes both players from each other's hub projection; a configured room service also persists the verified UUID pair, deletes friendships, revokes pending invitations, and prevents blocked pairs from being co-placed after reconnect.
+Public discovery requires a verified Supabase access token. Guest room-code play remains available, but there is no anonymous public presence. Mute is local and hides that participant's chat, pings, and emotes. Message reports use the existing four fixed reasons and resolve server-owned message evidence; only the reported message and bounded context persist to a private moderation table for 30 days. Block immediately removes both players from each other's hub projection and received chat history; a configured room service also persists the verified UUID pair, deletes friendships, revokes pending invitations, and prevents blocked pairs from being co-placed after reconnect.
 
-Public-hub telemetry tracks opt-ins, leaves, instance/player gauges, formed private bands, fixed emotes/pings, rate-limit rejections, reports, and blocks. No public follower count, chat log, or location feed exists.
+Public-hub telemetry tracks opt-ins, leaves, instance/player gauges, formed private bands, chat send/rejection counts, fixed emotes/pings, reports, and blocks. It never contains message text, sender identity, a chat log, or a location feed.
