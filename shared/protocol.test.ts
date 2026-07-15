@@ -70,6 +70,29 @@ describe("Merry Band protocol", () => {
     expect(parseClientMessage({ type: "moderation", action: "report", targetPlayerId: "f7870cde-771f-4d25-aa85-85c20c862a49", reason: "free-text" })).toBeNull()
   })
 
+  it("normalizes bounded chat sends and accepts message-id reports with fixed reasons", () => {
+    expect(parseClientMessage({ type: "chat_send", channel: "band", text: "  Ready\n at the oak!  " })).toEqual({
+      type: "chat_send",
+      channel: "band",
+      text: "Ready at the oak!",
+    })
+    expect(parseClientMessage({ type: "chat_send", channel: "camp", text: "🏹".repeat(160) })).not.toBeNull()
+    expect(parseClientMessage({ type: "chat_send", channel: "global", text: "nope" })).toBeNull()
+    expect(parseClientMessage({ type: "chat_send", channel: "band", text: "a".repeat(161) })).toBeNull()
+    expect(parseClientMessage({
+      type: "chat_report",
+      channel: "camp",
+      messageId: "8c02777e-2bb5-5afd-9f42-7a7b1ca4c622",
+      reason: "harassment",
+    })).not.toBeNull()
+    expect(parseClientMessage({
+      type: "chat_report",
+      channel: "camp",
+      messageId: "free-text",
+      reason: "hate",
+    })).toBeNull()
+  })
+
   it("accepts only fixed, bounded public-camp discovery intents", () => {
     expect(parseClientMessage({ type: "join_public_hub", ...handshake, displayName: "Oakheart", characterId: "robin", accessToken: "header.payload.signature.long-enough" })).not.toBeNull()
     expect(parseClientMessage({ type: "hub_intent", looking: true, targetPreference: "peoples-purse", desiredPartySize: 4 })).not.toBeNull()
