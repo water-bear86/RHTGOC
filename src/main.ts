@@ -79,6 +79,8 @@ import { versionedAssetUrl } from "./release"
 import type { RoomExperimentAssignment } from "../shared/experiments"
 import { buildTutorialPlan, type TutorialLesson, type TutorialPlan } from "./tutorial-content"
 import { completeTutorialPlan, loadTutorialProgress, saveTutorialProgress } from "./tutorial-progress"
+import type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "../shared/chat"
+import { CHAT_PEEK_DURATION_MS, ChatState, truncateChatInput } from "./chat-state"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -258,6 +260,21 @@ const publicHubPings = [...document.querySelectorAll<HTMLButtonElement>("[data-h
 const publicHubList = document.querySelector<HTMLUListElement>("#public-hub-list")!
 const publicHubLeave = document.querySelector<HTMLButtonElement>("#public-hub-leave")!
 const publicHubStatus = document.querySelector<HTMLElement>("#public-hub-status")!
+const chatButton = document.querySelector<HTMLButtonElement>("#chat-button")!
+const chatUnreadBadge = document.querySelector<HTMLElement>("#chat-unread-badge")!
+const chatDrawer = document.querySelector<HTMLElement>("#chat-drawer")!
+const closeChatButton = document.querySelector<HTMLButtonElement>("#close-chat")!
+const chatTabs = [...document.querySelectorAll<HTMLButtonElement>("[data-chat-channel]")]
+const chatStatus = document.querySelector<HTMLElement>("#chat-status")!
+const chatLog = document.querySelector<HTMLOListElement>("#chat-log")!
+const chatNewMessages = document.querySelector<HTMLButtonElement>("#chat-new-messages")!
+const chatForm = document.querySelector<HTMLFormElement>("#chat-form")!
+const chatInput = document.querySelector<HTMLInputElement>("#chat-input")!
+const chatSubmit = chatForm.querySelector<HTMLButtonElement>("button[type='submit']")!
+const chatPeek = document.querySelector<HTMLOListElement>("#chat-peek")!
+const quickChatForm = document.querySelector<HTMLFormElement>("#quick-chat")!
+const quickChatInput = document.querySelector<HTMLInputElement>("#quick-chat-input")!
+const quickChatChannel = document.querySelector<HTMLElement>("#quick-chat-channel")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
 const invitedRoom = new URLSearchParams(location.search).get("room")?.trim().toUpperCase()
 if (invitedRoom?.match(/^[A-Z2-9]{6}$/)) roomCodeInput.value = invitedRoom
@@ -360,6 +377,13 @@ let activeTutorialRecordsProgress = false
 let activeTutorialShowsTacticalTip = false
 let activeTutorialCompletionLabel = "CONTINUE"
 let tutorialProgress = loadTutorialProgress(localStorage)
+const chatState = new ChatState()
+let quickChatActiveChannel: ChatChannel | null = null
+let quickChatComposing = false
+let fullChatComposing = false
+let quickChatCompositionEndedAt = -Infinity
+let fullChatCompositionEndedAt = -Infinity
+let chatPeekTimer = 0
 
 const PING_MAP_ICONS: Readonly<Record<PingKind, string>> = Object.freeze({
   danger: "!",
@@ -436,6 +460,7 @@ let composedWorldLayoutKey = ""
 let terrainView: THREE.Mesh | null = null
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
+const blockedPlayerIds = new Set<string>()
 const gltfLoader = new GLTFLoader()
 let treeCatalogAssetPromise: Promise<THREE.Group> | null = null
 let villageAssetPromise: Promise<THREE.Group> | null = null
@@ -1144,6 +1169,11 @@ scene.add(objectiveBeacon)
 
 const multiplayer = new MultiplayerClient({
   onWelcome: (_playerId, roomCode) => {
+    blockedPlayerIds.clear()
+    mutedPlayerIds.clear()
+    chatState.reset()
+    closeQuickChat(false)
+    closeChatDrawer(false)
     inPublicHub = false
     publicHubIsLooking = false
     publicHubPlayers = []
@@ -1163,6 +1193,7 @@ const multiplayer = new MultiplayerClient({
     roomLobby.classList.remove("hidden")
     lobbyStatus.textContent = "Choose an outlaw, then ready up together."
     enterHub(true)
+    renderChatChrome()
     void syncPresence("in-band", roomCode)
   },
   onRoomState: (_roomCode, phase, players, missionSlug, village, lastResult, nextSelectedRotationId, nextRotationsPaused, nextRotations, nextUpcomingRotations, rescueOffer, contributions, nextSelectedContributionIds, season, band) => {
@@ -1268,9 +1299,15 @@ const multiplayer = new MultiplayerClient({
     roomConnected = connected
     lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
     if (inHub) renderHub()
+    renderChatChrome()
     if (!connected) void syncPresence("available", null)
   },
   onHubWelcome: (_instanceId, participantId, capacity) => {
+    blockedPlayerIds.clear()
+    mutedPlayerIds.clear()
+    chatState.reset()
+    closeQuickChat(false)
+    closeChatDrawer(false)
     roomSessionActive = false
     inPublicHub = true
     inHub = false
@@ -1287,14 +1324,15 @@ const multiplayer = new MultiplayerClient({
     positionMissionCampfire(HUB_CAMPFIRE_POSITION)
     positionVillageUpgrades(HUB_CAMPFIRE_POSITION)
     objectiveElement.textContent = "Meet outlaws and form a private band"
-    missionModifiers.textContent = `OPT-IN PUBLIC CAMP · CAP ${capacity} · NO PUBLIC CHAT`
+    missionModifiers.textContent = `OPT-IN PUBLIC CAMP · CAP ${capacity} · INSTANCE CHAT`
+    renderChatChrome()
     void syncPresence("available", null)
   },
   onHubState: (players) => {
     publicHubPlayers = players
     const local = players.find((player) => player.id === publicHubParticipantId)
     if (local) state.player.position = { ...local.position }
-    const remotes = players.filter((player) => player.id !== publicHubParticipantId).map(hubPlayerAsRoomPlayer)
+    const remotes = players.filter((player) => player.id !== publicHubParticipantId && !blockedPlayerIds.has(player.id)).map(hubPlayerAsRoomPlayer)
     ensureRemotePlayers(remotes)
     const receivedAt = performance.now()
     for (const player of remotes) remoteViews.get(player.id)?.snapshots.push(player.position, receivedAt)
@@ -1304,6 +1342,9 @@ const multiplayer = new MultiplayerClient({
     currentExperimentAssignments = assignments
     updateMissionDebug()
   },
+  onChatHistory: receiveChatHistory,
+  onChatMessage: receiveChatMessage,
+  onChatError: receiveChatError,
 })
 
 diagnosticReporter = new ClientDiagnosticReporter(
@@ -1467,30 +1508,47 @@ function renderHub(): void {
 }
 
 function renderPublicHub(): void {
-  publicHubCount.textContent = `${publicHubPlayers.length}/12`
+  const visiblePlayers = publicHubPlayers.filter((player) => !blockedPlayerIds.has(player.id))
+  publicHubCount.textContent = `${visiblePlayers.length}/12`
   publicHubLooking.textContent = publicHubIsLooking ? "CANCEL SEARCH" : "FIND A BAND"
   const desiredPartySize = Number(publicHubSize.value)
-  const compatible = publicHubPlayers.filter((player) => player.id !== publicHubParticipantId && player.looking && player.desiredPartySize === desiredPartySize && (publicHubTarget.value === "any" || player.targetPreference === "any" || player.targetPreference === publicHubTarget.value)).length
+  const compatible = visiblePlayers.filter((player) => player.id !== publicHubParticipantId && player.looking && player.desiredPartySize === desiredPartySize && (publicHubTarget.value === "any" || player.targetPreference === "any" || player.targetPreference === publicHubTarget.value)).length
   publicHubList.replaceChildren()
-  for (const player of publicHubPlayers) {
+  for (const player of visiblePlayers) {
     const item = document.createElement("li")
     const copy = document.createElement("div")
     const name = document.createElement("span")
     const detail = document.createElement("small")
-    name.textContent = `${player.displayName} · ${characterName(player.characterId)}${player.emote ? ` · ${player.emote.toUpperCase()}` : ""}${player.ping ? ` · ${player.ping.toUpperCase()}!` : ""}`
+    const showSignals = !mutedPlayerIds.has(player.id)
+    name.textContent = `${player.displayName} · ${characterName(player.characterId)}${showSignals && player.emote ? ` · ${player.emote.toUpperCase()}` : ""}${showSignals && player.ping ? ` · ${player.ping.toUpperCase()}!` : ""}`
     detail.textContent = player.looking ? `LOOKING · ${player.targetPreference.replaceAll("-", " ")} · ${player.desiredPartySize}P` : "At the fire"
     copy.append(name, detail)
     const actions = document.createElement("div")
     if (player.id !== publicHubParticipantId) {
       const mute = document.createElement("button")
       mute.textContent = mutedPlayerIds.has(player.id) ? "UNMUTE" : "MUTE"
-      mute.addEventListener("click", () => { if (mutedPlayerIds.has(player.id)) mutedPlayerIds.delete(player.id); else mutedPlayerIds.add(player.id); renderPublicHub() })
+      mute.addEventListener("click", () => {
+        if (mutedPlayerIds.has(player.id)) mutedPlayerIds.delete(player.id)
+        else mutedPlayerIds.add(player.id)
+        renderPublicHub()
+        renderChatHistory(false)
+        renderChatPeek()
+      })
       const report = document.createElement("button")
       report.textContent = "REPORT"
-      report.addEventListener("click", () => { multiplayer.reportHubPlayer(player.id, "griefing"); publicHubStatus.textContent = "Fixed-reason report recorded without public text." })
+      report.addEventListener("click", () => { multiplayer.reportHubPlayer(player.id, "griefing"); publicHubStatus.textContent = "Fixed-reason player report recorded." })
       const block = document.createElement("button")
       block.textContent = "BLOCK"
-      block.addEventListener("click", () => { mutedPlayerIds.add(player.id); multiplayer.blockHubPlayer(player.id); publicHubStatus.textContent = "Blocked player hidden from this public camp." })
+      block.addEventListener("click", () => {
+        blockedPlayerIds.add(player.id)
+        mutedPlayerIds.add(player.id)
+        multiplayer.blockHubPlayer(player.id)
+        renderPublicHub()
+        renderChatHistory(false)
+        renderChatPeek()
+        ensureRemotePlayers(publicHubPlayers.filter((candidate) => !blockedPlayerIds.has(candidate.id)).map(hubPlayerAsRoomPlayer))
+        publicHubStatus.textContent = "Blocked player hidden from this public camp."
+      })
       actions.append(mute, report, block)
     }
     item.append(copy, actions)
@@ -1935,7 +1993,7 @@ function refreshControlCopy(): void {
     const action = label.dataset.signalKey as "pingDanger" | "pingTarget" | "pingRoute" | "pingLoot" | "pingRegroup"
     label.textContent = keyLabel(key[action])
   }
-  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE`
+  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE · ENTER CHAT`
   missionPrompt = missionPromptForPhase(currentMissionPhase)
 }
 
@@ -2025,6 +2083,8 @@ function renderBindingControls(): void {
 
 function openPanel(panel: HTMLElement, trigger?: HTMLElement): void {
   keys.clear()
+  closeQuickChat(false)
+  closeChatDrawer(false)
   if (panel !== tutorialPanel && !tutorialPanel.classList.contains("hidden")) resetActiveTutorial()
   for (const candidate of panelElements) {
     if (candidate !== panel) candidate.classList.add("hidden")
@@ -2060,6 +2120,7 @@ function closeActivePanel(): boolean {
 }
 
 function performMappedAction(action: GameAction | PointerAction): void {
+  if (isChatCapturingInput()) return
   if (action === "move" || action.startsWith("move")) return
   if (action === "cameraLeft" || action === "cameraRight") {
     cameraQuarterTurns = (cameraQuarterTurns + (action === "cameraLeft" ? -1 : 1) + 4) % 4
@@ -2090,7 +2151,7 @@ function pollControllerActions(): void {
     previousGamepadButtons = []
     return
   }
-  if (running && !isModalOpen() && !isMobileSpectator()) {
+  if (running && !isModalOpen() && !isMobileSpectator() && !isChatCapturingInput()) {
     for (const action of controllerActions) {
       const button = inputSettings.controller[action]
       if (gamepad.buttons[button]?.pressed && !previousGamepadButtons[button]) performMappedAction(action)
@@ -2546,6 +2607,9 @@ function renderSafetyPanel(players: RoomPlayer[]): void {
       if (mutedPlayerIds.has(player.id)) mutedPlayerIds.delete(player.id)
       else mutedPlayerIds.add(player.id)
       renderSafetyPanel(currentRoomPlayers)
+      renderChatHistory(false)
+      renderChatPeek()
+      if (latestMissionSnapshot) syncPingViews(latestMissionSnapshot.pings)
     })
     const report = document.createElement("button")
     report.textContent = "REPORT GRIEFING"
@@ -3004,9 +3068,9 @@ function renderParty(players: RoomPlayer[]): void {
 }
 
 function ensureRemotePlayers(players: RoomPlayer[]): void {
-  const activeIds = new Set(players.filter((player) => player.id !== multiplayer.playerId).map((player) => player.id))
+  const activeIds = new Set(players.filter((player) => player.id !== multiplayer.playerId && !blockedPlayerIds.has(player.id)).map((player) => player.id))
   for (const player of players) {
-    if (player.id === multiplayer.playerId) continue
+    if (player.id === multiplayer.playerId || blockedPlayerIds.has(player.id)) continue
     const existing = remoteViews.get(player.id)
     if (existing) {
       existing.downedFor = player.downedFor
@@ -3055,7 +3119,7 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
 }
 
 function getMoveInput(): Vec2 {
-  if (isMobileSpectator()) return { x: 0, z: 0 }
+  if (isMobileSpectator() || isChatCapturingInput()) return { x: 0, z: 0 }
   let x = 0
   let z = 0
   if (keys.has(inputSettings.keyboard.moveLeft)) x -= 1
@@ -3091,6 +3155,290 @@ function showToast(message: string): void {
   toastElement.textContent = message
   toastElement.classList.add("show")
   toastTimer = 2.4
+}
+
+function contextualChatChannel(): ChatChannel {
+  return inPublicHub ? "camp" : "band"
+}
+
+function hiddenChatPlayerIds(): Set<string> {
+  return new Set([...mutedPlayerIds, ...blockedPlayerIds])
+}
+
+function isChatCapturingInput(): boolean {
+  return chatState.drawerOpen || quickChatActiveChannel !== null
+}
+
+function stopGameplayForChat(): void {
+  keys.clear()
+  clickTarget = null
+  destinationMarker.visible = false
+  if (running && (roomSessionActive || inPublicHub)) multiplayer.stopMovement()
+}
+
+function chatLogIsNearBottom(): boolean {
+  return chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 52
+}
+
+function formatChatTime(sentAt: number): string {
+  return new Date(sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+}
+
+function createChatMessageElement(message: ChatMessage): HTMLLIElement {
+  const item = document.createElement("li")
+  item.className = "chat-message"
+  item.classList.toggle("local", message.sender.playerId === multiplayer.playerId || message.sender.playerId === publicHubParticipantId)
+  item.dataset.messageId = message.id
+
+  const heading = document.createElement("header")
+  const sender = document.createElement("b")
+  sender.textContent = `${message.sender.displayName} · ${characterName(message.sender.characterId)}`
+  const time = document.createElement("span")
+  time.textContent = formatChatTime(message.sentAt)
+  heading.append(sender, time)
+
+  const copy = document.createElement("p")
+  copy.textContent = message.text
+  item.append(heading, copy)
+
+  const isLocal = message.sender.playerId === multiplayer.playerId || message.sender.playerId === publicHubParticipantId
+  if (isLocal) return item
+
+  const actions = document.createElement("div")
+  actions.className = "chat-message-actions"
+  const mute = document.createElement("button")
+  mute.type = "button"
+  mute.textContent = mutedPlayerIds.has(message.sender.playerId) ? "UNMUTE" : "MUTE"
+  mute.addEventListener("click", () => {
+    if (mutedPlayerIds.has(message.sender.playerId)) mutedPlayerIds.delete(message.sender.playerId)
+    else mutedPlayerIds.add(message.sender.playerId)
+    renderChatHistory(false)
+    renderChatPeek()
+    renderSafetyPanel(currentRoomPlayers)
+    renderPublicHub()
+    if (latestMissionSnapshot) syncPingViews(latestMissionSnapshot.pings)
+  })
+  actions.append(mute)
+
+  if (message.channel === "camp") {
+    const block = document.createElement("button")
+    block.type = "button"
+    block.textContent = "BLOCK"
+    block.addEventListener("click", () => {
+      blockedPlayerIds.add(message.sender.playerId)
+      mutedPlayerIds.add(message.sender.playerId)
+      multiplayer.blockHubPlayer(message.sender.playerId)
+      renderChatHistory(false)
+      renderChatPeek()
+      renderPublicHub()
+      ensureRemotePlayers(publicHubPlayers.filter((player) => !blockedPlayerIds.has(player.id)).map(hubPlayerAsRoomPlayer))
+      chatStatus.textContent = "Player blocked and hidden from this camp."
+    })
+    actions.append(block)
+  }
+
+  const report = document.createElement("details")
+  report.className = "chat-message-report"
+  const reportSummary = document.createElement("summary")
+  reportSummary.textContent = "REPORT"
+  const reportReasons = document.createElement("div")
+  const reasons: ReadonlyArray<{ value: ChatReportReason; label: string }> = [
+    { value: "harassment", label: "Harassment" },
+    { value: "griefing", label: "Griefing / spam" },
+    { value: "unsafe-name", label: "Unsafe identity" },
+    { value: "cheating", label: "Cheating claim" },
+  ]
+  for (const reason of reasons) {
+    const button = document.createElement("button")
+    button.type = "button"
+    button.textContent = reason.label
+    button.addEventListener("click", () => {
+      multiplayer.reportChat(message.channel, message.id, reason.value)
+      report.open = false
+      chatStatus.textContent = "Message report sent with its server-held context."
+    })
+    reportReasons.append(button)
+  }
+  report.append(reportSummary, reportReasons)
+  actions.append(report)
+  item.append(actions)
+  return item
+}
+
+function renderChatBadges(): void {
+  const totalUnread = chatState.totalUnread()
+  chatUnreadBadge.textContent = totalUnread > 99 ? "99+" : String(totalUnread)
+  chatUnreadBadge.classList.toggle("hidden", totalUnread === 0)
+  chatButton.setAttribute("aria-label", totalUnread > 0 ? `Open chat, ${totalUnread} unread` : "Open chat")
+  for (const tab of chatTabs) {
+    const channel = tab.dataset.chatChannel as ChatChannel
+    const unread = chatState.unread(channel)
+    const badge = tab.querySelector<HTMLElement>("b")!
+    badge.textContent = unread > 99 ? "99+" : String(unread)
+    badge.classList.toggle("hidden", unread === 0)
+  }
+  chatNewMessages.textContent = chatState.unread(chatState.activeChannel) > 0
+    ? `${chatState.unread(chatState.activeChannel)} NEW MESSAGE${chatState.unread(chatState.activeChannel) === 1 ? "" : "S"}`
+    : "NEW MESSAGES"
+}
+
+function renderChatChrome(statusOverride?: string): void {
+  const preferred = contextualChatChannel()
+  if (!chatState.isAvailable(chatState.activeChannel)) {
+    if (chatState.isAvailable(preferred)) chatState.selectChannel(preferred)
+    else if (chatState.isAvailable("band")) chatState.selectChannel("band")
+    else if (chatState.isAvailable("camp")) chatState.selectChannel("camp")
+  }
+  const anyAvailable = chatState.isAvailable("band") || chatState.isAvailable("camp")
+  chatButton.classList.toggle("hidden", !anyAvailable)
+  for (const tab of chatTabs) {
+    const channel = tab.dataset.chatChannel as ChatChannel
+    tab.disabled = !chatState.isAvailable(channel)
+    tab.setAttribute("aria-selected", String(channel === chatState.activeChannel))
+  }
+  const canSend = roomConnected && chatState.isAvailable(chatState.activeChannel)
+  chatInput.disabled = !canSend
+  chatSubmit.disabled = !canSend
+  chatInput.placeholder = chatState.activeChannel === "camp" ? "Message this camp" : "Message your band"
+  chatLog.setAttribute("aria-label", `${chatState.activeChannel === "camp" ? "Camp" : "Band"} chat messages`)
+  chatStatus.textContent = statusOverride ?? (!chatState.isAvailable(chatState.activeChannel)
+    ? "Join a band or authenticated camp to chat."
+    : !roomConnected
+      ? "Connection lost — history remains visible while Sherwood reconnects."
+      : chatState.activeChannel === "camp"
+        ? "Authenticated · visible only in this 12-player camp instance."
+        : "Private to this Merry Band · Enter opens quick chat.")
+  renderChatBadges()
+}
+
+function renderChatHistory(scrollToEnd: boolean): void {
+  chatLog.setAttribute("aria-live", "off")
+  const messages = chatState.messages(chatState.activeChannel, hiddenChatPlayerIds())
+  chatLog.replaceChildren(...messages.map(createChatMessageElement))
+  if (scrollToEnd) {
+    chatLog.scrollTop = chatLog.scrollHeight
+    chatState.markRead(chatState.activeChannel)
+    chatNewMessages.classList.add("hidden")
+  } else {
+    chatNewMessages.classList.toggle("hidden", chatState.unread(chatState.activeChannel) === 0)
+  }
+  renderChatChrome()
+  queueMicrotask(() => chatLog.setAttribute("aria-live", "polite"))
+}
+
+function renderChatPeek(): void {
+  if (chatPeekTimer) window.clearTimeout(chatPeekTimer)
+  const channel = contextualChatChannel()
+  const messages = chatState.isAvailable(channel)
+    ? chatState.recent(channel, performance.now(), hiddenChatPlayerIds())
+    : []
+  chatPeek.replaceChildren(...messages.map((message) => {
+    const item = document.createElement("li")
+    const sender = document.createElement("b")
+    sender.textContent = message.sender.displayName
+    item.append(sender, document.createTextNode(message.text))
+    return item
+  }))
+  chatPeek.classList.toggle("hidden", messages.length === 0 || chatState.drawerOpen || quickChatActiveChannel !== null)
+  if (messages.length > 0) chatPeekTimer = window.setTimeout(renderChatPeek, CHAT_PEEK_DURATION_MS + 50)
+}
+
+function receiveChatHistory(channel: ChatChannel, messages: ChatMessage[]): void {
+  chatState.replaceHistory(channel, messages)
+  if (channel === contextualChatChannel()) chatState.selectChannel(channel)
+  renderChatChrome()
+  if (chatState.drawerOpen && chatState.activeChannel === channel) renderChatHistory(true)
+}
+
+function receiveChatMessage(message: ChatMessage): void {
+  const hidden = hiddenChatPlayerIds().has(message.sender.playerId)
+  const ownMessage = message.sender.playerId === multiplayer.playerId || message.sender.playerId === publicHubParticipantId
+  const activeAtBottom = chatState.drawerOpen && chatState.activeChannel === message.channel && chatLogIsNearBottom()
+  if (!chatState.append(message, performance.now(), hidden || ownMessage || activeAtBottom)) return
+
+  if (chatState.drawerOpen && chatState.activeChannel === message.channel && !hidden) {
+    chatLog.append(createChatMessageElement(message))
+    if (activeAtBottom) {
+      chatLog.scrollTop = chatLog.scrollHeight
+      chatState.markRead(message.channel)
+      chatNewMessages.classList.add("hidden")
+    } else chatNewMessages.classList.remove("hidden")
+  }
+  renderChatChrome()
+  renderChatPeek()
+}
+
+function receiveChatError(channel: ChatChannel, code: ChatErrorCode, message: string, retryAfterMs?: number): void {
+  if (code === "NOT_AVAILABLE") chatState.setAvailability(channel, false)
+  const retry = retryAfterMs && retryAfterMs > 0 ? ` Try again in ${Math.ceil(retryAfterMs / 1_000)}s.` : ""
+  renderChatChrome(`${message}${retry}`)
+  showToast(message)
+}
+
+function openQuickChat(): void {
+  const channel = contextualChatChannel()
+  if (!chatState.isAvailable(channel) || !roomConnected) {
+    showToast(channel === "camp" ? "CAMP CHAT IS NOT AVAILABLE" : "JOIN A BAND TO CHAT")
+    return
+  }
+  if (chatState.drawerOpen) closeChatDrawer(false)
+  quickChatActiveChannel = channel
+  quickChatChannel.textContent = channel.toUpperCase()
+  quickChatInput.placeholder = channel === "camp" ? "Message this camp" : "Message your band"
+  quickChatInput.value = ""
+  quickChatForm.classList.remove("hidden")
+  renderChatPeek()
+  stopGameplayForChat()
+  queueMicrotask(() => quickChatInput.focus())
+}
+
+function closeQuickChat(restoreFocus = true): void {
+  quickChatActiveChannel = null
+  quickChatComposing = false
+  quickChatCompositionEndedAt = -Infinity
+  quickChatInput.value = ""
+  quickChatForm.classList.add("hidden")
+  renderChatPeek()
+  if (restoreFocus && running) queueMicrotask(() => renderer.domElement.focus())
+}
+
+function openChatDrawer(): void {
+  closeQuickChat(false)
+  const preferred = contextualChatChannel()
+  if (chatState.isAvailable(preferred)) chatState.selectChannel(preferred)
+  if (!chatState.isAvailable(chatState.activeChannel)) {
+    showToast("CHAT IS NOT AVAILABLE HERE")
+    return
+  }
+  chatState.setDrawerOpen(true)
+  chatDrawer.classList.remove("hidden")
+  chatDrawer.setAttribute("aria-hidden", "false")
+  chatButton.setAttribute("aria-expanded", "true")
+  stopGameplayForChat()
+  renderChatHistory(true)
+  renderChatPeek()
+  queueMicrotask(() => chatInput.focus())
+}
+
+function closeChatDrawer(restoreFocus = true): void {
+  fullChatComposing = false
+  fullChatCompositionEndedAt = -Infinity
+  chatState.setDrawerOpen(false)
+  chatDrawer.classList.add("hidden")
+  chatDrawer.setAttribute("aria-hidden", "true")
+  chatButton.setAttribute("aria-expanded", "false")
+  chatNewMessages.classList.add("hidden")
+  renderChatChrome()
+  renderChatPeek()
+  if (restoreFocus && running) queueMicrotask(() => renderer.domElement.focus())
+}
+
+function sendChatInput(input: HTMLInputElement, channel: ChatChannel): boolean {
+  const text = truncateChatInput(input.value.trim())
+  if (!text) return false
+  multiplayer.sendChat(channel, text)
+  input.value = ""
+  return true
 }
 
 function handleInteraction(): void {
@@ -3906,6 +4254,60 @@ for (const select of [publicHubTarget, publicHubSize]) select.addEventListener("
 })
 publicHubEmotes.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubEmote(button.dataset.hubEmote as "wave" | "cheer" | "bow")))
 publicHubPings.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubPing(button.dataset.hubPing as "regroup" | "target")))
+chatButton.addEventListener("click", () => {
+  if (!isModalOpen()) openChatDrawer()
+})
+closeChatButton.addEventListener("click", () => closeChatDrawer())
+chatTabs.forEach((tab) => tab.addEventListener("click", () => {
+  const channel = tab.dataset.chatChannel as ChatChannel
+  if (!chatState.selectChannel(channel)) return
+  chatState.markRead(channel)
+  renderChatHistory(true)
+  chatInput.focus()
+}))
+chatNewMessages.addEventListener("click", () => {
+  chatLog.scrollTop = chatLog.scrollHeight
+  chatState.markRead(chatState.activeChannel)
+  chatNewMessages.classList.add("hidden")
+  renderChatBadges()
+  chatInput.focus()
+})
+chatLog.addEventListener("scroll", () => {
+  if (!chatLogIsNearBottom()) return
+  chatState.markRead(chatState.activeChannel)
+  chatNewMessages.classList.add("hidden")
+  renderChatBadges()
+})
+quickChatForm.addEventListener("submit", (event) => {
+  event.preventDefault()
+  if (quickChatComposing || performance.now() - quickChatCompositionEndedAt < 40 || !quickChatActiveChannel) return
+  if (sendChatInput(quickChatInput, quickChatActiveChannel)) closeQuickChat()
+})
+quickChatInput.addEventListener("compositionstart", () => { quickChatComposing = true; quickChatCompositionEndedAt = -Infinity })
+quickChatInput.addEventListener("compositionend", () => { quickChatComposing = false; quickChatCompositionEndedAt = performance.now() })
+quickChatInput.addEventListener("input", () => { quickChatInput.value = truncateChatInput(quickChatInput.value) })
+quickChatInput.addEventListener("keydown", (event) => {
+  event.stopPropagation()
+  if (event.key === "Escape" && !event.isComposing) {
+    event.preventDefault()
+    closeQuickChat()
+  } else if (event.key === "Enter" && (event.isComposing || event.keyCode === 229 || quickChatComposing)) event.preventDefault()
+})
+chatForm.addEventListener("submit", (event) => {
+  event.preventDefault()
+  if (fullChatComposing || performance.now() - fullChatCompositionEndedAt < 40 || !chatState.isAvailable(chatState.activeChannel)) return
+  sendChatInput(chatInput, chatState.activeChannel)
+})
+chatInput.addEventListener("compositionstart", () => { fullChatComposing = true; fullChatCompositionEndedAt = -Infinity })
+chatInput.addEventListener("compositionend", () => { fullChatComposing = false; fullChatCompositionEndedAt = performance.now() })
+chatInput.addEventListener("input", () => { chatInput.value = truncateChatInput(chatInput.value) })
+chatInput.addEventListener("keydown", (event) => {
+  event.stopPropagation()
+  if (event.key === "Escape" && !event.isComposing) {
+    event.preventDefault()
+    closeChatDrawer()
+  } else if (event.key === "Enter" && (event.isComposing || event.keyCode === 229 || fullChatComposing)) event.preventDefault()
+})
 publicHubLeave.addEventListener("click", () => {
   multiplayer.leavePublicHub()
   window.setTimeout(() => multiplayer.close(), 80)
@@ -3915,6 +4317,12 @@ publicHubLeave.addEventListener("click", () => {
   publicHubIsLooking = false
   publicHubParticipantId = null
   publicHubPlayers = []
+  blockedPlayerIds.clear()
+  mutedPlayerIds.clear()
+  chatState.reset()
+  closeQuickChat(false)
+  closeChatDrawer(false)
+  renderChatChrome()
   publicHubPanel.classList.add("hidden")
   intro.classList.remove("closed")
   running = false
@@ -4102,6 +4510,20 @@ window.addEventListener("keydown", (event) => {
     renderBindingControls()
     return
   }
+  if (isChatCapturingInput()) {
+    if (event.code === "Escape") {
+      event.preventDefault()
+      if (quickChatActiveChannel) closeQuickChat()
+      else closeChatDrawer()
+    }
+    return
+  }
+  const chatHotkeyTarget = event.target === document.body || event.target === renderer.domElement
+  if (event.code === "Enter" && chatHotkeyTarget && running && roomConnected && !event.repeat && !event.isComposing && !isModalOpen()) {
+    event.preventDefault()
+    openQuickChat()
+    return
+  }
   const activePanel = !roleChoicePanel.classList.contains("hidden")
     ? roleChoicePanel
     : panelElements.find((panel) => !panel.classList.contains("hidden"))
@@ -4137,7 +4559,7 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("keyup", (event) => keys.delete(event.code))
 
 renderer.domElement.addEventListener("pointerdown", (event) => {
-  if (!running || isModalOpen() || isMobileSpectator()) return
+  if (!running || isModalOpen() || isMobileSpectator() || isChatCapturingInput()) return
   const buttonName = event.button === 1 ? "middle" : event.button === 2 ? "secondary" : "primary"
   const action = inputSettings.pointer[buttonName]
   if (action !== "move") {
@@ -4158,7 +4580,7 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   }
 })
 renderer.domElement.addEventListener("contextmenu", (event) => {
-  if (running) event.preventDefault()
+  if (running && !isChatCapturingInput()) event.preventDefault()
 })
 
 window.addEventListener("resize", () => {
@@ -4182,6 +4604,7 @@ renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sh
 renderBindingControls()
 applyInputSettings()
 updateMissionDebug()
+renderChatChrome()
 void refreshAccessPanel()
 for (const panel of panelElements) panel.setAttribute("aria-hidden", String(panel.classList.contains("hidden")))
 updateUI()

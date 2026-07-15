@@ -7,6 +7,7 @@ import { getProductAnalyticsConsent } from "./analytics-consent"
 import type { ClientDiagnostic } from "./client-diagnostics"
 import { CLIENT_BUILD_ID, refreshForBuildMismatch } from "./release"
 import type { RoomExperimentAssignment } from "../shared/experiments"
+import type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "../shared/chat"
 
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
@@ -17,6 +18,9 @@ export interface MultiplayerEvents {
   onHubWelcome?: (instanceId: string, participantId: string, capacity: number) => void
   onHubState?: (players: PublicHubPlayer[]) => void
   onExperiments?: (assignments: RoomExperimentAssignment[]) => void
+  onChatHistory?: (channel: ChatChannel, messages: ChatMessage[]) => void
+  onChatMessage?: (message: ChatMessage) => void
+  onChatError?: (channel: ChatChannel, code: ChatErrorCode, message: string, retryAfterMs?: number) => void
 }
 
 export class MultiplayerClient {
@@ -82,6 +86,14 @@ export class MultiplayerClient {
   reportHubPlayer(targetParticipantId: string, reason: "harassment" | "griefing" | "unsafe-name" | "cheating"): void { this.send({ type: "hub_report", targetParticipantId, reason }) }
   blockHubPlayer(targetParticipantId: string): void { this.send({ type: "hub_block", targetParticipantId }) }
   leavePublicHub(): void { this.send({ type: "hub_leave" }); this.hubSession = null }
+  sendChat(channel: ChatChannel, text: string): void { this.send({ type: "chat_send", channel, text }) }
+  reportChat(channel: ChatChannel, messageId: string, reason: ChatReportReason): void { this.send({ type: "chat_report", channel, messageId, reason }) }
+
+  stopMovement(): void {
+    this.sequence += 1
+    if (this.hubSession) this.send({ type: "hub_move", sequence: this.sequence, move: { x: 0, z: 0 } })
+    else this.send({ type: "input", sequence: this.sequence, move: { x: 0, z: 0 } })
+  }
 
   setReady(ready: boolean, expected?: { missionSlug: string; characterId: CharacterId }): void {
     this.send({
@@ -248,6 +260,9 @@ export class MultiplayerClient {
     }
     if (message.type === "hub_welcome") this.events.onHubWelcome?.(message.instanceId, message.participantId, message.capacity)
     if (message.type === "hub_state") this.events.onHubState?.(message.players)
+    if (message.type === "chat_history") this.events.onChatHistory?.(message.channel, message.messages)
+    if (message.type === "chat_message") this.events.onChatMessage?.(message.message)
+    if (message.type === "chat_error") this.events.onChatError?.(message.channel, message.code, message.message, message.retryAfterMs)
     if (message.type === "hub_band_ready" && this.pendingIdentity) {
       const identity = this.pendingIdentity
       this.hubSession = null
