@@ -58,7 +58,7 @@
       <button class="social-button" id="social-button" aria-label="Open friends and invitations">♥</button>
       <button class="safety-button" id="safety-button" aria-label="Open band safety">♢</button>
       <button class="settings-button" id="settings-button" aria-label="Open accessibility and controls">⚙</button>
-      <button class="chat-button hidden" id="chat-button" aria-label="Open chat" aria-haspopup="true" aria-controls="chat-drawer" aria-expanded="false">✎<b class="hidden" id="chat-unread-badge">0</b></button>
+      <button class="chat-button hidden" id="chat-button" aria-label="Open chat" aria-haspopup="dialog" aria-controls="chat-drawer" aria-expanded="false">✎<b class="hidden" id="chat-unread-badge">0</b></button>
       <div class="spectator-banner hidden" id="spectator-banner">MOBILE SPECTATOR · VIEW ONLY</div>
       <div class="prompt" id="prompt">Click the ground or use WASD to move</div>
       <div class="objective-pointer hidden" id="objective-pointer" aria-hidden="true"><i>▲</i><b id="objective-pointer-distance">0m</b></div>
@@ -70,14 +70,14 @@
         <small>ENTER SENDS · ESC CANCELS</small>
       </form>
     </div>
-    <aside class="chat-drawer hidden" id="chat-drawer" aria-hidden="true" aria-labelledby="chat-title">
+    <aside class="chat-drawer hidden" id="chat-drawer" role="dialog" aria-hidden="true" aria-labelledby="chat-title">
       <header>
         <div><span class="eyebrow">SHERWOOD COMMS</span><h2 id="chat-title">Trollbox</h2></div>
         <button id="close-chat" type="button" aria-label="Close chat">×</button>
       </header>
-      <nav class="chat-tabs" role="tablist" aria-label="Chat channels">
-        <button id="chat-tab-band" type="button" role="tab" aria-controls="chat-log" aria-selected="true" data-chat-channel="band">BAND <b class="hidden">0</b></button>
-        <button id="chat-tab-camp" type="button" role="tab" aria-controls="chat-log" aria-selected="false" data-chat-channel="camp" disabled>CAMP <b class="hidden">0</b></button>
+      <nav class="chat-tabs" aria-label="Chat channels">
+        <button id="chat-tab-band" type="button" aria-pressed="true" data-chat-channel="band">BAND <b class="hidden">0</b></button>
+        <button id="chat-tab-camp" type="button" aria-pressed="false" data-chat-channel="camp" disabled>CAMP <b class="hidden">0</b></button>
       </nav>
       <p class="chat-status" id="chat-status" role="status" aria-live="polite">Join a band or authenticated camp to chat.</p>
       <div class="chat-log-wrap">

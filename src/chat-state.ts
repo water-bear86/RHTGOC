@@ -11,18 +11,18 @@ export function truncateChatInput(value: string): string {
 interface StoredChatMessage {
   message: ChatMessage
   receivedAt: number | null
+  unread: boolean
 }
 
 interface ChannelState {
   available: boolean
   messages: StoredChatMessage[]
-  unread: number
 }
 
 const HISTORY_LIMITS: Record<ChatChannel, number> = { band: 50, camp: 100 }
 
 function emptyChannel(): ChannelState {
-  return { available: false, messages: [], unread: 0 }
+  return { available: false, messages: [] }
 }
 
 function orderedUnique(messages: readonly ChatMessage[]): ChatMessage[] {
@@ -41,7 +41,7 @@ export class ChatState {
 
   setAvailability(channel: ChatChannel, available: boolean): void {
     this.channels[channel].available = available
-    if (!available) this.channels[channel].unread = 0
+    if (!available) this.markRead(channel)
   }
 
   isAvailable(channel: ChatChannel): boolean {
@@ -55,8 +55,7 @@ export class ChatState {
       messages: orderedUnique(messages)
         .filter((message) => message.channel === channel)
         .slice(-limit)
-        .map((message) => ({ message, receivedAt: null })),
-      unread: 0,
+        .map((message) => ({ message, receivedAt: null, unread: false })),
     }
   }
 
@@ -64,10 +63,9 @@ export class ChatState {
     const channel = this.channels[message.channel]
     channel.available = true
     if (channel.messages.some((entry) => entry.message.id === message.id)) return false
-    channel.messages.push({ message, receivedAt })
+    channel.messages.push({ message, receivedAt, unread: !read })
     channel.messages.sort((left, right) => left.message.sequence - right.message.sequence || left.message.sentAt - right.message.sentAt)
     channel.messages.splice(0, Math.max(0, channel.messages.length - HISTORY_LIMITS[message.channel]))
-    if (!read) channel.unread += 1
     return true
   }
 
@@ -83,15 +81,23 @@ export class ChatState {
   }
 
   markRead(channel: ChatChannel): void {
-    this.channels[channel].unread = 0
+    for (const entry of this.channels[channel].messages) entry.unread = false
+  }
+
+  markPlayerRead(playerId: string): void {
+    for (const channel of CHAT_CHANNELS) {
+      for (const entry of this.channels[channel].messages) {
+        if (entry.message.sender.playerId === playerId) entry.unread = false
+      }
+    }
   }
 
   unread(channel: ChatChannel): number {
-    return this.channels[channel].unread
+    return this.channels[channel].messages.filter((entry) => entry.unread).length
   }
 
   totalUnread(): number {
-    return CHAT_CHANNELS.reduce((total, channel) => total + this.channels[channel].unread, 0)
+    return CHAT_CHANNELS.reduce((total, channel) => total + this.unread(channel), 0)
   }
 
   messages(channel: ChatChannel, hiddenPlayerIds: ReadonlySet<string> = new Set()): ChatMessage[] {
@@ -106,11 +112,23 @@ export class ChatState {
     hiddenPlayerIds: ReadonlySet<string> = new Set(),
     limit = 2,
   ): ChatMessage[] {
-    return this.channels[channel].messages
-      .filter((entry) => entry.receivedAt !== null && now - entry.receivedAt <= CHAT_PEEK_DURATION_MS)
+    return this.recentEntries(channel, now, hiddenPlayerIds, limit)
       .map((entry) => entry.message)
-      .filter((message) => !hiddenPlayerIds.has(message.sender.playerId))
-      .slice(-limit)
+  }
+
+  nextRecentExpiry(
+    channel: ChatChannel,
+    now: number,
+    hiddenPlayerIds: ReadonlySet<string> = new Set(),
+    limit = 2,
+  ): number | null {
+    let expiry: number | null = null
+    for (const entry of this.recentEntries(channel, now, hiddenPlayerIds, limit)) {
+      if (entry.receivedAt === null) continue
+      const candidate = entry.receivedAt + CHAT_PEEK_DURATION_MS
+      expiry = expiry === null ? candidate : Math.min(expiry, candidate)
+    }
+    return expiry
   }
 
   reset(channel?: ChatChannel): void {
@@ -121,5 +139,17 @@ export class ChatState {
       this.activeChannel = "band"
       this.drawerOpen = false
     }
+  }
+
+  private recentEntries(
+    channel: ChatChannel,
+    now: number,
+    hiddenPlayerIds: ReadonlySet<string>,
+    limit: number,
+  ): StoredChatMessage[] {
+    return this.channels[channel].messages
+      .filter((entry) => entry.receivedAt !== null && now - entry.receivedAt <= CHAT_PEEK_DURATION_MS)
+      .filter((entry) => !hiddenPlayerIds.has(entry.message.sender.playerId))
+      .slice(-limit)
   }
 }

@@ -143,7 +143,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .chat-tabs { display: grid; grid-template-columns: 1fr 1fr; padding: 0 18px; }
 .chat-tabs button { min-height: 39px; color: #f7f0d48c; background: #07120b66; border: 1px solid #f7f0d426; cursor: pointer; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
 .chat-tabs button + button { border-left: 0; }
-.chat-tabs button[aria-selected="true"] { color: var(--ink); background: var(--gold); }
+.chat-tabs button[aria-pressed="true"] { color: var(--ink); background: var(--gold); }
 .chat-tabs button:disabled { opacity: .42; cursor: default; }
 .chat-tabs b { min-width: 16px; height: 16px; margin-left: 4px; padding: 0 4px; display: inline-grid; place-items: center; color: #fff; background: var(--red); border-radius: 9px; font-size: 7px; }
 .chat-tabs b.hidden { display: none; }
@@ -449,6 +449,9 @@ body.high-contrast .wallet-dock, body.high-contrast .objective, body.high-contra
 body.high-contrast .board-state, body.high-contrast .panel dd, body.high-contrast .settings-note, body.high-contrast .intro p { color: #fff; }
 body.readable-text { font-size: 118%; }
 body.readable-text .objective strong, body.readable-text .prompt, body.readable-text .panel dd, body.readable-text .intro p { font-size: 1rem; }
+body.readable-text .chat-message p, body.readable-text .quick-chat input, body.readable-text .chat-composer input { font-size: 1rem; }
+body.readable-text .chat-message header b { font-size: .85rem; }
+body.readable-text .chat-message header span, body.readable-text .chat-status, body.readable-text .chat-rules, body.readable-text .quick-chat label, body.readable-text .quick-chat small, body.readable-text .chat-message-actions > button, body.readable-text .chat-message-report summary, body.readable-text .chat-message-report button { font-size: .75rem; }
 body.captions-off .toast { display: none; }
 body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; }
 

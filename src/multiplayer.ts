@@ -86,7 +86,7 @@ export class MultiplayerClient {
   reportHubPlayer(targetParticipantId: string, reason: "harassment" | "griefing" | "unsafe-name" | "cheating"): void { this.send({ type: "hub_report", targetParticipantId, reason }) }
   blockHubPlayer(targetParticipantId: string): void { this.send({ type: "hub_block", targetParticipantId }) }
   leavePublicHub(): void { this.send({ type: "hub_leave" }); this.hubSession = null }
-  sendChat(channel: ChatChannel, text: string): void { this.send({ type: "chat_send", channel, text }) }
+  sendChat(channel: ChatChannel, text: string): boolean { return this.send({ type: "chat_send", channel, text }) }
   reportChat(channel: ChatChannel, messageId: string, reason: ChatReportReason): void { this.send({ type: "chat_report", channel, messageId, reason }) }
 
   stopMovement(): void {
@@ -288,8 +288,14 @@ export class MultiplayerClient {
     }
   }
 
-  private send(message: unknown): void {
-    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message))
+  private send(message: unknown): boolean {
+    if (this.socket?.readyState !== WebSocket.OPEN) return false
+    try {
+      this.socket.send(JSON.stringify(message))
+      return true
+    } catch {
+      return false
+    }
   }
 
   private scheduleReconnect(): void {

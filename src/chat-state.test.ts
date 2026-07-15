@@ -64,6 +64,25 @@ describe("client chat state", () => {
     expect(state.messages("camp", new Set(["blocked"])).map(({ id }) => id)).toEqual(["visible"])
   })
 
+  it("clears unread state for messages hidden by a new mute", () => {
+    const state = new ChatState()
+    state.append(message("muted", "band", 1, "muted"), 1_000, false)
+    state.append(message("visible", "band", 2, "visible"), 1_100, false)
+
+    state.markPlayerRead("muted")
+
+    expect(state.unread("band")).toBe(1)
+  })
+
+  it("expires a peek against the oldest currently visible arrival", () => {
+    const state = new ChatState()
+    state.append(message("older", "band", 1), 1_000, false)
+    state.append(message("newer", "band", 2), 6_000, false)
+
+    expect(state.nextRecentExpiry("band", 6_500)).toBe(1_000 + CHAT_PEEK_DURATION_MS)
+    expect(state.nextRecentExpiry("band", 1_000 + CHAT_PEEK_DURATION_MS + 1)).toBe(6_000 + CHAT_PEEK_DURATION_MS)
+  })
+
   it("refuses unavailable channel selection and clears availability on reset", () => {
     const state = new ChatState()
     expect(state.selectChannel("camp")).toBe(false)
