@@ -244,6 +244,8 @@ describe("opt-in public campfire", () => {
     if (!result.ok) throw new Error("expected report evidence")
     expect(result.evidence.context.surroundingMessages.map((message) => message.text)).toEqual(["two", "three", "five", "six"])
     expect(hub.reportCampChat(reporter.id, reported.message.id, "griefing", 18_000)).toMatchObject({ ok: false, code: "DUPLICATE" })
+    hub.releaseCampChatReport(reporter.id, reported.message.id)
+    expect(hub.reportCampChat(reporter.id, reported.message.id, "griefing", 18_001)).toMatchObject({ ok: true })
     expect(hub.reportCampChat(target.id, reported.message.id, "harassment", 18_000)).toMatchObject({ ok: false, code: "FORBIDDEN" })
     expect(hub.reportCampChat(reporter.id, sent[1].ok ? sent[1].message.id : "", "griefing", 3_100 + PUBLIC_HUB_CHAT_MAX_AGE_MS + 1)).toMatchObject({ ok: false, code: "MESSAGE_NOT_FOUND" })
   })

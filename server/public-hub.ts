@@ -59,12 +59,16 @@ export class PublicHubService {
   readonly instances = new Map<string, HubInstance>()
   readonly reports: Array<{ at: number; reporterUserId: string; targetUserId: string; reason: string }> = []
   readonly blockedPairs = new Set<string>()
-  readonly campChatEnabled: boolean
+  campChatEnabled: boolean
   private readonly participants = new Map<string, HubParticipant>()
   private readonly participantInstanceIds = new Map<string, string>()
 
   constructor(options: PublicHubServiceOptions = {}) {
     this.campChatEnabled = options.campChatEnabled === true
+  }
+
+  setCampChatEnabled(enabled: boolean): void {
+    this.campChatEnabled = enabled
   }
 
   join(socket: WebSocket, userId: string, displayName: string, characterId: CharacterId, friendUserIds: string[], now = Date.now(), blockedUserIds: string[] = []): HubParticipant {
@@ -256,6 +260,12 @@ export class PublicHubService {
     reporter.lastActivityAt = now
     reporter.reportedChatMessageIds.add(messageId)
     return { ok: true, evidence }
+  }
+
+  releaseCampChatReport(reporterId: string, messageId: string): void {
+    const reporter = this.participant(reporterId)
+    if (!reporter?.reportedChatMessageIds.delete(messageId)) return
+    reporter.lastReportAt = 0
   }
 
   formBand(participantId: string, now = Date.now()): HubParticipant[] | null {

@@ -41,11 +41,15 @@ if (invalid.code !== "INVALID_MESSAGE") throw new Error(`Unexpected invalid-mess
 const welcomeResponse = waitForMessage(original, (message) => message.type === "welcome")
 original.send(JSON.stringify({ type: "create_room", ...handshake, displayName: "Failure Robin", characterId: "robin" }))
 const welcome = await welcomeResponse
+const sentChatResponse = waitForMessage(original, (message) => message.type === "chat_message" && message.message?.channel === "band")
+original.send(JSON.stringify({ type: "chat_send", channel: "band", text: "Hold the oak line" }))
+const sentChat = await sentChatResponse
 original.terminate()
 await new Promise((resolve) => setTimeout(resolve, 150))
 
 const reconnected = await connect()
 const reconnectResponse = waitForMessage(reconnected, (message) => message.type === "welcome")
+const historyResponse = waitForMessage(reconnected, (message) => message.type === "chat_history" && message.channel === "band")
 reconnected.send(JSON.stringify({
   type: "join_room",
   ...handshake,
@@ -54,11 +58,27 @@ reconnected.send(JSON.stringify({
   characterId: "robin",
   reconnectToken: welcome.reconnectToken,
 }))
-const reconnectWelcome = await reconnectResponse
+const [reconnectWelcome, history] = await Promise.all([reconnectResponse, historyResponse])
 if (reconnectWelcome.playerId !== welcome.playerId) throw new Error("Reconnect created a new player identity")
+if (history.messages?.at(-1)?.id !== sentChat.message.id) throw new Error("Reconnect did not restore bounded Band chat history")
 
 const pongResponse = waitForMessage(reconnected, (message) => message.type === "pong")
 reconnected.send(JSON.stringify({ type: "ping", clientTime: Date.now() }))
 await pongResponse
+
+const oversized = await connect()
+const oversizedClosed = new Promise((resolve, reject) => {
+  const timeout = setTimeout(() => reject(new Error("Oversized WebSocket payload was not rejected")), 5_000)
+  oversized.once("close", (code) => { clearTimeout(timeout); resolve(code) })
+  oversized.once("error", () => undefined)
+})
+oversized.send(JSON.stringify({ type: "chat_send", channel: "band", text: "x".repeat(33_000) }))
+const oversizedCloseCode = await oversizedClosed
+if (oversizedCloseCode !== 1009) throw new Error(`Unexpected oversized-payload close code: ${oversizedCloseCode}`)
+
+const survivorPongResponse = waitForMessage(reconnected, (message) => message.type === "pong")
+reconnected.send(JSON.stringify({ type: "ping", clientTime: Date.now() }))
+await survivorPongResponse
 reconnected.close()
-process.stdout.write(`${JSON.stringify({ ok: true, endpoint, invalidMessageRejected: true, abruptDisconnectRecovered: true, identityPreserved: true })}\n`)
+
+process.stdout.write(`${JSON.stringify({ ok: true, endpoint, invalidMessageRejected: true, abruptDisconnectRecovered: true, identityPreserved: true, bandChatHistoryRestored: true, oversizedPayloadRejected: true, serverSurvivedOversizedPayload: true })}\n`)

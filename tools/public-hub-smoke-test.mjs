@@ -12,8 +12,23 @@ const users = new Map([
   ["Bearer token-a-header.payload.signature-long", "66778899-aabb-4cdd-8eef-001122334455"],
   ["Bearer token-b-header.payload.signature-long", "778899aa-bbcc-4dee-8ff0-112233445566"],
 ])
+let persistedChatReport = null
 
-const authServer = createServer((request, response) => {
+const authServer = createServer(async (request, response) => {
+  if (request.url?.startsWith("/rest/v1/rpc/")) {
+    const chunks = []
+    for await (const chunk of request) chunks.push(Buffer.from(chunk))
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")
+    const rpc = request.url.split("/").at(-1)
+    if (rpc === "record_public_hub_chat_report") persistedChatReport = body
+    let result = true
+    if (rpc === "load_current_sherwood_campaign") result = null
+    else if (rpc === "get_accepted_friend_ids" || rpc === "get_public_hub_blocked_ids") result = []
+    else if (rpc === "prune_public_hub_chat_reports") result = 0
+    response.writeHead(200, { "Content-Type": "application/json" })
+    response.end(JSON.stringify(result))
+    return
+  }
   const id = users.get(request.headers.authorization ?? "")
   response.writeHead(id ? 200 : 401, { "Content-Type": "application/json" })
   response.end(JSON.stringify(id ? { id } : { error: "invalid" }))
@@ -25,7 +40,15 @@ await new Promise((resolve, reject) => {
 
 const roomServer = spawn("npm", ["run", "server"], {
   cwd: new URL("..", import.meta.url),
-  env: { ...process.env, PORT: String(roomPort), SUPABASE_URL: `http://127.0.0.1:${authPort}`, SUPABASE_PUBLISHABLE_KEY: "test", OPS_ADMIN_SECRET: "test" },
+  env: {
+    ...process.env,
+    PORT: String(roomPort),
+    SUPABASE_URL: `http://127.0.0.1:${authPort}`,
+    SUPABASE_PUBLISHABLE_KEY: "test",
+    SUPABASE_SECRET_KEY: "test-service-secret",
+    PUBLIC_CAMP_CHAT_ENABLED: "true",
+    OPS_ADMIN_SECRET: "test",
+  },
   stdio: ["ignore", "pipe", "pipe"],
 })
 let roomLogs = ""
@@ -76,9 +99,19 @@ try {
   const second = await connect(); sockets.push(second)
   const firstWelcomePromise = waitForMessage(first, (message) => message.type === "hub_welcome")
   const secondWelcomePromise = waitForMessage(second, (message) => message.type === "hub_welcome")
+  const firstChatHistoryPromise = waitForMessage(first, (message) => message.type === "chat_history" && message.channel === "camp")
+  const secondChatHistoryPromise = waitForMessage(second, (message) => message.type === "chat_history" && message.channel === "camp")
   first.send(JSON.stringify({ type: "join_public_hub", ...handshake, displayName: "Oakheart", characterId: "robin", accessToken: "token-a-header.payload.signature-long" }))
   second.send(JSON.stringify({ type: "join_public_hub", ...handshake, displayName: "Willow", characterId: "marian", accessToken: "token-b-header.payload.signature-long" }))
   const [firstWelcome, secondWelcome] = await Promise.all([firstWelcomePromise, secondWelcomePromise])
+  await Promise.all([firstChatHistoryPromise, secondChatHistoryPromise])
+
+  const receivedChatPromise = waitForMessage(second, (message) => message.type === "chat_message" && message.message?.channel === "camp")
+  first.send(JSON.stringify({ type: "chat_send", channel: "camp", text: "Meet by the public fire" }))
+  const receivedChat = await receivedChatPromise
+  second.send(JSON.stringify({ type: "chat_report", channel: "camp", messageId: receivedChat.message.id, reason: "griefing" }))
+  for (let attempt = 0; attempt < 50 && !persistedChatReport; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20))
+  if (persistedChatReport?.p_message_id !== receivedChat.message.id) throw new Error("Camp report did not persist server-resolved message evidence")
 
   const firstAssignmentPromise = waitForMessage(first, (message) => message.type === "hub_band_ready")
   const secondAssignmentPromise = waitForMessage(second, (message) => message.type === "hub_band_ready")
@@ -100,7 +133,7 @@ try {
   second.send(JSON.stringify({ type: "select_character", characterId: "marian" }))
   const finalState = await confirmedState
 
-  process.stdout.write(`${JSON.stringify({ ok: true, automaticAssignment: true, sameInstance: firstWelcome.instanceId === secondWelcome.instanceId, capacity: firstWelcome.capacity, samePrivateRoom: firstAssignment.roomCode === secondAssignment.roomCode, oneLeader: Number(firstAssignment.leader) + Number(secondAssignment.leader) === 1, privateRoomPlayers: finalState.players.length, rolesConfirmedInRoom: finalState.players.every((player) => player.roleConfirmed) })}\n`)
+  process.stdout.write(`${JSON.stringify({ ok: true, automaticAssignment: true, campChatDelivered: true, campReportPersisted: true, sameInstance: firstWelcome.instanceId === secondWelcome.instanceId, capacity: firstWelcome.capacity, samePrivateRoom: firstAssignment.roomCode === secondAssignment.roomCode, oneLeader: Number(firstAssignment.leader) + Number(secondAssignment.leader) === 1, privateRoomPlayers: finalState.players.length, rolesConfirmedInRoom: finalState.players.every((player) => player.roleConfirmed) })}\n`)
 } finally {
   for (const socket of sockets) socket.close()
   roomServer.kill("SIGTERM")
