@@ -146,7 +146,7 @@ The first social layer should include:
 - Downed state, rescue, and revival.
 - Shared mission results and redistribution vote.
 
-Text and voice chat are not required for the first multiplayer milestone. The game should remain understandable through movement, pings, animation, and contextual actions.
+Text and voice chat were not required for the first multiplayer milestone. The game remains understandable through movement, pings, animation, and contextual actions. The later bounded text layer now supports the current private Band and authenticated public-camp instance, but it must not become global discovery infrastructure or replace readable cooperative verbs.
 
 ### Global leaderboard
 
@@ -293,7 +293,7 @@ Social features must launch with:
 - Safe default display names and validated band names.
 - Server-side enforcement for gameplay actions and rewards.
 
-Public text chat, voice chat, trading, and user-generated content require separate moderation plans before implementation.
+Bounded private Band and authenticated instance-local Camp text chat follow the approved moderation contract in `docs/design/typed-chat.md`. Global or cross-instance text, direct messages, voice chat, trading, and user-generated content require separate moderation plans before implementation.
 
 ## 15. Success metrics
 
@@ -334,7 +334,7 @@ M9 is a planning milestone, not active feature implementation. Its entry gate is
 - Public marketplace or player trading.
 - Tokenized items, open trading, or blockchain-powered gameplay progression beyond the Robinhood Chain access pass.
 - User-generated levels or objects.
-- Public voice or unrestricted text chat.
+- Public voice or unrestricted, global, cross-instance, or direct-message text chat.
 - Large guild administration systems.
 - Pay-to-win progression.
 
