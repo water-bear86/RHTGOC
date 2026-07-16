@@ -3,19 +3,20 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js"
 import "./style.css"
 import {
+  acquireBowTarget,
   activateSignature,
+  beginSoloBowDraw,
   calculateMastery,
   DELIVERY_TARGET,
   createInitialState,
   getContextPrompt,
   interact,
-  shoot,
   updateSimulation,
   type CharacterId,
   type Vec2,
 } from "./simulation"
 import { loadLeaderboard, loadLeaderboardSeasons, submitLeaderboardEntry, subscribeToLeaderboard, type LeaderboardKind } from "./leaderboard"
-import { MultiplayerClient } from "./multiplayer"
+import { classifyBowPredictionSnapshot, MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
 import {
@@ -92,6 +93,7 @@ import { buildTutorialPlan, type TutorialLesson, type TutorialPlan } from "./tut
 import { completeTutorialPlan, loadTutorialProgress, saveTutorialProgress } from "./tutorial-progress"
 import type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "../shared/chat"
 import { ChatState, truncateChatInput } from "./chat-state"
+import { BOW_TOTAL_SECONDS, BOW_TOTAL_TICKS, hasBowMovement, type BowActionSnapshot } from "../shared/archery"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
@@ -431,7 +433,6 @@ interface RemoteView {
   action: HeroAction
   actionStartedAt: number
   actionUntil: number
-  lastArrows: number
   lastSignatureCooldown: number
 }
 
@@ -494,7 +495,9 @@ let heroAttackUntil = 0
 let heroSignatureUntil = 0
 let heroAttackStartedAt = 0
 let heroSignatureStartedAt = 0
-let pendingLocalShot: { releaseAt: number; multiplayer: boolean } | null = null
+let pendingLocalShot: { releaseAt: number; requestId: number | null; accepted: boolean; cancelled: boolean } | null = null
+let localServerBowActionSeen = false
+let localBowActionSuppressed = false
 
 function beginLocalHeroAction(action: Exclude<HeroAction, "idle">): void {
   const now = clock.elapsedTime
@@ -520,6 +523,69 @@ function beginRemoteHeroAction(
   remote.actionUntil = startedAt + HERO_ACTION_DURATIONS[action]
 }
 
+function bowActionProgress(action: BowActionSnapshot, tick: number): number {
+  return THREE.MathUtils.clamp((tick - action.startedAtTick) / BOW_TOTAL_TICKS, 0, 1)
+}
+
+function reconcileRemoteBowAction(remote: RemoteView, action: BowActionSnapshot | null, tick: number): void {
+  if (!action) {
+    if (remote.action === "attack") {
+      remote.action = "idle"
+      remote.actionStartedAt = 0
+      remote.actionUntil = 0
+    }
+    return
+  }
+  const progress = bowActionProgress(action, tick)
+  const now = clock.elapsedTime
+  const startedAt = now - HERO_ACTION_DURATIONS.attack * progress
+  if (remote.action !== "attack" || Math.abs(remote.actionStartedAt - startedAt) > 0.08) {
+    remote.action = "attack"
+    remote.actionStartedAt = startedAt
+  }
+  remote.actionUntil = startedAt + HERO_ACTION_DURATIONS.attack
+}
+
+function reconcileLocalBowAction(action: BowActionSnapshot | null, tick: number): void {
+  const decision = classifyBowPredictionSnapshot(action?.phase ?? null, {
+    accepted: pendingLocalShot?.accepted === true,
+    awaitingAck: pendingLocalShot !== null && pendingLocalShot.requestId !== null && !pendingLocalShot.accepted,
+    serverActionSeen: localServerBowActionSeen,
+    suppressed: localBowActionSuppressed,
+  })
+  if (!action) {
+    if (decision === "wait") return
+    localServerBowActionSeen = false
+    localBowActionSuppressed = false
+    heroAttackStartedAt = 0
+    heroAttackUntil = 0
+    pendingLocalShot = null
+    return
+  }
+
+  if (decision === "suppress-draw") {
+    localServerBowActionSeen = true
+    if (pendingLocalShot) pendingLocalShot.accepted = true
+    return
+  }
+
+  localBowActionSuppressed = false
+  localServerBowActionSeen = true
+  const progress = bowActionProgress(action, tick)
+  heroAttackStartedAt = clock.elapsedTime - HERO_ACTION_DURATIONS.attack * progress
+  heroAttackUntil = heroAttackStartedAt + HERO_ACTION_DURATIONS.attack
+  if (action.phase === "drawing") {
+    pendingLocalShot = {
+      releaseAt: heroAttackStartedAt + HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS,
+      requestId: pendingLocalShot?.requestId ?? null,
+      accepted: true,
+      cancelled: false,
+    }
+  } else {
+    pendingLocalShot = null
+  }
+}
+
 function ensureRemoteHeroAction(
   remote: RemoteView,
   action: Exclude<HeroAction, "idle">,
@@ -535,6 +601,9 @@ function resetLocalHeroActions(): void {
   heroSignatureStartedAt = 0
   heroSignatureUntil = 0
   pendingLocalShot = null
+  localServerBowActionSeen = false
+  localBowActionSuppressed = false
+  state.bowAction = null
 }
 
 function resetMissionRuntimeState(): void {
@@ -1270,6 +1339,7 @@ const multiplayer = new MultiplayerClient({
     if (localPlayer) {
       if (localPlayer.characterId !== selectedCharacter) selectLocalCharacter(localPlayer.characterId, false)
       state.player.health = localPlayer.health
+      state.bowCooldown = localPlayer.bowCooldown
       if (phase === "lobby") state.player.position = { ...localPlayer.position }
     }
     readyButton.textContent = localReady ? "NOT READY" : "READY UP"
@@ -1302,7 +1372,7 @@ const multiplayer = new MultiplayerClient({
       if (enteringMission) queueMicrotask(() => renderer.domElement.focus())
     }
   },
-  onSnapshot: (_tick, players, mission) => {
+  onSnapshot: (tick, players, mission) => {
     const receivedAt = performance.now()
     if (lastDiagnosticSnapshotAt > 0 && receivedAt - lastDiagnosticSnapshotAt >= 1_500) void diagnosticReporter?.report("snapshot_desync")
     lastDiagnosticSnapshotAt = receivedAt
@@ -1313,16 +1383,17 @@ const multiplayer = new MultiplayerClient({
         state.player.health = player.health
         state.player.arrows = player.arrows
         state.player.loot = player.loot
+        state.bowCooldown = player.bowCooldown
         state.player.signatureCooldown = player.signatureCooldown
         localDownedFor = player.downedFor
+        reconcileLocalBowAction(player.bowAction, tick)
       } else {
         const remote = remoteViews.get(player.id)
         remote?.snapshots.push(player.position, receivedAt)
         if (remote) {
           remote.downedFor = player.downedFor
-          if (player.arrows < remote.lastArrows) beginRemoteHeroAction(remote, "attack", HERO_ATTACK_RELEASE_PROGRESS)
-          if (player.signatureCooldown > remote.lastSignatureCooldown + 0.25) beginRemoteHeroAction(remote, "signature")
-          remote.lastArrows = player.arrows
+          reconcileRemoteBowAction(remote, player.bowAction, tick)
+          if (!player.bowAction && player.signatureCooldown > remote.lastSignatureCooldown + 0.25) beginRemoteHeroAction(remote, "signature")
           remote.lastSignatureCooldown = player.signatureCooldown
         }
       }
@@ -1335,6 +1406,20 @@ const multiplayer = new MultiplayerClient({
     renderSafetyPanel(currentRoomPlayers)
     applyMissionSnapshot(mission)
   },
+  onActionResult: (requestId, action, accepted) => {
+    if (action !== "shoot" || pendingLocalShot?.requestId !== requestId) return
+    if (accepted) {
+      pendingLocalShot.accepted = true
+      return
+    }
+    const wasCancelled = pendingLocalShot.cancelled
+    pendingLocalShot = null
+    localServerBowActionSeen = false
+    localBowActionSuppressed = false
+    heroAttackStartedAt = 0
+    heroAttackUntil = 0
+    if (!wasCancelled) showToast("Bow not ready")
+  },
   onError: (message) => {
     if (pendingRoomSelection) {
       pendingRoomSelection = false
@@ -1346,6 +1431,7 @@ const multiplayer = new MultiplayerClient({
   },
   onConnection: (connected) => {
     roomConnected = connected
+    if (!connected && multiplayerActive) resetLocalHeroActions()
     lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
     if (inHub) renderHub()
     if (!connected) closeQuickChat(false)
@@ -1408,8 +1494,8 @@ function hubPlayerAsRoomPlayer(player: PublicHubPlayer): RoomPlayer {
     id: player.id, displayName: player.displayName, characterId: player.characterId, loadoutId: "balanced", ready: player.looking, connected: true,
     roleConfirmed: true,
     bandRole: null, bandInvitePending: false,
-    health: 3, arrows: 0, loot: 0, downedFor: 0, signatureCooldown: 0, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0, trapHits: 0, sabotageCount: 0,
-    position: { ...player.position }, lastInputSequence: 0,
+    health: 3, arrows: 0, loot: 0, downedFor: 0, bowCooldown: 0, signatureCooldown: 0, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0, trapHits: 0, sabotageCount: 0,
+    position: { ...player.position }, lastInputSequence: 0, bowAction: null,
   }
 }
 
@@ -2038,7 +2124,7 @@ function refreshControlCopy(): void {
   const key = inputSettings.keyboard
   helpMove.textContent = `${keyLabel(key.moveUp)} / ${keyLabel(key.moveLeft)} / ${keyLabel(key.moveDown)} / ${keyLabel(key.moveRight)} moves by perspective · ${keyLabel(key.cameraLeft)} / ${keyLabel(key.cameraRight)} rotates the camera 90°`
   helpInteract.textContent = `${keyLabel(key.interact)} near the cart or village fire`
-  helpFire.textContent = `${keyLabel(key.fire)} stuns the nearest guard in range`
+  helpFire.textContent = `Press ${keyLabel(key.fire)} once while standing still · moving during the draw cancels`
   helpSignature.textContent = `${keyLabel(key.signature)} uses Twin Shot, Marian's Veil, Oak Sweep, or Much's Road Snare`
   signatureKeyElement.textContent = keyLabel(key.signature)
   helpSignals.textContent = `${keyLabel(key.pingDanger)} / ${keyLabel(key.pingTarget)} / ${keyLabel(key.pingRoute)} / ${keyLabel(key.pingLoot)} / ${keyLabel(key.pingRegroup)} place symbol-coded signals`
@@ -2047,7 +2133,7 @@ function refreshControlCopy(): void {
     const action = label.dataset.signalKey as "pingDanger" | "pingTarget" | "pingRoute" | "pingLoot" | "pingRegroup"
     label.textContent = keyLabel(key[action])
   }
-  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE · ENTER CHAT`
+  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} STAND & FIRE · ${keyLabel(key.signature)} SIGNATURE · ENTER CHAT`
   missionPrompt = missionPromptForPhase(currentMissionPhase)
 }
 
@@ -3152,11 +3238,9 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
         existing.fallback = createCharacter(player.characterId)
         existing.characterId = player.characterId
         existing.view.add(existing.fallback)
-        existing.lastArrows = player.arrows
         existing.lastSignatureCooldown = player.signatureCooldown
       }
       if (!multiplayerActive) {
-        existing.lastArrows = player.arrows
         existing.lastSignatureCooldown = player.signatureCooldown
       }
       continue
@@ -3176,7 +3260,6 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
       action: "idle",
       actionStartedAt: 0,
       actionUntil: 0,
-      lastArrows: player.arrows,
       lastSignatureCooldown: player.signatureCooldown,
     }
     remote.snapshots.push(player.position, performance.now())
@@ -3568,17 +3651,59 @@ function fireArrow(): void {
     showToast("Weapons stay lowered at the campfire")
     return
   }
+  clickTarget = null
+  destinationMarker.visible = false
+  if (multiplayerActive && !roomConnected) {
+    showToast("RECONNECTING — BOW LOWERED")
+    return
+  }
+  if (clock.elapsedTime < heroSignatureUntil) {
+    showToast("Finish your signature first")
+    return
+  }
   if (clock.elapsedTime < heroAttackUntil || pendingLocalShot) return
   if (state.player.arrows <= 0) {
     showToast("Your quiver is empty")
     return
   }
+  if (state.bowCooldown > 0) {
+    showToast(`Bow ready in ${Math.max(1, Math.ceil(state.bowCooldown))}s`)
+    return
+  }
   if (state.won || state.lost || localDownedFor > 0) return
+  const move = getMoveInput()
+  if (hasBowMovement(move)) {
+    showToast("STAND STILL TO DRAW")
+    return
+  }
+  if (acquireBowTarget(state) === null) {
+    showToast("No guard in range")
+    return
+  }
 
   beginLocalHeroAction("attack")
-  pendingLocalShot = {
-    releaseAt: heroAttackStartedAt + HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS,
-    multiplayer: multiplayerActive,
+  if (multiplayerActive) {
+    localBowActionSuppressed = false
+    const requestId = multiplayer.sendAction("shoot")
+    if (requestId === null) {
+      heroAttackStartedAt = 0
+      heroAttackUntil = 0
+      showToast("Connection lost — bow not fired")
+      return
+    }
+    pendingLocalShot = {
+      releaseAt: heroAttackStartedAt + HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS,
+      requestId,
+      accepted: false,
+      cancelled: false,
+    }
+    return
+  }
+  const result = beginSoloBowDraw(state, move)
+  if (result !== "started") {
+    heroAttackStartedAt = 0
+    heroAttackUntil = 0
+    showToast(result === "moving" ? "STAND STILL TO DRAW" : result === "no-target" ? "No guard in range" : "Bow not ready")
   }
 }
 
@@ -3593,23 +3718,24 @@ function createArrowEffect(guardId: number): void {
   arrowEffects.push({ line, age: 0 })
 }
 
-function commitPendingLocalShot(elapsed: number): void {
+function updatePendingMultiplayerShot(elapsed: number, move: Vec2): void {
   const pending = pendingLocalShot
-  if (!pending || elapsed < pending.releaseAt) return
-  pendingLocalShot = null
-  if (localDownedFor > 0 || state.won || state.lost) return
-  if (pending.multiplayer) {
-    multiplayer.sendAction("shoot")
+  if (!pending) return
+  if (localDownedFor > 0 || state.won || state.lost) {
+    pendingLocalShot = null
+    localBowActionSuppressed = false
+    heroAttackStartedAt = 0
+    heroAttackUntil = 0
     return
   }
-
-  const guardId = shoot(state)
-  if (guardId === null) {
-    showToast(state.player.arrows === 0 ? "Your quiver is empty" : "No guard in range")
-    return
-  }
-  createArrowEffect(guardId)
-  showToast("Guard stunned")
+  if (pending.cancelled) return
+  if (elapsed >= pending.releaseAt) return
+  if (!hasBowMovement(move)) return
+  pending.cancelled = true
+  localBowActionSuppressed = true
+  heroAttackStartedAt = 0
+  heroAttackUntil = 0
+  showToast("STAND STILL TO DRAW")
 }
 
 function showVanguardImpact(playerId?: string): void {
@@ -3630,6 +3756,10 @@ function showVanguardImpact(playerId?: string): void {
 function useSignature(): void {
   if (inHub) {
     showToast("Save your signature for the heist")
+    return
+  }
+  if (state.bowAction || pendingLocalShot || clock.elapsedTime < heroAttackUntil) {
+    showToast("Finish drawing the bow first")
     return
   }
   if (multiplayerActive) {
@@ -4040,10 +4170,13 @@ function syncViews(elapsed: number, dt: number): void {
   const playerMoving = Math.hypot(dx, dz) > 0.001
   if (playerMoving) playerView.rotation.y = Math.atan2(dx, dz)
   lastPlayerPosition = { ...player }
-  const playerAction: HeroAction = elapsed < heroSignatureUntil
-    ? "signature"
-    : elapsed < heroAttackUntil
-      ? "attack"
+  const soloBowActionProgress = !multiplayerActive && state.bowAction
+    ? THREE.MathUtils.clamp(state.bowAction.elapsedSeconds / BOW_TOTAL_SECONDS, 0, 1)
+    : null
+  const playerAction: HeroAction = soloBowActionProgress !== null || elapsed < heroAttackUntil
+    ? "attack"
+    : elapsed < heroSignatureUntil
+      ? "signature"
       : "idle"
   const playerActionStartedAt = playerAction === "signature"
     ? heroSignatureStartedAt
@@ -4054,7 +4187,9 @@ function syncViews(elapsed: number, dt: number): void {
     elapsed,
     moving: playerMoving,
     action: playerAction,
-    actionProgress: normalizedHeroActionProgress(elapsed, playerActionStartedAt, playerAction),
+    actionProgress: playerAction === "attack" && soloBowActionProgress !== null
+      ? soloBowActionProgress
+      : normalizedHeroActionProgress(elapsed, playerActionStartedAt, playerAction),
     downed: localDownedFor > 0,
     motionScale: renderProfile.motionScale,
   })
@@ -4177,7 +4312,6 @@ function animate(): void {
   const dt = Math.min(clock.getDelta(), 0.05)
   const elapsed = clock.elapsedTime
   pollControllerActions()
-  if (running) commitPendingLocalShot(elapsed)
   if (running && isModalOpen()) {
     syncViews(elapsed, dt)
     renderer.render(scene, camera)
@@ -4185,6 +4319,7 @@ function animate(): void {
   }
   if (running) {
     const move = getMoveInput()
+    if (multiplayerActive) updatePendingMultiplayerShot(elapsed, move)
     let events: string[] = []
     if (inPublicHub) {
       multiplayer.sendHubMove(move)
@@ -4207,10 +4342,22 @@ function animate(): void {
       multiplayer.sendInput(move)
       predictMultiplayerMovement(move, dt)
       state.stats.elapsedSeconds += dt
+      state.bowCooldown = Math.max(0, state.bowCooldown - dt)
     } else {
       events = updateSimulation(state, { move }, dt)
     }
     for (const event of events) {
+      if (event === "bow-cancelled") {
+        heroAttackStartedAt = 0
+        heroAttackUntil = 0
+        showToast("STAND STILL TO DRAW")
+      }
+      if (event === "bow-missed") showToast("SHOT MISSED — ARROW SPENT")
+      if (event.startsWith("bow-hit:")) {
+        const guardId = Number(event.slice("bow-hit:".length))
+        if (Number.isInteger(guardId)) createArrowEffect(guardId)
+        showToast("Guard stunned")
+      }
       if (event === "player-hit") showToast("The Sheriff strikes!")
       if (event === "cart-ready") showToast("A new tax cart has entered Sherwood")
       if (event === "objective-found") showToast("THE SHERIFF'S SHIPMENT — FOUND")

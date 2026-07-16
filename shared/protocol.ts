@@ -5,8 +5,10 @@ import type { RegionalMissionLayout } from "./regional-layout"
 import type { SherwoodSeasonSnapshot } from "./sherwood-season"
 import type { RoomExperimentAssignment } from "./experiments"
 import { ChatChannelSchema, ChatReportReasonSchema, ChatTextSchema, type ChatErrorCode, type ChatMessage } from "./chat"
+import type { BowActionSnapshot } from "./archery"
 
 export type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "./chat"
+export type { BowActionPhase, BowActionSnapshot } from "./archery"
 
 export const PROTOCOL_VERSION = protocolVersion.version
 export const MAX_ROOM_PLAYERS = 4
@@ -18,6 +20,8 @@ export const LoadoutIdSchema = z.enum(["balanced", "bandage", "smoke"])
 export type LoadoutId = z.infer<typeof LoadoutIdSchema>
 export const ContributionTypeSchema = z.enum(["supplies", "intelligence", "snare-kit", "safe-house"])
 export type ContributionType = z.infer<typeof ContributionTypeSchema>
+export const PlayerActionSchema = z.enum(["interact", "shoot", "signature", "revive", "transfer_loot"])
+export type PlayerAction = z.infer<typeof PlayerActionSchema>
 
 const DisplayNameSchema = z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9 _-]+$/)
 const RoomCodeSchema = z.string().trim().length(6).regex(/^[A-Z2-9]+$/)
@@ -99,7 +103,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("action"),
-    action: z.enum(["interact", "shoot", "signature", "revive", "transfer_loot"]),
+    action: PlayerActionSchema,
+    requestId: z.number().int().nonnegative().max(2_147_483_647).optional(),
     targetPlayerId: z.string().uuid().optional(),
   }),
   z.object({ type: z.literal("world_ping"), kind: z.enum(["danger", "target", "route", "loot", "regroup"]) }),
@@ -142,6 +147,7 @@ export interface RoomPlayer {
   arrows: number
   loot: number
   downedFor: number
+  bowCooldown: number
   signatureCooldown: number
   protectionScore: number
   crowdControl: number
@@ -150,6 +156,7 @@ export interface RoomPlayer {
   sabotageCount: number
   position: { x: number; z: number }
   lastInputSequence: number
+  bowAction: BowActionSnapshot | null
 }
 
 export interface MerryBandState {
@@ -371,7 +378,8 @@ export type ServerMessage =
   | { type: "chat_history"; channel: "band" | "camp"; messages: ChatMessage[] }
   | { type: "chat_message"; message: ChatMessage }
   | { type: "chat_error"; channel: "band" | "camp"; code: ChatErrorCode; message: string; retryAfterMs?: number }
-  | { type: "snapshot"; tick: number; experiments: RoomExperimentAssignment[]; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>; mission: MissionSnapshot }
+  | { type: "action_result"; requestId: number; action: PlayerAction; accepted: boolean }
+  | { type: "snapshot"; tick: number; experiments: RoomExperimentAssignment[]; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "bowCooldown" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount" | "bowAction">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string; buildId?: string }
 

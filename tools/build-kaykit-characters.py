@@ -55,8 +55,10 @@ EXPECTED_BONES = {
     "handslot.r",
 }
 
-ATTACK_SECONDS = 0.8
-ATTACK_RELEASE_NORMALIZED = 0.15
+ATTACK_SECONDS = 1.0
+ATTACK_DRAW_SECONDS = 0.6
+ROBIN_SIGNATURE_SECONDS = 0.8
+ROBIN_SIGNATURE_DRAW_SECONDS = 0.12
 EXPORT_FPS = 30
 BOW_ROTATION_XYZ = (-pi / 2.0, 0.0, -pi)
 BOW_SCALE = 0.91
@@ -73,6 +75,25 @@ class RoleSpec:
     target_hue_rgb: tuple[float, float, float] | None
     saturation_floor: float = 0.25
     join_into_body: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class BowClipTiming:
+    total_seconds: float
+    draw_seconds: float
+    use_complete_draw: bool
+
+
+ATTACK_TIMING = BowClipTiming(
+    total_seconds=ATTACK_SECONDS,
+    draw_seconds=ATTACK_DRAW_SECONDS,
+    use_complete_draw=True,
+)
+ROBIN_SIGNATURE_TIMING = BowClipTiming(
+    total_seconds=ROBIN_SIGNATURE_SECONDS,
+    draw_seconds=ROBIN_SIGNATURE_DRAW_SECONDS,
+    use_complete_draw=False,
+)
 
 
 ROLE_SPECS = (
@@ -276,11 +297,14 @@ def add_bow_attack_track(
     clip_name: str,
     draw_action: bpy.types.Action,
     release_action: bpy.types.Action,
+    timing: BowClipTiming,
 ) -> None:
     fps = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
-    attack_frames = ATTACK_SECONDS * fps
-    release_frame = attack_frames * ATTACK_RELEASE_NORMALIZED
-    release_target_frames = attack_frames - release_frame
+    total_frames = timing.total_seconds * fps
+    draw_target_frames = timing.draw_seconds * fps
+    release_target_frames = total_frames - draw_target_frames
+    if draw_target_frames <= 0.0 or release_target_frames <= 0.0:
+        raise RuntimeError(f"Invalid {clip_name} bow timing: {timing}")
 
     draw_source_start, draw_source_end = (
         float(value) for value in draw_action.frame_range
@@ -290,45 +314,63 @@ def add_bow_attack_track(
     )
     draw_source_frames = draw_source_end - draw_source_start
     release_source_frames = release_source_end - release_source_start
-    if draw_source_frames < release_frame or release_source_frames <= 0.0:
-        raise RuntimeError("Bow source actions are too short to assemble the Attack clip")
+    if draw_source_frames <= 0.0 or release_source_frames <= 0.0:
+        raise RuntimeError(f"Bow source actions are too short to assemble {clip_name}")
+
+    if timing.use_complete_draw:
+        selected_draw_start = draw_source_start
+        selected_draw_frames = draw_source_frames
+    else:
+        if draw_source_frames < draw_target_frames:
+            raise RuntimeError(
+                f"Bow draw source is too short to assemble the legacy {clip_name} clip"
+            )
+        selected_draw_start = draw_source_end - draw_target_frames
+        selected_draw_frames = draw_target_frames
 
     track = animation_data.nla_tracks.new()
     track.name = clip_name
 
-    # Only the final 15% of the draw is needed before the shot. At the 30 fps
-    # export rate this places the Draw -> Release seam after 3.6 frames.
     draw_strip = track.strips.new(f"{clip_name}_Draw", 0, draw_action)
     draw_strip.name = f"{clip_name}_Draw"
-    draw_strip.action_frame_start = draw_source_end - release_frame
+    draw_strip.action_frame_start = selected_draw_start
     draw_strip.action_frame_end = draw_source_end
     draw_strip.frame_start = 0.0
-    draw_strip.scale = 1.0
+    draw_strip.scale = draw_target_frames / selected_draw_frames
     draw_strip.extrapolation = "NOTHING"
 
     release_strip = track.strips.new(
         f"{clip_name}_Release",
-        ceil(release_frame),
+        ceil(draw_target_frames),
         release_action,
     )
     release_strip.name = f"{clip_name}_Release"
     release_strip.action_frame_start = release_source_start
     release_strip.action_frame_end = release_source_end
-    release_strip.frame_start = release_frame
+    release_strip.frame_start = draw_target_frames
     release_strip.scale = release_target_frames / release_source_frames
     release_strip.extrapolation = "NOTHING"
 
-    if abs(release_strip.frame_end - attack_frames) > 1e-4:
+    if abs(draw_strip.frame_end - draw_target_frames) > 1e-4:
         raise RuntimeError(
-            f"{clip_name} timing drifted: expected {attack_frames} frames, "
+            f"{clip_name} draw timing drifted: expected {draw_target_frames} frames, "
+            f"got {draw_strip.frame_end}"
+        )
+    if abs(release_strip.frame_end - total_frames) > 1e-4:
+        raise RuntimeError(
+            f"{clip_name} timing drifted: expected {total_frames} frames, "
             f"got {release_strip.frame_end}"
         )
     print(
         {
             "clip": clip_name,
-            "seconds": ATTACK_SECONDS,
-            "release_normalized": ATTACK_RELEASE_NORMALIZED,
-            "release_frame": round(release_frame, 5),
+            "seconds": timing.total_seconds,
+            "draw_seconds": timing.draw_seconds,
+            "complete_draw": timing.use_complete_draw,
+            "release_normalized": round(
+                timing.draw_seconds / timing.total_seconds, 5
+            ),
+            "release_frame": round(draw_target_frames, 5),
             "end_frame": round(release_strip.frame_end, 5),
         }
     )
@@ -366,10 +408,17 @@ def configure_animation_tracks(
         animation_data.nla_tracks.remove(track)
     add_action_track(animation_data, "Idle", idle)
     add_action_track(animation_data, "Walk", walk)
-    add_bow_attack_track(animation_data, "Attack", draw, release)
+    add_bow_attack_track(animation_data, "Attack", draw, release, ATTACK_TIMING)
     if signature is None:
-        # Robin's volley remains visually consistent with his basic bow shot.
-        add_bow_attack_track(animation_data, "Signature", draw, release)
+        # Robin's existing signature timing is gameplay-significant and remains
+        # independent from the longer basic-attack loading animation.
+        add_bow_attack_track(
+            animation_data,
+            "Signature",
+            draw,
+            release,
+            ROBIN_SIGNATURE_TIMING,
+        )
     else:
         add_action_track(animation_data, "Signature", signature)
 

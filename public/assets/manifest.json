@@ -10,7 +10,7 @@
       "qualityGate": {
         "decision": "accept",
         "reviewedAt": "2026-07-15",
-        "rationale": "CC0 KayKit Ranger rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, a Sherwood-green palette, four named clips, an eight-draw ceiling, a left-hand bow, and verified bow-specific idle, movement, draw, and release motion."
+        "rationale": "CC0 KayKit Ranger rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, a Sherwood-green palette, four named clips, an eight-draw ceiling, a left-hand bow, and a complete 0.6-second bow load before release; its legacy volley signature remains unchanged."
       },
       "provenance": {
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
@@ -38,7 +38,7 @@
       },
       "uri": "assets/characters/robin-kaykit-ranger.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "3c9dde8befa8a495f4610414ea4404242b649c9f3c19a3916f3ab2567d59876f",
+      "sha256": "a0d98d6c250c794315c6ca61f0ee8f2ae3ee2a47074aae819c47ac7ea59e932b",
       "bytesMax": 750000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
@@ -84,7 +84,7 @@
       "qualityGate": {
         "decision": "accept",
         "reviewedAt": "2026-07-15",
-        "rationale": "CC0 KayKit Rogue rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, a Marian burgundy palette, four named clips, and a left-hand bow within the eight-draw hero ceiling."
+        "rationale": "CC0 KayKit Rogue rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, a Marian burgundy palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
       },
       "provenance": {
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
@@ -112,7 +112,7 @@
       },
       "uri": "assets/characters/marian-kaykit-rogue.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "ade39ee80bb4c2c79177dec33a0becd5a97d50b62a9a6d0957351ea1e944f828",
+      "sha256": "3f3ef7ac29c38f25ce9e629e7ee87ba672659bf40b3f2ec4ba9b645ae70e113a",
       "bytesMax": 750000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
@@ -158,7 +158,7 @@
       "qualityGate": {
         "decision": "accept",
         "reviewedAt": "2026-07-15",
-        "rationale": "CC0 KayKit Barbarian rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, its readable leather-and-bear palette, four named clips, and a left-hand bow within the eight-draw hero ceiling."
+        "rationale": "CC0 KayKit Barbarian rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, its readable leather-and-bear palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
       },
       "provenance": {
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
@@ -186,7 +186,7 @@
       },
       "uri": "assets/characters/little-john-kaykit-barbarian.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "8378f1e9ff00faf21eed6e732355d5a8e4032dcda697d6e4f757a7ee46916d1c",
+      "sha256": "bfd8dea52da11de7602fda5dc37a61ecf169d82cdab26014a65c88fb3afd9ece",
       "bytesMax": 750000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
@@ -232,7 +232,7 @@
       "qualityGate": {
         "decision": "accept",
         "reviewedAt": "2026-07-15",
-        "rationale": "CC0 KayKit Hooded Rogue rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, an olive Sherwood palette, four named clips, and a left-hand bow within the eight-draw hero ceiling."
+        "rationale": "CC0 KayKit Hooded Rogue rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, an olive Sherwood palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
       },
       "provenance": {
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
@@ -260,7 +260,7 @@
       },
       "uri": "assets/characters/much-kaykit-rogue-hooded.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "1c9683c8a463ed92620bbd414acfe021d388222381aced2bdd00b1a71b650648",
+      "sha256": "20cb311c1b2649e5e31245bcae2bf6c877b80e98639735304844fca1b1a94004",
       "bytesMax": 750000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
@@ -322,7 +322,7 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "fa265579215e325aa4b3ce8e98ab96b957b95d34ae77252a966124d067f00773"
+        "evidenceSha256": "94d08b2aac85b91ebe06fe467459829f7e424299f6b59d476a9eecde614ce0e8"
       },
       "uri": "assets/characters/robin-ranger-rigged.glb",
       "format": "glTF 2.0 GLB",
@@ -513,7 +513,7 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "fa265579215e325aa4b3ce8e98ab96b957b95d34ae77252a966124d067f00773"
+        "evidenceSha256": "94d08b2aac85b91ebe06fe467459829f7e424299f6b59d476a9eecde614ce0e8"
       },
       "uri": "assets/props/treasure-chest.glb",
       "format": "glTF 2.0 GLB",

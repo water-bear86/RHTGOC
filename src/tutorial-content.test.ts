@@ -35,6 +35,7 @@ describe("tutorial content planning", () => {
 
   it("teaches all five area signals in the universal fieldcraft lesson", () => {
     expect(FIELDCRAFT_LESSON.body).toMatch(/Dark sectors are unsearched/)
+    expect(FIELDCRAFT_LESSON.body).toMatch(/Stand still while loading every bow shot/)
     expect(FIELDCRAFT_LESSON.points).toHaveLength(5)
     expect(FIELDCRAFT_LESSON.points.join(" ")).toMatch(/1 .*DANGER.*2 .*TARGET.*3 .*ROUTE.*4 .*LOOT.*5 .*REGROUP/)
   })
