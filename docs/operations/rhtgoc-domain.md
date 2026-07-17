@@ -123,7 +123,7 @@ PRIMARY_DISTRIBUTION="$(jq -r '.stack.primaryDistributionId' <<<"$EDGE_STATUS")"
 Upload the complete build, then explicitly mark the entry document non-cacheable:
 
 ```bash
-aws s3 sync dist "s3://$PRIMARY_BUCKET" --delete --only-show-errors
+aws s3 sync dist "s3://$PRIMARY_BUCKET" --only-show-errors
 aws s3 cp dist/index.html "s3://$PRIMARY_BUCKET/index.html" \
   --content-type 'text/html; charset=utf-8' \
   --cache-control 'no-cache, no-store, must-revalidate' \
@@ -136,6 +136,11 @@ aws cloudfront create-invalidation \
   --output json \
   --no-cli-pager
 ```
+
+Do not add `--delete` to the sync. Existing players can still request lazy chunks
+from the previous build while a release is moving through CloudFront. Retire old
+hashed assets with a separate retention policy only after the supported session
+window; bucket versioning makes release-time deletion unsuitable as storage cleanup.
 
 The `/assets/*` cache key includes query strings. Stable-name GLBs must carry the client build/version query, while Vite's JS and CSS filenames remain content-hashed.
 
@@ -160,7 +165,7 @@ EDGE_STATUS="$(node tools/aws-edge-release.mjs status)"
 STAGING_BUCKET="$(jq -r '.stack.stagingClientBucketName' <<<"$EDGE_STATUS")"
 STAGING_DISTRIBUTION="$(jq -r '.stack.stagingDistributionId' <<<"$EDGE_STATUS")"
 
-aws s3 sync dist "s3://$STAGING_BUCKET" --delete --only-show-errors
+aws s3 sync dist "s3://$STAGING_BUCKET" --only-show-errors
 aws s3 cp dist/index.html "s3://$STAGING_BUCKET/index.html" \
   --content-type 'text/html; charset=utf-8' \
   --cache-control 'no-cache, no-store, must-revalidate' \

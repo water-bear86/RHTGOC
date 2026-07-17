@@ -14,6 +14,46 @@ The playtest is deployed as one AWS Lightsail Container Service node. The room s
 - Health: `https://sherwood-rebellion.16h6bw5cfk6jc.ca-central-1.cs.amazonlightsail.com/health`
 - WebSocket: `wss://sherwood-rebellion.16h6bw5cfk6jc.ca-central-1.cs.amazonlightsail.com/rooms`
 
+The player-facing client is separate from the container origin. `rhtgoc.site` serves
+the browser build from the private primary S3 bucket behind CloudFront, while dynamic
+routes are forwarded to Lightsail. A production release must deploy both targets with
+the same `BUILD_ID`.
+
+## GitHub production deployment
+
+Pushes to `main` run `.github/workflows/deploy-aws.yml`. The job tests the commit,
+builds one AMD64 container, extracts the matching browser artifact from that image,
+deploys the server to Lightsail, publishes the client to S3, invalidates CloudFront,
+and verifies that both public halves report the same build. Before cutover it captures
+the current Lightsail spec and S3 object versions; a failed promotion restores both.
+Successful releases retain the active Lightsail image plus two rollback images.
+
+AWS authentication uses GitHub OIDC and short-lived credentials. Do not create
+`AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` repository secrets. Provision the
+dedicated role once:
+
+```bash
+aws cloudformation deploy \
+  --stack-name sherwood-rhtgoc-github-deploy \
+  --template-file deploy/aws/rhtgoc-github-deploy-role.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region us-east-1
+```
+
+The GitHub `production` environment must allow deployments only from `main` and must
+define these environment variables:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_REOWN_PROJECT_ID`
+- `VITE_ROBINHOOD_CHAIN`
+
+These are publishable Vite settings embedded in the browser bundle. Runtime secrets
+remain in the Lightsail deployment environment. The workflow copies that environment
+through a mode-`0600` temporary file, changes only the image and build identifiers,
+and deletes the file before the job exits. It never writes the runtime environment to
+the Actions log.
+
 Required build arguments:
 
 - `VITE_SUPABASE_URL`

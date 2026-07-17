@@ -1,0 +1,653 @@
+name: Deploy RHTGOC to AWS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rhtgoc-production
+  cancel-in-progress: false
+
+env:
+  AWS_ACCOUNT_ID: "901889466248"
+  AWS_REGION: ca-central-1
+  AWS_ROLE_ARN: arn:aws:iam::901889466248:role/sherwood-rebellion-github-deploy
+  LIGHTSAIL_SERVICE: sherwood-rebellion
+  CONTAINER_NAME: app
+  CLIENT_BUCKET: sherwood-rhtgoc-edge-primaryclientbucket-lbbhmpxlowce
+  CLIENT_DISTRIBUTION_ID: E3709O4G6YVCB
+  PUBLIC_ORIGIN: https://rhtgoc.site
+
+jobs:
+  deploy:
+    name: Verify and deploy production
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment:
+      name: production
+      url: https://rhtgoc.site
+    env:
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_REOWN_PROJECT_ID: ${{ vars.VITE_REOWN_PROJECT_ID }}
+      VITE_ROBINHOOD_CHAIN: ${{ vars.VITE_ROBINHOOD_CHAIN }}
+
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Validate release configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            VITE_SUPABASE_URL \
+            VITE_SUPABASE_PUBLISHABLE_KEY \
+            VITE_REOWN_PROJECT_ID \
+            VITE_ROBINHOOD_CHAIN
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing GitHub production variable: ${name}"
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+
+          build_id="${GITHUB_SHA:0:12}"
+          echo "BUILD_ID=${build_id}" >> "$GITHUB_ENV"
+          echo "IMAGE_LABEL=app-${build_id}" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the test suite
+        run: npm test
+
+      - name: Build the production image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VITE_SUPABASE_URL="$VITE_SUPABASE_URL" \
+            --build-arg VITE_SUPABASE_PUBLISHABLE_KEY="$VITE_SUPABASE_PUBLISHABLE_KEY" \
+            --build-arg VITE_REOWN_PROJECT_ID="$VITE_REOWN_PROJECT_ID" \
+            --build-arg VITE_ROBINHOOD_CHAIN="$VITE_ROBINHOOD_CHAIN" \
+            --build-arg BUILD_ID="$BUILD_ID" \
+            --tag "sherwood-rebellion:${GITHUB_SHA}" \
+            .
+
+      - name: Extract the matching browser client
+        shell: bash
+        run: |
+          set -euo pipefail
+          client_dist="$RUNNER_TEMP/client-dist"
+          mkdir -p "$client_dist"
+          container_id="$(docker create "sherwood-rebellion:${GITHUB_SHA}")"
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          docker cp "${container_id}:/app/dist/." "$client_dist/"
+          docker rm "$container_id" >/dev/null
+          trap - EXIT
+
+          test -s "$client_dist/index.html"
+          if ! grep -R --include='*.js' -Fq "$BUILD_ID" "$client_dist"; then
+            echo "::error::The extracted client does not contain build ID ${BUILD_ID}"
+            exit 1
+          fi
+          echo "CLIENT_DIST=${client_dist}" >> "$GITHUB_ENV"
+
+      - name: Obtain short-lived AWS credentials
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6.2.2
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: rhtgoc-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+          role-duration-seconds: 7200
+
+      - name: Install the Lightsail container plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/bin"
+          download="$RUNNER_TEMP/lightsailctl_1.0.8_linux_amd64.tar.gz"
+          mkdir -p "$install_dir"
+          curl -fsSL \
+            https://github.com/aws/lightsailctl/releases/download/v1.0.8/lightsailctl_1.0.8_linux_amd64.tar.gz \
+            -o "$download"
+          echo "73108f256907306ddd7fc90ff9209b8e9b256a14586c31d63222b4f58281d146  $download" \
+            | sha256sum --check
+          tar -xzf "$download" -C "$install_dir" lightsailctl
+          chmod 0755 "$install_dir/lightsailctl"
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      - name: Capture the current server rollback state
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          previous="$RUNNER_TEMP/lightsail-containers-previous.json"
+
+          # This response contains runtime configuration. Keep it in a mode-0600
+          # temporary file and never print it into the Actions log.
+          aws lightsail get-container-services \
+            --service-name "$LIGHTSAIL_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'containerServices[0].currentDeployment.containers' \
+            --output json \
+            --no-cli-pager > "$previous"
+
+          previous_image="$(jq -r --arg container "$CONTAINER_NAME" '.[$container].image // empty' "$previous")"
+          if [[ "$previous_image" != ":${LIGHTSAIL_SERVICE}."* ]]; then
+            echo "::error::The current Lightsail deployment has no restorable image"
+            exit 1
+          fi
+          echo "PREVIOUS_IMAGE_REF=${previous_image}" >> "$GITHUB_ENV"
+
+      - name: Push the server image to Lightsail
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws lightsail push-container-image \
+            --service-name "$LIGHTSAIL_SERVICE" \
+            --label "$IMAGE_LABEL" \
+            --image "sherwood-rebellion:${GITHUB_SHA}" \
+            --region "$AWS_REGION" \
+            --no-cli-pager
+
+          image_list="$RUNNER_TEMP/lightsail-images.json"
+          aws lightsail get-container-images \
+            --service-name "$LIGHTSAIL_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'containerImages[].{image:image,createdAt:createdAt}' \
+            --output json \
+            --no-cli-pager > "$image_list"
+
+          image_prefix=":${LIGHTSAIL_SERVICE}.${IMAGE_LABEL}."
+          image_ref="$(
+            jq -r --arg prefix "$image_prefix" \
+              '[.[] | select(.image | startswith($prefix))] | sort_by(.createdAt) | last | .image // empty' \
+              "$image_list"
+          )"
+          rm -f "$image_list"
+          if [[ "$image_ref" != "$image_prefix"* ]]; then
+            echo "::error::Lightsail did not return the pushed ${IMAGE_LABEL} image"
+            exit 1
+          fi
+          echo "IMAGE_REF=${image_ref}" >> "$GITHUB_ENV"
+
+      - name: Create the Lightsail deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          previous="$RUNNER_TEMP/lightsail-containers-previous.json"
+          next="$RUNNER_TEMP/lightsail-containers-next.json"
+          cleanup() {
+            rm -f "$next"
+          }
+          trap cleanup EXIT
+
+          jq -e \
+            --arg container "$CONTAINER_NAME" \
+            --arg image "$IMAGE_REF" \
+            --arg build "$BUILD_ID" \
+            --arg commit "$GITHUB_SHA" \
+            '
+              if (.[$container] | type) != "object" then
+                error("current Lightsail deployment is missing the expected container")
+              else
+                .[$container].image = $image
+                | .[$container].environment = (.[$container].environment // {})
+                | .[$container].environment.BUILD_ID = $build
+                | .[$container].environment.SHERWOOD_BUILD_COMMIT = $commit
+              end
+            ' \
+            "$previous" > "$next"
+
+          aws lightsail create-container-service-deployment \
+            --service-name "$LIGHTSAIL_SERVICE" \
+            --region "$AWS_REGION" \
+            --containers "file://$next" \
+            --public-endpoint \
+              '{"containerName":"app","containerPort":8080,"healthCheck":{"path":"/ready","intervalSeconds":10,"timeoutSeconds":5,"healthyThreshold":2,"unhealthyThreshold":2,"successCodes":"200-299"}}' \
+            --query 'containerService.{serviceName:containerServiceName,state:state,nextDeployment:nextDeployment.{version:version,state:state}}' \
+            --output json \
+            --no-cli-pager
+
+      - name: Wait for the server deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          deployed=false
+          for attempt in $(seq 1 90); do
+            deployments="$(
+              aws lightsail get-container-service-deployments \
+                --service-name "$LIGHTSAIL_SERVICE" \
+                --region "$AWS_REGION" \
+                --query 'deployments[0:10].{version:version,state:state,image:containers.app.image}' \
+                --output json \
+                --no-cli-pager
+            )"
+            deployment_state="$(
+              jq -r --arg image "$IMAGE_REF" \
+                '[.[] | select(.image == $image)] | first | .state // "PENDING"' \
+                <<< "$deployments"
+            )"
+            deployment_version="$(
+              jq -r --arg image "$IMAGE_REF" \
+                '[.[] | select(.image == $image)] | first | .version // "unknown"' \
+                <<< "$deployments"
+            )"
+            echo "Lightsail deployment ${deployment_version}: ${deployment_state}"
+
+            if [[ "$deployment_state" == "FAILED" ]]; then
+              echo "::error::Lightsail deployment ${deployment_version} failed"
+              exit 1
+            fi
+            if [[ "$deployment_state" == "ACTIVE" ]]; then
+              status="$(
+                aws lightsail get-container-services \
+                  --service-name "$LIGHTSAIL_SERVICE" \
+                  --region "$AWS_REGION" \
+                  --query 'containerServices[0].{serviceState:state,deploymentState:currentDeployment.state,image:currentDeployment.containers.app.image}' \
+                  --output json \
+                  --no-cli-pager
+              )"
+              if jq -e \
+                --arg image "$IMAGE_REF" \
+                '.serviceState == "RUNNING" and .deploymentState == "ACTIVE" and .image == $image' \
+                <<< "$status" >/dev/null
+              then
+                deployed=true
+                break
+              fi
+            fi
+            sleep 10
+          done
+
+          if [[ "$deployed" != "true" ]]; then
+            echo "::error::Lightsail did not activate ${IMAGE_REF} within 15 minutes"
+            exit 1
+          fi
+
+      - name: Verify the new server build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready="$(
+            curl -fsS --retry 12 --retry-delay 5 --retry-all-errors \
+              "${PUBLIC_ORIGIN}/ready"
+          )"
+          health="$(
+            curl -fsS --retry 12 --retry-delay 5 --retry-all-errors \
+              "${PUBLIC_ORIGIN}/health"
+          )"
+          jq -e --arg build "$BUILD_ID" \
+            '.ready == true and .buildId == $build' \
+            <<< "$ready" >/dev/null
+          jq -e --arg build "$BUILD_ID" \
+            '.ok == true and .buildId == $build' \
+            <<< "$health" >/dev/null
+
+      - name: Capture the current client rollback state
+        shell: bash
+        run: |
+          set -euo pipefail
+          versions="$RUNNER_TEMP/s3-current-versions.json"
+          release_keys="$RUNNER_TEMP/s3-release-keys.json"
+          rollback_manifest="$RUNNER_TEMP/s3-rollback-manifest.json"
+
+          aws s3api list-object-versions \
+            --bucket "$CLIENT_BUCKET" \
+            --query 'Versions[?IsLatest == `true`].{key:Key,versionId:VersionId}' \
+            --output json \
+            --region us-east-1 \
+            --no-cli-pager > "$versions"
+
+          find "$CLIENT_DIST" -type f -printf '%P\0' \
+            | jq -Rs 'split("\u0000") | map(select(length > 0) | {key: .})' \
+            > "$release_keys"
+
+          jq --slurpfile versions "$versions" \
+            '
+              map(
+                . as $candidate
+                | ($versions[0] | map(select(.key == $candidate.key)) | first) as $prior
+                | . + {versionId: ($prior.versionId // null)}
+              )
+            ' \
+            "$release_keys" > "$rollback_manifest"
+          rm -f "$versions" "$release_keys"
+
+      - name: Publish the browser client
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws s3 sync \
+            "$CLIENT_DIST" \
+            "s3://${CLIENT_BUCKET}" \
+            --exclude '*.html' \
+            --only-show-errors \
+            --region us-east-1
+
+          # Publish entry documents only after every referenced asset is present.
+          while IFS= read -r -d '' html_file; do
+            key="${html_file#"$CLIENT_DIST"/}"
+            aws s3 cp \
+              "$html_file" \
+              "s3://${CLIENT_BUCKET}/${key}" \
+              --content-type 'text/html; charset=utf-8' \
+              --cache-control 'no-cache, no-store, must-revalidate' \
+              --only-show-errors \
+              --region us-east-1
+          done < <(find "$CLIENT_DIST" -type f -name '*.html' -print0)
+
+          invalidation_id="$(
+            aws cloudfront create-invalidation \
+              --distribution-id "$CLIENT_DISTRIBUTION_ID" \
+              --paths '/*' \
+              --query 'Invalidation.Id' \
+              --output text \
+              --region us-east-1 \
+              --no-cli-pager
+          )"
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$CLIENT_DISTRIBUTION_ID" \
+            --id "$invalidation_id" \
+            --region us-east-1 \
+            --no-cli-pager
+
+      - name: Verify the public release
+        shell: bash
+        run: |
+          set -euo pipefail
+          html="$RUNNER_TEMP/live-index.html"
+          javascript="$RUNNER_TEMP/live-client.js"
+          build_asset_copy="$RUNNER_TEMP/live-build-asset.js"
+          curl -fsS --retry 12 --retry-delay 5 --retry-all-errors \
+            "${PUBLIC_ORIGIN}/?release=${BUILD_ID}" > "$html"
+          if ! cmp -s "$CLIENT_DIST/index.html" "$html"; then
+            echo "::error::The public index does not match the promoted client"
+            exit 1
+          fi
+
+          script_path="$(
+            grep -oE 'src="[^"]+\.js"' "$html" \
+              | sed -n '1p' \
+              | cut -d '"' -f 2 \
+              || true
+          )"
+          if [[ -z "$script_path" ]]; then
+            echo "::error::The public page did not reference a JavaScript client"
+            exit 1
+          fi
+          curl -fsS --retry 12 --retry-delay 5 --retry-all-errors \
+            "${PUBLIC_ORIGIN}/${script_path#/}?release=${BUILD_ID}" > "$javascript"
+          if ! cmp -s "$CLIENT_DIST/${script_path#/}" "$javascript"; then
+            echo "::error::The public entry script does not match the promoted client"
+            exit 1
+          fi
+
+          build_asset="$(
+            grep -Rl --include='*.js' -F "$BUILD_ID" "$CLIENT_DIST" \
+              | sed -n '1p' \
+              || true
+          )"
+          if [[ -z "$build_asset" ]]; then
+            echo "::error::No promoted JavaScript asset contains build ID ${BUILD_ID}"
+            exit 1
+          fi
+          build_asset_path="${build_asset#"$CLIENT_DIST"/}"
+          curl -fsS --retry 12 --retry-delay 5 --retry-all-errors \
+            "${PUBLIC_ORIGIN}/${build_asset_path}?release=${BUILD_ID}" > "$build_asset_copy"
+          if ! cmp -s "$build_asset" "$build_asset_copy" || ! grep -Fq "$BUILD_ID" "$build_asset_copy"; then
+            echo "::error::The public client is not build ${BUILD_ID}"
+            exit 1
+          fi
+
+          ready="$(curl -fsS "${PUBLIC_ORIGIN}/ready")"
+          health="$(curl -fsS "${PUBLIC_ORIGIN}/health")"
+          jq -e --arg build "$BUILD_ID" \
+            '.ready == true and .buildId == $build' \
+            <<< "$ready" >/dev/null
+          jq -e --arg build "$BUILD_ID" \
+            '.ok == true and .buildId == $build' \
+            <<< "$health" >/dev/null
+
+          {
+            echo "### Production release"
+            echo
+            echo "- Build: \`${BUILD_ID}\`"
+            echo "- Lightsail image: \`${IMAGE_REF}\`"
+            echo "- Public URL: ${PUBLIC_ORIGIN}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Roll back a failed production release
+        if: ${{ failure() || cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous="$RUNNER_TEMP/lightsail-containers-previous.json"
+          rollback_manifest="$RUNNER_TEMP/s3-rollback-manifest.json"
+          server_rollback_started=false
+          server_restored=false
+          invalidation_id=""
+
+          if [[ ! -s "$previous" && ! -s "$rollback_manifest" ]]; then
+            echo "No production state changed; no rollback is required."
+            exit 0
+          fi
+
+          if [[ -s "$previous" ]]; then
+            previous_image="$(jq -r --arg container "$CONTAINER_NAME" '.[$container].image // empty' "$previous")"
+            if [[ -z "$previous_image" ]]; then
+              echo "::error::The captured server rollback state has no image"
+              exit 1
+            fi
+
+            rollback_decided=false
+            for attempt in $(seq 1 90); do
+              status="$(
+                aws lightsail get-container-services \
+                  --service-name "$LIGHTSAIL_SERVICE" \
+                  --region "$AWS_REGION" \
+                  --query 'containerServices[0].{currentImage:currentDeployment.containers.app.image,currentState:currentDeployment.state,nextImage:nextDeployment.containers.app.image,nextState:nextDeployment.state}' \
+                  --output json \
+                  --no-cli-pager
+              )"
+              current_image="$(jq -r '.currentImage // empty' <<< "$status")"
+              next_image="$(jq -r '.nextImage // empty' <<< "$status")"
+              next_state="$(jq -r '.nextState // empty' <<< "$status")"
+
+              if [[ "$current_image" == "$previous_image" && ( -z "$next_image" || "$next_image" == "$previous_image" ) ]]; then
+                server_restored=true
+                rollback_decided=true
+                break
+              fi
+              if [[ "$next_state" == "ACTIVATING" ]]; then
+                echo "Waiting for the interrupted deployment to settle before rollback (${attempt}/90)"
+                sleep 10
+                continue
+              fi
+
+              rollback_decided=true
+              aws lightsail create-container-service-deployment \
+                --service-name "$LIGHTSAIL_SERVICE" \
+                --region "$AWS_REGION" \
+                --containers "file://$previous" \
+                --public-endpoint \
+                  '{"containerName":"app","containerPort":8080,"healthCheck":{"path":"/ready","intervalSeconds":10,"timeoutSeconds":5,"healthyThreshold":2,"unhealthyThreshold":2,"successCodes":"200-299"}}' \
+                --query 'containerService.{serviceName:containerServiceName,state:state,nextDeployment:nextDeployment.{version:version,state:state}}' \
+                --output json \
+                --no-cli-pager
+              server_rollback_started=true
+              break
+            done
+
+            if [[ "$rollback_decided" != "true" ]]; then
+              echo "::error::The interrupted Lightsail deployment did not settle in time for rollback"
+              exit 1
+            fi
+          fi
+
+          if [[ -s "$rollback_manifest" ]]; then
+            while IFS= read -r record; do
+              key="$(jq -r '.key' <<< "$record")"
+              version_id="$(jq -r '.versionId // empty' <<< "$record")"
+              if [[ -n "$version_id" ]]; then
+                encoded_version="$(jq -rn --arg version "$version_id" '$version | @uri')"
+                copy_source="${CLIENT_BUCKET}/${key}?versionId=${encoded_version}"
+                aws s3api copy-object \
+                  --bucket "$CLIENT_BUCKET" \
+                  --key "$key" \
+                  --copy-source "$copy_source" \
+                  --metadata-directive COPY \
+                  --region us-east-1 \
+                  --no-cli-pager >/dev/null
+              else
+                aws s3api delete-object \
+                  --bucket "$CLIENT_BUCKET" \
+                  --key "$key" \
+                  --region us-east-1 \
+                  --no-cli-pager >/dev/null
+              fi
+            done < <(jq -c '.[]' "$rollback_manifest")
+
+            invalidation_id="$(
+              aws cloudfront create-invalidation \
+                --distribution-id "$CLIENT_DISTRIBUTION_ID" \
+                --paths '/*' \
+                --query 'Invalidation.Id' \
+                --output text \
+                --region us-east-1 \
+                --no-cli-pager
+            )"
+          fi
+
+          if [[ "$server_rollback_started" == "true" ]]; then
+            for attempt in $(seq 1 90); do
+              status="$(
+                aws lightsail get-container-services \
+                  --service-name "$LIGHTSAIL_SERVICE" \
+                  --region "$AWS_REGION" \
+                  --query 'containerServices[0].{serviceState:state,deploymentState:currentDeployment.state,image:currentDeployment.containers.app.image}' \
+                  --output json \
+                  --no-cli-pager
+              )"
+              if jq -e \
+                --arg image "$previous_image" \
+                '.serviceState == "RUNNING" and .deploymentState == "ACTIVE" and .image == $image' \
+                <<< "$status" >/dev/null
+              then
+                server_restored=true
+                break
+              fi
+              echo "Waiting for Lightsail rollback (${attempt}/90)"
+              sleep 10
+            done
+          fi
+
+          if [[ -n "$invalidation_id" ]]; then
+            aws cloudfront wait invalidation-completed \
+              --distribution-id "$CLIENT_DISTRIBUTION_ID" \
+              --id "$invalidation_id" \
+              --region us-east-1 \
+              --no-cli-pager
+          fi
+
+          if [[ -s "$previous" && "$server_restored" != "true" ]]; then
+            echo "::error::Lightsail did not restore ${previous_image}"
+            exit 1
+          fi
+          if [[ -s "$previous" ]]; then
+            previous_build="$(jq -r --arg container "$CONTAINER_NAME" '.[$container].environment.BUILD_ID // empty' "$previous")"
+            if [[ -n "$previous_build" ]]; then
+              ready="$(curl -fsS --retry 12 --retry-delay 5 --retry-all-errors "${PUBLIC_ORIGIN}/ready")"
+              jq -e --arg build "$previous_build" \
+                '.ready == true and .buildId == $build' \
+                <<< "$ready" >/dev/null
+            fi
+          fi
+          echo "::warning::The failed release was rolled back to ${previous_image:-the previous server image}"
+
+      - name: Prune old Lightsail images
+        if: ${{ success() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          images="$RUNNER_TEMP/lightsail-images-for-pruning.json"
+          deployments="$RUNNER_TEMP/lightsail-deployments-for-pruning.json"
+          keep="$RUNNER_TEMP/lightsail-images-to-keep.txt"
+          aws lightsail get-container-images \
+            --service-name "$LIGHTSAIL_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'containerImages[].{image:image,createdAt:createdAt}' \
+            --output json \
+            --no-cli-pager > "$images"
+          aws lightsail get-container-service-deployments \
+            --service-name "$LIGHTSAIL_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'deployments[].{image:containers.app.image,createdAt:createdAt}' \
+            --output json \
+            --no-cli-pager > "$deployments"
+          fallback="$(
+            jq -r \
+              --arg active "$IMAGE_REF" \
+              --arg previous "$PREVIOUS_IMAGE_REF" \
+              '[.[] | select(.image != $active and .image != $previous)] | sort_by(.createdAt) | reverse | first | .image // empty' \
+              "$deployments"
+          )"
+          printf '%s\n' "$IMAGE_REF" "$PREVIOUS_IMAGE_REF" "$fallback" \
+            | sed '/^$/d' \
+            | sort -u > "$keep"
+
+          failed=0
+          while IFS= read -r image; do
+            if grep -Fxq "$image" "$keep"; then
+              continue
+            fi
+            if ! aws lightsail delete-container-image \
+              --service-name "$LIGHTSAIL_SERVICE" \
+              --image "$image" \
+              --region "$AWS_REGION" \
+              --no-cli-pager >/dev/null
+            then
+              echo "::warning::Could not prune old Lightsail image ${image}"
+              failed=1
+            fi
+          done < <(jq -r '.[].image' "$images")
+          exit "$failed"
+
+      - name: Remove temporary deployment state
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -f \
+            "$RUNNER_TEMP/lightsail-containers-previous.json" \
+            "$RUNNER_TEMP/lightsail-containers-next.json" \
+            "$RUNNER_TEMP/lightsail-deployments-for-pruning.json" \
+            "$RUNNER_TEMP/lightsail-images-for-pruning.json" \
+            "$RUNNER_TEMP/lightsail-images-to-keep.txt" \
+            "$RUNNER_TEMP/s3-current-versions.json" \
+            "$RUNNER_TEMP/s3-release-keys.json" \
+            "$RUNNER_TEMP/s3-rollback-manifest.json"

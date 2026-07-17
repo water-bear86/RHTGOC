@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Least-privilege GitHub OIDC role for the RHTGOC production release.
+
+Parameters:
+  GitHubOwner:
+    Type: String
+    Default: water-bear86
+    AllowedPattern: "[A-Za-z0-9_.-]+"
+  GitHubRepository:
+    Type: String
+    Default: RHTGOC
+    AllowedPattern: "[A-Za-z0-9_.-]+"
+  GitHubEnvironment:
+    Type: String
+    Default: production
+    AllowedPattern: "[A-Za-z0-9_.-]+"
+  GitHubOidcProviderArn:
+    Type: String
+    Default: arn:aws:iam::901889466248:oidc-provider/token.actions.githubusercontent.com
+  LightsailContainerServiceArn:
+    Type: String
+    Default: arn:aws:lightsail:ca-central-1:901889466248:ContainerService/662157f2-2f43-4774-b19c-f18e152b8930
+  PrimaryClientBucketName:
+    Type: String
+    Default: sherwood-rhtgoc-edge-primaryclientbucket-lbbhmpxlowce
+  PrimaryDistributionId:
+    Type: String
+    Default: E3709O4G6YVCB
+
+Resources:
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: sherwood-rebellion-github-deploy
+      Description: Deploys RHTGOC from the protected GitHub production environment.
+      MaxSessionDuration: 7200
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}/${GitHubRepository}:environment:${GitHubEnvironment}
+      Policies:
+        - PolicyName: sherwood-production-release
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadLightsailContainerMetadata
+                Effect: Allow
+                Action:
+                  - lightsail:CreateContainerServiceRegistryLogin
+                  - lightsail:GetContainerAPIMetadata
+                  - lightsail:GetContainerImages
+                  - lightsail:GetContainerServiceDeployments
+                  - lightsail:GetContainerServices
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: ca-central-1
+              - Sid: PublishLightsailImageAndDeployment
+                Effect: Allow
+                Action:
+                  - lightsail:CreateContainerServiceDeployment
+                  - lightsail:DeleteContainerImage
+                  - lightsail:RegisterContainerImage
+                Resource: !Ref LightsailContainerServiceArn
+              - Sid: ListProductionClientBucket
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                  - s3:ListBucketVersions
+                Resource: !Sub arn:${AWS::Partition}:s3:::${PrimaryClientBucketName}
+              - Sid: PublishProductionClient
+                Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${PrimaryClientBucketName}/*
+              - Sid: InvalidateProductionClient
+                Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetInvalidation
+                Resource: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${PrimaryDistributionId}
+      Tags:
+        - Key: application
+          Value: sherwood-rebellion
+        - Key: managed-by
+          Value: cloudformation
+
+Outputs:
+  RoleArn:
+    Description: Configure this ARN as AWS_ROLE_ARN in the production workflow.
+    Value: !GetAtt GitHubDeployRole.Arn

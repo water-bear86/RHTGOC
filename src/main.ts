@@ -439,6 +439,7 @@ let publicHubPlayers: PublicHubPlayer[] = []
 let publicHubIsLooking = false
 let publicHubCapacity = 12
 let publicHubEntryPending = false
+let walletAuthPending: Promise<void> | null = null
 let localRoleConfirmed = false
 let cameraQuarterTurns = 0
 let currentExperimentAssignments: RoomExperimentAssignment[] = []
@@ -3057,7 +3058,7 @@ function renderPublicEntryAuthState(authenticated: boolean): void {
 }
 
 function refreshPublicEntryAvailability(): void {
-  joinPublicHubButton.disabled = publicHubEntryPending || !canEnterSherwood() || isMobileSpectator()
+  joinPublicHubButton.disabled = Boolean(walletAuthPending) || publicHubEntryPending || !canEnterSherwood() || isMobileSpectator()
 }
 
 function renderOpenPlayEntryNote(authenticated: boolean): void {
@@ -3130,17 +3131,39 @@ async function refreshAccessPanel(): Promise<void> {
   }
 }
 
-async function connectWalletAndRefresh(): Promise<void> {
-  walletSignIn.disabled = true
-  socialSignIn.disabled = true
-  accessStatus.textContent = "CHECK ROBINHOOD WALLET TO SIGN"
-  try {
-    await signInWithRobinhoodWallet()
-    await Promise.all([refreshAccessPanel(), refreshSocialPanel()])
-  } finally {
-    walletSignIn.disabled = false
-    socialSignIn.disabled = false
-  }
+function connectWalletAndRefresh(): Promise<void> {
+  if (walletAuthPending) return walletAuthPending
+  walletAuthPending = (async () => {
+    walletSignIn.disabled = true
+    socialSignIn.disabled = true
+    joinPublicHubButton.disabled = true
+    accessStatus.textContent = "CHECK ROBINHOOD WALLET TO SIGN"
+    socialStatus.textContent = "Check Robinhood Wallet to sign."
+    const stalledNotice = window.setTimeout(() => {
+      accessStatus.textContent = "FINISH OR REJECT THE OPEN WALLET REQUEST · RELOAD IF THE WALLET IS STUCK"
+      socialStatus.textContent = "Finish or reject the open wallet request. Reload the game if the wallet is stuck."
+      if (publicHubEntryPending) entryAccessNote.textContent = "FINISH OR REJECT THE OPEN WALLET REQUEST · RELOAD IF STUCK"
+    }, 30_000)
+    try {
+      await signInWithRobinhoodWallet()
+      window.clearTimeout(stalledNotice)
+      accessStatus.textContent = "WALLET SIGNED · LOADING SHERWOOD IDENTITY"
+      socialStatus.textContent = "Robinhood Wallet signed. Loading identity…"
+      await Promise.all([refreshAccessPanel(), refreshSocialPanel()])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to connect Robinhood Wallet"
+      accessStatus.textContent = message
+      socialStatus.textContent = message
+      throw error
+    } finally {
+      window.clearTimeout(stalledNotice)
+      walletAuthPending = null
+      walletSignIn.disabled = false
+      socialSignIn.disabled = false
+      refreshPublicEntryAvailability()
+    }
+  })()
+  return walletAuthPending
 }
 
 function renderSocialList(list: HTMLUListElement, friends: SocialState["friends"], addActions: (friend: SocialState["friends"][number], actions: HTMLDivElement) => void): void {
