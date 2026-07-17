@@ -306,6 +306,19 @@
         <label><input type="checkbox" id="setting-readable-text" /> Larger readable text</label>
         <label><input type="checkbox" id="setting-mobile-spectator" /> Lightweight mobile spectator</label>
       </fieldset>
+      <fieldset class="audio-options">
+        <legend>Audio mix</legend>
+        <label class="audio-level"><span>Master <output data-audio-output="master">85%</output></span><input type="range" min="0" max="100" step="1" value="85" data-audio-bus="master" /></label>
+        <label class="audio-level"><span>Music <output data-audio-output="music">72%</output></span><input type="range" min="0" max="100" step="1" value="72" data-audio-bus="music" /></label>
+        <label class="audio-level"><span>Ambience <output data-audio-output="ambience">78%</output></span><input type="range" min="0" max="100" step="1" value="78" data-audio-bus="ambience" /></label>
+        <label class="audio-level"><span>Sound effects <output data-audio-output="sfx">90%</output></span><input type="range" min="0" max="100" step="1" value="90" data-audio-bus="sfx" /></label>
+        <label class="audio-level"><span>Interface <output data-audio-output="ui">72%</output></span><input type="range" min="0" max="100" step="1" value="72" data-audio-bus="ui" /></label>
+        <label class="audio-level"><span>Voices and barks <output data-audio-output="voice">85%</output></span><input type="range" min="0" max="100" step="1" value="85" data-audio-bus="voice" /></label>
+        <label class="audio-select"><span>Dynamic range</span><select id="setting-dynamic-range"><option value="headphones">Headphones</option><option value="tv">TV / laptop</option><option value="night">Night</option></select></label>
+        <label><input type="checkbox" id="setting-mono-audio" /> Mono output</label>
+        <button class="audio-preview" id="audio-preview" type="button">TEST MIX</button>
+        <p class="settings-note">The preview verifies browser audio permission and the Interface bus. Music and environmental assets load only when their mission needs them.</p>
+      </fieldset>
       <fieldset class="analytics-preference">
         <legend>Privacy</legend>
         <label><input type="checkbox" id="setting-gameplay-analytics" /> Share anonymous play diagnostics</label>

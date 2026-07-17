@@ -42,6 +42,20 @@ import {
   type InputSettings,
   type PointerAction,
 } from "./input-settings"
+import { AudioDirector } from "./audio-director"
+import {
+  AUDIO_BUS_IDS,
+  DEFAULT_AUDIO_SETTINGS,
+  copyAudioSettings,
+  loadAudioSettings,
+  saveAudioSettings,
+  type AudioBusId,
+  type AudioSettings,
+  type DynamicRangePreset,
+} from "./audio-settings"
+import { PresentationEventBus, type PresentationEventInput } from "./presentation-events"
+import { cueForPing, presentationForMissionEvent } from "./gameplay-presentation"
+import { MUSIC_TRACKS, musicStateForSituation, type MusicState } from "./music-state"
 import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, updateSocialPresence, type SocialState } from "./social"
 import { currentWalletSession, disconnectRobinhoodWallet, shortWalletAddress, signInWithRobinhoodWallet, walletAddress } from "./wallet-auth"
 import { loadAccessState, purchaseTokenPass, type AccessState } from "./token-access"
@@ -59,7 +73,7 @@ import { createArcheryEquipment } from "./archery-equipment"
 import type { HeroAction } from "./character-visuals"
 import { createCharacterVisual, disposeCharacterVisual, poseCharacterVisual } from "./character-assets"
 import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, normalizedHeroActionProgress } from "./character-animation"
-import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
+import { blocksCameraSightline, cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
 import { regionCellIndexAt, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } from "./region-map"
@@ -236,6 +250,11 @@ const captionsSetting = document.querySelector<HTMLInputElement>("#setting-capti
 const readableTextSetting = document.querySelector<HTMLInputElement>("#setting-readable-text")!
 const mobileSpectatorSetting = document.querySelector<HTMLInputElement>("#setting-mobile-spectator")!
 const gameplayAnalyticsSetting = document.querySelector<HTMLInputElement>("#setting-gameplay-analytics")!
+const audioLevelSettings = [...document.querySelectorAll<HTMLInputElement>("[data-audio-bus]")]
+const audioLevelOutputs = [...document.querySelectorAll<HTMLOutputElement>("[data-audio-output]")]
+const dynamicRangeSetting = document.querySelector<HTMLSelectElement>("#setting-dynamic-range")!
+const monoAudioSetting = document.querySelector<HTMLInputElement>("#setting-mono-audio")!
+const audioPreview = document.querySelector<HTMLButtonElement>("#audio-preview")!
 const missionDebugButton = document.querySelector<HTMLButtonElement>("#mission-debug-button")!
 const graphicsRestoreButton = document.querySelector<HTMLButtonElement>("#graphics-restore-button")!
 const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
@@ -315,6 +334,10 @@ const lastRoomCode = localStorage.getItem("sherwood:last-room-code")
 if (lastRoomCode?.match(/^[A-Z2-9]{6}$/)) rejoinRoomButton.classList.remove("hidden")
 
 let inputSettings: InputSettings = loadInputSettings(localStorage)
+let audioSettings: AudioSettings = loadAudioSettings(localStorage)
+const audioDirector = new AudioDirector(audioSettings)
+const presentationEvents = new PresentationEventBus()
+let requestedMusicState: MusicState | null = null
 let diagnosticReporter: ClientDiagnosticReporter | null = null
 let lastDiagnosticSnapshotAt = 0
 
@@ -358,6 +381,15 @@ const clickPoint = new THREE.Vector3()
 let clickTarget: Vec2 | null = null
 let running = false
 let toastTimer = 0
+const unsubscribePresentationEvents = presentationEvents.subscribe((event) => {
+  toastElement.textContent = event.message
+  toastElement.dataset.channel = event.channel
+  toastElement.dataset.priority = event.priority
+  toastElement.setAttribute("aria-live", event.priority === "critical" ? "assertive" : "polite")
+  toastElement.classList.add("show")
+  toastTimer = event.lifetimeSeconds ?? (event.priority === "critical" ? 4 : event.priority === "important" ? 3 : 2.4)
+  if (event.cue) audioDirector.playCue(event.cue)
+})
 let ended = false
 let lastPlayerPosition = { ...state.player.position }
 let resultSubmitted = false
@@ -2248,6 +2280,28 @@ function persistInputSettings(message = "Changes saved on this device."): void {
   settingsStatus.textContent = message
 }
 
+function applyAudioSettings(): void {
+  audioDirector.updateSettings(audioSettings)
+  for (const input of audioLevelSettings) {
+    const bus = input.dataset.audioBus as AudioBusId
+    if (!AUDIO_BUS_IDS.includes(bus)) continue
+    input.value = String(Math.round(audioSettings.levels[bus] * 100))
+  }
+  for (const output of audioLevelOutputs) {
+    const bus = output.dataset.audioOutput as AudioBusId
+    if (!AUDIO_BUS_IDS.includes(bus)) continue
+    output.textContent = `${Math.round(audioSettings.levels[bus] * 100)}%`
+  }
+  dynamicRangeSetting.value = audioSettings.dynamicRange
+  monoAudioSetting.checked = audioSettings.mono
+}
+
+function persistAudioSettings(message = "Audio mix saved on this device."): void {
+  saveAudioSettings(localStorage, audioSettings)
+  applyAudioSettings()
+  settingsStatus.textContent = message
+}
+
 function renderBindingControls(): void {
   keyboardBindings.replaceChildren()
   for (const action of GAME_ACTIONS) {
@@ -2367,7 +2421,10 @@ function performMappedAction(action: GameAction | PointerAction): void {
     pingRegroup: "regroup",
   }
   const ping = pings[action as GameAction]
-  if (ping && multiplayerActive) multiplayer.sendPing(ping)
+  if (ping && multiplayerActive) {
+    multiplayer.sendPing(ping)
+    audioDirector.playCue(cueForPing(ping))
+  }
 }
 
 function pollControllerActions(): void {
@@ -2592,7 +2649,12 @@ function showMissionEvent(event: MissionEvent): void {
     : event.type === "reinforcement_arrived" && event.detail === "search-pressure"
       ? `SEARCH DELAY — THE SHERIFF FORTIFIES THE TARGET (${event.value}/3)`
     : messages[event.type]
-  if (message) showToast(message)
+  if (message) {
+    showToast(message, {
+      ...presentationForMissionEvent(event.type),
+      dedupeKey: `mission:${event.sequence}`,
+    })
+  }
 }
 
 function syncPingViews(pings: WorldPing[]): void {
@@ -2604,6 +2666,7 @@ function syncPingViews(pings: WorldPing[]): void {
       view = createPingView(ping)
       pingViews.set(ping.id, view)
       scene.add(view)
+      if (ping.playerId !== multiplayer.playerId) audioDirector.playCue(cueForPing(ping.kind))
     }
     view.position.set(ping.position.x, 0.08, ping.position.z)
   }
@@ -3445,10 +3508,47 @@ function getMoveInput(): Vec2 {
   return { x: 0, z: 0 }
 }
 
-function showToast(message: string): void {
-  toastElement.textContent = message
-  toastElement.classList.add("show")
-  toastTimer = 2.4
+function showToast(
+  message: string,
+  options: Partial<Omit<PresentationEventInput, "message">> = {},
+): void {
+  presentationEvents.publish({
+    channel: options.channel ?? "system",
+    priority: options.priority ?? "routine",
+    message,
+    cue: options.cue,
+    dedupeKey: options.dedupeKey,
+    lifetimeSeconds: options.lifetimeSeconds,
+  })
+}
+
+function syncAdaptiveMusic(): void {
+  if (!running || audioDirector.state !== "running") return
+  const player = state.player.position
+  const nearestActiveGuard = state.guards.reduce((nearest, guard) => {
+    if (guard.stunnedFor > 0) return nearest
+    return Math.min(nearest, Math.hypot(guard.position.x - player.x, guard.position.z - player.z))
+  }, Number.POSITIVE_INFINITY)
+  const searchPressure = latestMissionSnapshot?.searchPressure ?? state.searchPressure
+  const threatLevel = nearestActiveGuard < 6
+    ? 3
+    : nearestActiveGuard < 12 || searchPressure >= 2
+      ? 2
+      : searchPressure >= 1
+        ? 1
+        : 0
+  const outcome = latestMissionSnapshot?.status
+    ?? (state.won ? "succeeded" : state.lost ? "failed" : "active")
+  const next = musicStateForSituation({
+    running,
+    inHub: inHub || inPublicHub,
+    outcome,
+    phase: latestMissionSnapshot?.phase ?? currentMissionPhase,
+    threatLevel,
+  })
+  if (next === requestedMusicState) return
+  requestedMusicState = next
+  void audioDirector.playMusic(next, MUSIC_TRACKS[next])
 }
 
 function contextualChatChannel(): ChatChannel {
@@ -4255,38 +4355,32 @@ function syncViews(elapsed: number, dt: number): void {
   const propDistance = renderProfile.tier === "degraded" ? 34 : 48
   for (const prop of medievalPropViews) prop.visible = Math.hypot(prop.position.x - player.x, prop.position.z - player.z) <= propDistance
   syncVillageLods(player)
-  const cameraToPlayer = { x: player.x - camera.position.x, z: player.z - camera.position.z }
-  const cameraToPlayerLengthSquared = cameraToPlayer.x ** 2 + cameraToPlayer.z ** 2
+  const cameraPosition = { x: camera.position.x, z: camera.position.z }
   for (const occluder of cameraOccluders) {
     const cameraToOccluder = { x: occluder.view.position.x - camera.position.x, z: occluder.view.position.z - camera.position.z }
     const cameraDistance = Math.hypot(cameraToOccluder.x, cameraToOccluder.z)
-    const segmentPosition = cameraToPlayerLengthSquared > 0
-      ? Math.max(0, Math.min(1, (cameraToOccluder.x * cameraToPlayer.x + cameraToOccluder.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
-      : 0
-    const sightline = {
-      x: camera.position.x + cameraToPlayer.x * segmentPosition,
-      z: camera.position.z + cameraToPlayer.z * segmentPosition,
-    }
+    const blocksCamera = blocksCameraSightline({
+      camera: cameraPosition,
+      focus: player,
+      occluder: occluder.view.position,
+      radius: occluder.radius,
+    })
     occluder.view.visible = occluder.view.userData.lodVisible !== false
       && cameraDistance > occluder.radius * 2.35
       && (occluder.maxDistance === undefined || Math.hypot(occluder.view.position.x - player.x, occluder.view.position.z - player.z) <= occluder.maxDistance)
-      && !(segmentPosition > 0.05 && segmentPosition < 0.95
-      && Math.hypot(occluder.view.position.x - sightline.x, occluder.view.position.z - sightline.z) < occluder.radius)
+      && !blocksCamera
   }
   const dirtyTreeBatches = new Set<THREE.InstancedMesh>()
   for (const tree of authoredTreeInstances) {
     const playerDistance = Math.hypot(tree.x - player.x, tree.z - player.z)
     const cameraToTree = { x: tree.x - camera.position.x, z: tree.z - camera.position.z }
     const cameraDistance = Math.hypot(cameraToTree.x, cameraToTree.z)
-    const segmentPosition = cameraToPlayerLengthSquared > 0
-      ? Math.max(0, Math.min(1, (cameraToTree.x * cameraToPlayer.x + cameraToTree.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
-      : 0
-    const sightline = {
-      x: camera.position.x + cameraToPlayer.x * segmentPosition,
-      z: camera.position.z + cameraToPlayer.z * segmentPosition,
-    }
-    const blocksCamera = segmentPosition > 0.05 && segmentPosition < 0.95
-      && Math.hypot(tree.x - sightline.x, tree.z - sightline.z) < tree.radius
+    const blocksCamera = blocksCameraSightline({
+      camera: cameraPosition,
+      focus: player,
+      occluder: tree,
+      radius: tree.radius,
+    })
     const hidden = playerDistance > treeDistance || cameraDistance <= tree.radius * 2.35 || blocksCamera
     if (hidden === tree.hidden) continue
     tree.hidden = hidden
@@ -4496,10 +4590,23 @@ function animate(): void {
         if (Number.isInteger(guardId)) createArrowEffect(guardId)
         showToast("Guard stunned")
       }
-      if (event === "player-hit") showToast("The Sheriff strikes!")
-      if (event === "cart-ready") showToast("A new tax cart has entered Sherwood")
-      if (event === "objective-found") showToast("THE SHERIFF'S SHIPMENT — FOUND")
-      if (event === "search-reinforced") showToast(`SEARCH DELAY — SHERIFF PRESSURE ${state.searchPressure}/3`)
+      if (event === "player-hit") {
+        showToast("The Sheriff strikes!", { channel: "threat", priority: "important", cue: "ui.warning" })
+      }
+      if (event === "cart-ready") {
+        showToast("A new tax cart has entered Sherwood", { channel: "objective", priority: "important", cue: "ui.notice" })
+      }
+      if (event === "objective-found") {
+        showToast("THE SHERIFF'S SHIPMENT — FOUND", { channel: "objective", priority: "important", cue: "ui.confirm" })
+      }
+      if (event === "search-reinforced") {
+        showToast(`SEARCH DELAY — SHERIFF PRESSURE ${state.searchPressure}/3`, {
+          channel: "threat",
+          priority: "critical",
+          cue: "ui.warning",
+          lifetimeSeconds: 4,
+        })
+      }
     }
     updateUI()
     if (toastTimer > 0) {
@@ -4508,6 +4615,7 @@ function animate(): void {
     }
     if ((state.won || state.lost) && !multiplayerActive) showEnding(state.won)
   }
+  syncAdaptiveMusic()
   syncViews(elapsed, dt)
   renderer.render(scene, camera)
 }
@@ -4895,6 +5003,7 @@ socialPresence.addEventListener("change", () => void updateSocialPresence(social
 }).catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to update presence" }))
 settingsButton.addEventListener("click", () => {
   renderBindingControls()
+  applyAudioSettings()
   openPanel(settingsPanel, settingsButton)
 })
 closeSettings.addEventListener("click", () => closePanel(settingsPanel))
@@ -4911,6 +5020,29 @@ gameplayAnalyticsSetting.addEventListener("change", () => {
     ? "Anonymous play diagnostics enabled on this device."
     : "Anonymous play diagnostics disabled on this device."
 })
+for (const input of audioLevelSettings) {
+  input.addEventListener("input", () => {
+    const bus = input.dataset.audioBus as AudioBusId
+    if (!AUDIO_BUS_IDS.includes(bus)) return
+    audioSettings.levels[bus] = Number(input.value) / 100
+    applyAudioSettings()
+  })
+  input.addEventListener("change", () => persistAudioSettings())
+}
+dynamicRangeSetting.addEventListener("change", () => {
+  audioSettings.dynamicRange = dynamicRangeSetting.value as DynamicRangePreset
+  persistAudioSettings()
+})
+monoAudioSetting.addEventListener("change", () => {
+  audioSettings.mono = monoAudioSetting.checked
+  persistAudioSettings()
+})
+audioPreview.addEventListener("click", () => {
+  audioPreview.disabled = true
+  void audioDirector.preview().then((played) => {
+    settingsStatus.textContent = played ? "Interface mix preview played." : "Browser audio is still blocked."
+  }).finally(() => { audioPreview.disabled = false })
+})
 resetSettings.addEventListener("click", () => {
   inputSettings = {
     ...DEFAULT_INPUT_SETTINGS,
@@ -4918,8 +5050,11 @@ resetSettings.addEventListener("click", () => {
     controller: { ...DEFAULT_INPUT_SETTINGS.controller },
     pointer: { ...DEFAULT_INPUT_SETTINGS.pointer },
   }
+  audioSettings = copyAudioSettings(DEFAULT_AUDIO_SETTINGS)
   capturingAction = null
-  persistInputSettings("Default controls restored.")
+  saveAudioSettings(localStorage, audioSettings)
+  applyAudioSettings()
+  persistInputSettings("Default controls and audio mix restored.")
   renderBindingControls()
 })
 
@@ -5040,8 +5175,26 @@ window.addEventListener("resize", () => {
 })
 
 window.addEventListener("blur", () => keys.clear())
-document.addEventListener("visibilitychange", () => diagnosticReporter?.resetFrameClock())
-window.addEventListener("beforeunload", () => unsubscribeLeaderboard?.())
+window.addEventListener("pointerdown", () => {
+  void audioDirector.unlock().then((unlocked) => {
+    if (unlocked) syncAdaptiveMusic()
+  })
+}, { once: true, passive: true })
+window.addEventListener("keydown", () => {
+  void audioDirector.unlock().then((unlocked) => {
+    if (unlocked) syncAdaptiveMusic()
+  })
+}, { once: true })
+document.addEventListener("visibilitychange", () => {
+  diagnosticReporter?.resetFrameClock()
+  if (document.hidden) void audioDirector.suspend()
+  else void audioDirector.resume()
+})
+window.addEventListener("beforeunload", () => {
+  unsubscribeLeaderboard?.()
+  unsubscribePresentationEvents()
+  void audioDirector.destroy()
+})
 renderer.domElement.addEventListener("webglcontextlost", (event) => {
   event.preventDefault()
   void diagnosticReporter?.report("webgl_context_lost")
@@ -5051,6 +5204,7 @@ renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sh
 
 renderBindingControls()
 applyInputSettings()
+applyAudioSettings()
 refreshSelectedOutlawSummary()
 setIntroVisible(true)
 updateMissionDebug()

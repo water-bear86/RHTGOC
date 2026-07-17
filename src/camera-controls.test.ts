@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
+import { blocksCameraSightline, cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 
 function expectVector(actual: { x: number; z: number }, expected: { x: number; z: number }): void {
   expect(actual.x).toBeCloseTo(expected.x, 6)
@@ -30,5 +30,35 @@ describe("camera controls", () => {
     expectVector(cameraRelativeMove({ x: 1, z: 0 }, { x: 0, z: 10 }, { x: 0, z: 0 }), { x: 1, z: 0 })
     const diagonal = cameraRelativeMove({ x: 1, z: -1 }, { x: 0, z: 10 }, { x: 0, z: 0 })
     expect(Math.hypot(diagonal.x, diagonal.z)).toBeCloseTo(Math.SQRT2, 6)
+  })
+
+  it("identifies scenery inside the padded camera-to-player corridor", () => {
+    const base = {
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      radius: 0.8,
+    }
+    expect(blocksCameraSightline({ ...base, occluder: { x: 1.3, z: 4 } })).toBe(true)
+    expect(blocksCameraSightline({ ...base, occluder: { x: 1.6, z: 4 } })).toBe(false)
+  })
+
+  it("catches crowns just behind the player but preserves distant scenery", () => {
+    const base = {
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      radius: 0.9,
+    }
+    expect(blocksCameraSightline({ ...base, occluder: { x: 0.4, z: -0.5 } })).toBe(true)
+    expect(blocksCameraSightline({ ...base, occluder: { x: 0, z: -2 } })).toBe(false)
+    expect(blocksCameraSightline({ ...base, occluder: { x: 0, z: 11 } })).toBe(false)
+  })
+
+  it("does not occlude when the camera and focus coincide", () => {
+    expect(blocksCameraSightline({
+      camera: { x: 2, z: 2 },
+      focus: { x: 2, z: 2 },
+      occluder: { x: 2, z: 2 },
+      radius: 4,
+    })).toBe(false)
   })
 })
