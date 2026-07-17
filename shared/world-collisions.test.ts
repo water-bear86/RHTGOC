@@ -53,6 +53,12 @@ describe("shared Sherwood world collision contract", () => {
     expect(SHERWOOD_PLAYER_RADIUS).toBe(0.45)
   })
 
+  it("keeps the fixed cottage solid in the hub but removes it from generated missions", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 19).layout
+    expect(isSherwoodPlayerPositionBlocked(VILLAGE_COTTAGE_COLLIDER.center, 0)).toBe(true)
+    expect(isSherwoodPlayerPositionBlocked(VILLAGE_COTTAGE_COLLIDER.center, 0, layout)).toBe(false)
+  })
+
   it("makes every rendered procedural tree trunk authoritative and solid", () => {
     expect(SHERWOOD_TREE_COLLIDERS.length).toBeGreaterThan(20)
     const tree = SHERWOOD_TREE_COLLIDERS[0]

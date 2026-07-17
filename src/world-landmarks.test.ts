@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import * as THREE from "three"
 import { regionalizeMissionDefinition } from "../shared/regional-layout"
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
+import { composeSherwoodWorld } from "../shared/world-composer"
 import { createSherwoodLandmarks } from "./world-landmarks"
 import { countVillageDrawCalls } from "./village-assets"
 import { sherwoodHeightAt } from "./sherwood-terrain"
@@ -14,6 +15,8 @@ describe("Sherwood landmarks", () => {
     expect(landmarks.group.getObjectByName("WindmillLandmark")).toBeTruthy()
     expect(landmarks.group.getObjectByName("WindmillRotor")).toBeTruthy()
     expect(landmarks.group.getObjectByName("GoldenWheatField")).toBeTruthy()
+    expect(landmarks.group.getObjectByName("AncientStoneCircle")).toBeTruthy()
+    expect(landmarks.group.getObjectByName("LoggingClearing")).toBeFalsy()
     const farmhouse = landmarks.group.getObjectByName("FarmhouseLandmark")
     expect(farmhouse?.getObjectByName("StylizedBuildingDetails")).toBeInstanceOf(THREE.InstancedMesh)
     expect(farmhouse?.getObjectByName("StylizedBuildingGables")).toBeInstanceOf(THREE.InstancedMesh)
@@ -27,6 +30,19 @@ describe("Sherwood landmarks", () => {
     const landmarks = createSherwoodLandmarks(layout)
     expect(Math.hypot(landmarks.farmPosition.x - layout.campfirePosition.x, landmarks.farmPosition.z - layout.campfirePosition.z)).toBeGreaterThan(25)
     expect(Math.hypot(landmarks.farmPosition.x - layout.objectivePosition.x, landmarks.farmPosition.z - layout.objectivePosition.z)).toBeGreaterThan(25)
+  })
+
+  it("moves the stone circle into an unused clearing away from generated roads", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 19).layout
+    const world = composeSherwoodWorld(layout)
+    const landmarks = createSherwoodLandmarks(layout, { world })
+    expect(world.settlements.some(({ center }) => (
+      center.x === landmarks.stoneCirclePosition.x && center.z === landmarks.stoneCirclePosition.z
+    ))).toBe(false)
+    expect(Math.hypot(
+      landmarks.stoneCirclePosition.x - layout.campfirePosition.x,
+      landmarks.stoneCirclePosition.z - layout.campfirePosition.z,
+    )).toBeGreaterThan(15)
   })
 
   it("drapes farm surfaces and compound props onto their own terrain samples", () => {

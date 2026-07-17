@@ -99,6 +99,7 @@ import {
 } from "./sherwood-terrain"
 import { createProceduralRoads } from "./procedural-roads"
 import { createSettlementWorld, disposeSettlementWorld } from "./settlement-renderer"
+import { createMedievalPropLayout } from "./world-prop-layout"
 import { animateObjectiveMarker, createObjectiveMarker, setObjectiveMarkerLabel } from "./objective-marker"
 import { computeObjectivePointer, shouldShowMissionCampfireHalo } from "./objective-guidance"
 import { missionObjectivePosition } from "../shared/mission-objective"
@@ -521,6 +522,7 @@ interface AuthoredTreeInstance {
 const authoredTreeInstances: AuthoredTreeInstance[] = []
 const regionFogViews: THREE.Mesh[] = []
 const medievalPropViews: THREE.Object3D[] = []
+const legacyVillageViews: THREE.Group[] = []
 const cameraOccluders: Array<{ view: THREE.Group; radius: number; maxDistance?: number }> = []
 const water = createSherwoodWater(190)
 const crossingInfrastructure = new THREE.Group()
@@ -537,6 +539,7 @@ let composedWorld: ComposedWorld | null = null
 let settlementWorldView: THREE.Group | null = null
 let composedWorldLayoutKey = ""
 let terrainView: THREE.Mesh | null = null
+let missionWorldVisible = false
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
 const blockedPlayerIds = new Set<string>()
@@ -856,9 +859,10 @@ function createWorld(): void {
   rebuildCrossingInfrastructure(state.layout)
   rebuildBowCaches(state.layout)
 
-  createHut(-14, 11, 0.35)
+  legacyVillageViews.push(createHut(-14, 11, 0.35))
   villageCottageFallback = createHut(-10, 14, -0.55)
-  createHut(-15, 6, 1.1)
+  legacyVillageViews.push(villageCottageFallback)
+  legacyVillageViews.push(createHut(-15, 6, 1.1))
   const villageCircle = mesh(new THREE.TorusGeometry(2.35, 0.08, 6, 48), palette.gold, { cast: false })
   villageCircle.name = "MissionCampfireHalo"
   villageCircle.position.set(0, 0.06, 0)
@@ -900,7 +904,10 @@ function rebuildForestDressing(layout: RegionalMissionLayout): void {
       ...building.position,
       radius: Math.hypot(building.halfExtents.x, building.halfExtents.z) + 1.8,
     }))),
-    ...(landmarkViews ? [{ ...landmarkViews.farmPosition, radius: 17 }] : []),
+    ...(landmarkViews ? [
+      { ...landmarkViews.farmPosition, radius: 17 },
+      { ...landmarkViews.stoneCirclePosition, radius: 6.5 },
+    ] : []),
   ]
   const options = {
     seed: layout.seed,
@@ -924,7 +931,10 @@ function rebuildLandmarks(layout: RegionalMissionLayout): void {
     landmarkViews.dispose()
     scene.remove(landmarkViews.group)
   }
-  landmarkViews = createSherwoodLandmarks(layout, { natureCatalog: natureCatalogSource ?? undefined })
+  landmarkViews = createSherwoodLandmarks(layout, {
+    natureCatalog: natureCatalogSource ?? undefined,
+    world: composeSherwoodWorld(layout),
+  })
   windmillRotor = landmarkViews.windmillRotor
   scene.add(landmarkViews.group)
 }
@@ -967,6 +977,7 @@ function rebuildComposedWorld(layout: RegionalMissionLayout, force = false): voi
   composedWorld = composed
   settlementWorldView = nextSettlementView
   scene.add(nextWorldView)
+  rebuildMedievalProps()
 }
 
 function addRoadSegment(start: { x: number; z: number }, end: { x: number; z: number }): void {
@@ -1133,30 +1144,33 @@ function attachNatureDressing(): void {
   }).catch(() => showToast("Textured forest dressing could not be loaded; using the lightweight fallback"))
 }
 
+function rebuildMedievalProps(): void {
+  for (const prop of medievalPropViews.splice(0)) scene.remove(prop)
+  if (!medievalPropsCatalogSource || !composedWorld) return
+  for (const placement of createMedievalPropLayout(composedWorld)) {
+    const source = medievalPropsCatalogSource.getObjectByName(placement.name)
+    if (!source) continue
+    const prop = source.clone(true)
+    prop.position.set(
+      placement.position.x,
+      sherwoodHeightAt(placement.position.x, placement.position.z),
+      placement.position.z,
+    )
+    prop.rotation.y = placement.rotation
+    prop.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return
+      child.castShadow = true
+      child.receiveShadow = true
+    })
+    medievalPropViews.push(prop)
+    scene.add(prop)
+  }
+}
+
 function attachMedievalProps(): void {
-  const placements = [
-    ["Prop_Well", -30, -31, 0.2], ["Prop_Signpost", -17, -39, -0.5],
-    ["Prop_Haystack", 31, -31, 0.8], ["Prop_Barrel", 38, -28, -0.2],
-    ["Prop_Chest", 31, 30, 1.1], ["Prop_Box", 35, 33, 0.3],
-    ["Prop_Bench", -32, 31, -0.7], ["Prop_Bucket", -29, 34, 0.1],
-    ["Prop_Firewood", -3, 48, 0.5], ["Prop_Pot", 5, -48, -0.3],
-  ] as const
   void loadMedievalProps().then((catalog) => {
     medievalPropsCatalogSource = catalog
-    for (const [name, x, z, rotation] of placements) {
-      const source = catalog.getObjectByName(name)
-      if (!source) continue
-      const prop = source.clone(true)
-      prop.position.set(x, sherwoodHeightAt(x, z), z)
-      prop.rotation.y = rotation
-      prop.traverse((child) => {
-        if (!(child instanceof THREE.Mesh)) return
-        child.castShadow = true
-        child.receiveShadow = true
-      })
-      medievalPropViews.push(prop)
-      scene.add(prop)
-    }
+    rebuildMedievalProps()
     if (latestMissionSnapshot) {
       syncLootCacheViews([])
       syncLootCacheViews(latestMissionSnapshot.lootCaches)
@@ -1696,10 +1710,19 @@ function renderRoleChoice(players: RoomPlayer[]): void {
 }
 
 function setMissionWorldVisible(visible: boolean): void {
+  missionWorldVisible = visible
   cartView.visible = visible
   signalView.visible = visible
   for (const guard of guardViews) guard.visible = visible
   missionBoardView.visible = !visible
+  for (const view of legacyVillageViews) {
+    view.userData.lodVisible = !visible
+    view.visible = !visible
+  }
+  if (villageCottageView) {
+    villageCottageView.userData.lodVisible = !visible
+    villageCottageView.visible = !visible
+  }
   if (!visible) {
     syncTrapViews([])
     syncCaptiveViews([])
@@ -4449,11 +4472,15 @@ function showEnding(won: boolean): void {
 function syncVillageLods(player: Vec2): void {
   const cottageDistance = Math.hypot(player.x + 10, player.z - 14)
   const authoredCottageAvailable = villageCottageView !== null
-  if (villageCottageView) villageCottageView.userData.lodVisible = cottageDistance <= 34
+  if (villageCottageView) {
+    villageCottageView.userData.lodVisible = !missionWorldVisible && cottageDistance <= 34
+  }
   if (villageCottageFallback) {
-    villageCottageFallback.userData.lodVisible = authoredCottageAvailable
-      ? cottageDistance > 34 && cottageDistance <= 58
-      : cottageDistance <= 58
+    villageCottageFallback.userData.lodVisible = !missionWorldVisible && (
+      authoredCottageAvailable
+        ? cottageDistance > 34 && cottageDistance <= 58
+        : cottageDistance <= 58
+    )
   }
 
   const wagonDistance = Math.hypot(player.x - cartView.position.x, player.z - cartView.position.z)

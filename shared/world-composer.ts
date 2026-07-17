@@ -15,7 +15,7 @@ import {
 } from "./world-topology"
 import {
   SHERWOOD_RIVER_HALF_WIDTH,
-  SHERWOOD_STATIC_OBSTACLES,
+  SHERWOOD_MISSION_STATIC_OBSTACLES,
   createSherwoodRiverObstacles,
   isPointInsideSherwoodObstacle,
   isSegmentBlockedBySherwoodObstacle,
@@ -501,10 +501,10 @@ function chooseSettlementSite(
   farthest = false,
 ): TopologyPoint {
   const eligible = SHERWOOD_SETTLEMENT_SITES.filter((site) => !used.has(site.id)
-    && SHERWOOD_STATIC_OBSTACLES.every((obstacle) => !isPointInsideSherwoodObstacle(site.center, obstacle, SETTLEMENT_ROAD_APPROACH_CLEARANCE))
+    && SHERWOOD_MISSION_STATIC_OBSTACLES.every((obstacle) => !isPointInsideSherwoodObstacle(site.center, obstacle, SETTLEMENT_ROAD_APPROACH_CLEARANCE))
     && anchors.every((anchor) => Math.hypot(site.center.x - anchor.x, site.center.z - anchor.z) > 12.5))
   const candidates = eligible.length > 0 ? eligible : SHERWOOD_SETTLEMENT_SITES.filter((site) => !used.has(site.id)
-    && SHERWOOD_STATIC_OBSTACLES.every((obstacle) => !isPointInsideSherwoodObstacle(site.center, obstacle, SETTLEMENT_ROAD_APPROACH_CLEARANCE)))
+    && SHERWOOD_MISSION_STATIC_OBSTACLES.every((obstacle) => !isPointInsideSherwoodObstacle(site.center, obstacle, SETTLEMENT_ROAD_APPROACH_CLEARANCE)))
   const sorted = [...candidates].sort((left, right) => {
     const leftDistance = Math.hypot(left.center.x - target.x, left.center.z - target.z)
     const rightDistance = Math.hypot(right.center.x - target.x, right.center.z - target.z)
@@ -537,7 +537,7 @@ export function composeSherwoodWorld(layout: RegionalMissionLayout): ComposedWor
   const [primaryCrossing, secondaryCrossing] = orderedCrossings
   const routingContext: RoadRoutingContext = {
     layout,
-    obstacles: [...SHERWOOD_STATIC_OBSTACLES, ...createSherwoodRiverObstacles(layout)],
+    obstacles: [...SHERWOOD_MISSION_STATIC_OBSTACLES, ...createSherwoodRiverObstacles(layout)],
     navigationGraphs: new Map(),
     topologyClearings: [
       { center: layout.campfirePosition, radius: 7.5 },

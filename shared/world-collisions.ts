@@ -3,6 +3,7 @@ import { SHERWOOD_GUARD_SEPARATION } from "./guard-rules"
 import { composeSherwoodWorld } from "./world-composer"
 import {
   SHERWOOD_STATIC_OBSTACLES,
+  SHERWOOD_MISSION_STATIC_OBSTACLES,
   SHERWOOD_RIDGE_ROCK_OBSTACLES,
   SHERWOOD_TREE_OBSTACLES,
   VILLAGE_COTTAGE_OBSTACLE,
@@ -55,7 +56,7 @@ function staticCollidersForLayout(layout?: RegionalMissionLayout): readonly Orie
   const cached = missionStaticColliderCache.get(layout)
   if (cached) return cached
   const rocks = selectSherwoodRidgeRockObstaclesForRoads(composeSherwoodWorld(layout).roads)
-  const colliders = Object.freeze([...SHERWOOD_STATIC_COLLIDERS, ...rocks])
+  const colliders = Object.freeze([...SHERWOOD_MISSION_STATIC_OBSTACLES, ...rocks])
   missionStaticColliderCache.set(layout, colliders)
   return colliders
 }

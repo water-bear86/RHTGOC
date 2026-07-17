@@ -1,5 +1,7 @@
 import * as THREE from "three"
 import type { RegionalMissionLayout } from "../shared/regional-layout"
+import type { ComposedWorld } from "../shared/world-composer"
+import { SHERWOOD_SETTLEMENT_SITES } from "../shared/world-topology"
 import { createStylizedBuildingVisual, disposeStylizedBuildingVisuals } from "./building-visuals"
 import { createToonMaterial } from "./toon-materials"
 import { sherwoodHeightAt } from "./sherwood-terrain"
@@ -9,6 +11,7 @@ export interface SherwoodLandmarks {
   group: THREE.Group
   windmillRotor: THREE.Group
   farmPosition: Readonly<{ x: number; z: number }>
+  stoneCirclePosition: Readonly<{ x: number; z: number }>
   wheatCount: number
   dispose(): void
 }
@@ -31,15 +34,75 @@ function mesh(name: string, geometry: THREE.BufferGeometry, color: number): THRE
   return result
 }
 
-export function chooseFarmPosition(layout: RegionalMissionLayout): Readonly<{ x: number; z: number }> {
+function distanceToSegment(
+  point: { x: number; z: number },
+  start: { x: number; z: number },
+  end: { x: number; z: number },
+): number {
+  const dx = end.x - start.x
+  const dz = end.z - start.z
+  const lengthSquared = dx * dx + dz * dz
+  if (lengthSquared < 1e-9) return Math.hypot(point.x - start.x, point.z - start.z)
+  const amount = Math.max(0, Math.min(1, (
+    (point.x - start.x) * dx + (point.z - start.z) * dz
+  ) / lengthSquared))
+  return Math.hypot(
+    point.x - (start.x + dx * amount),
+    point.z - (start.z + dz * amount),
+  )
+}
+
+function distanceToRoads(point: { x: number; z: number }, world?: ComposedWorld): number {
+  if (!world || world.roads.length === 0) return 30
+  return Math.min(...world.roads.flatMap((road) => road.points.slice(1).map((end, index) => (
+    distanceToSegment(point, road.points[index], end) - road.width / 2
+  ))))
+}
+
+export function chooseFarmPosition(
+  layout: RegionalMissionLayout,
+  world?: ComposedWorld,
+): Readonly<{ x: number; z: number }> {
   const candidates = [
     { x: -48, z: -48 }, { x: 48, z: -48 }, { x: -48, z: 48 }, { x: 48, z: 48 },
   ]
-  const hazards = [layout.campfirePosition, layout.objectivePosition, ...layout.crossingPositions]
+  const hazards = [
+    layout.campfirePosition,
+    layout.objectivePosition,
+    ...layout.crossingPositions,
+    ...(world?.settlements.map(({ center }) => center) ?? []),
+  ]
   return candidates.sort((left, right) => {
-    const score = (point: { x: number; z: number }): number => Math.min(...hazards.map((hazard) => Math.hypot(point.x - hazard.x, point.z - hazard.z)))
+    const score = (point: { x: number; z: number }): number => Math.min(
+      distanceToRoads(point, world),
+      ...hazards.map((hazard) => Math.hypot(point.x - hazard.x, point.z - hazard.z)),
+    )
     return score(right) - score(left)
   })[0]
+}
+
+export function chooseStoneCirclePosition(
+  layout: RegionalMissionLayout,
+  world: ComposedWorld | undefined,
+  farmPosition: Readonly<{ x: number; z: number }>,
+): Readonly<{ x: number; z: number }> {
+  const usedSettlements = new Set(world?.settlements.map(({ center }) => `${center.x}:${center.z}`) ?? [])
+  const hazards = [layout.campfirePosition, layout.objectivePosition, farmPosition]
+  const candidates = SHERWOOD_SETTLEMENT_SITES.filter((site) => (
+    !usedSettlements.has(`${site.center.x}:${site.center.z}`)
+    && hazards.every((hazard) => Math.hypot(site.center.x - hazard.x, site.center.z - hazard.z) > 15)
+    && distanceToRoads(site.center, world) > 5.5
+  ))
+  const available = candidates.length > 0
+    ? candidates
+    : SHERWOOD_SETTLEMENT_SITES.filter((site) => !usedSettlements.has(`${site.center.x}:${site.center.z}`))
+  return { ...[...available].sort((left, right) => {
+    const score = (point: { x: number; z: number }): number => Math.min(
+      distanceToRoads(point, world),
+      ...hazards.map((hazard) => Math.hypot(point.x - hazard.x, point.z - hazard.z)),
+    )
+    return score(right.center) - score(left.center)
+  })[0].center }
 }
 
 interface TerrainFrame {
@@ -213,10 +276,13 @@ function createFarmhouse(): THREE.Group {
   })
 }
 
-export function createSherwoodLandmarks(layout: RegionalMissionLayout, options: { natureCatalog?: NatureCatalog } = {}): SherwoodLandmarks {
+export function createSherwoodLandmarks(
+  layout: RegionalMissionLayout,
+  options: { natureCatalog?: NatureCatalog; world?: ComposedWorld } = {},
+): SherwoodLandmarks {
   const group = new THREE.Group()
   group.name = "SherwoodLandmarks"
-  const farmPosition = chooseFarmPosition(layout)
+  const farmPosition = chooseFarmPosition(layout, options.world)
   const farm = new THREE.Group()
   farm.name = "WindmillFarm"
   const farmRotation = farmPosition.x * farmPosition.z > 0 ? -0.35 : 0.35
@@ -240,39 +306,33 @@ export function createSherwoodLandmarks(layout: RegionalMissionLayout, options: 
 
   const stoneCircle = new THREE.Group()
   stoneCircle.name = "AncientStoneCircle"
-  const stoneCircleHeight = sherwoodHeightAt(-38, -8)
-  stoneCircle.position.set(-38, stoneCircleHeight, -8)
+  const stoneCirclePosition = chooseStoneCirclePosition(layout, options.world, farmPosition)
+  const stoneCircleHeight = sherwoodHeightAt(stoneCirclePosition.x, stoneCirclePosition.z)
+  stoneCircle.position.set(stoneCirclePosition.x, stoneCircleHeight, stoneCirclePosition.z)
   for (let index = 0; index < 7; index += 1) {
     const stone = mesh("StandingStone", new THREE.DodecahedronGeometry(0.7, 0), 0x777b6d)
     const angle = index / 7 * Math.PI * 2
     stone.scale.set(0.65, 1.8 + (index % 3) * 0.25, 0.55)
     const x = Math.cos(angle) * 3.1
     const z = Math.sin(angle) * 3.1
-    stone.position.set(x, sherwoodHeightAt(-38 + x, -8 + z) - stoneCircleHeight + stone.scale.y * 0.34, z)
+    stone.position.set(
+      x,
+      sherwoodHeightAt(stoneCirclePosition.x + x, stoneCirclePosition.z + z)
+        - stoneCircleHeight
+        + stone.scale.y * 0.34,
+      z,
+    )
     stone.rotation.y = angle + 0.4
     stoneCircle.add(stone)
   }
   group.add(stoneCircle)
 
-  const logging = new THREE.Group()
-  logging.name = "LoggingClearing"
-  const loggingHeight = sherwoodHeightAt(34, -25)
-  logging.position.set(34, loggingHeight, -25)
-  for (let index = 0; index < 8; index += 1) {
-    const log = mesh("FelldLog", new THREE.CylinderGeometry(0.28, 0.34, 3.1, 8), 0x65472d)
-    log.rotation.z = Math.PI / 2
-    const x = (index % 4) * 0.2
-    const z = (index % 4) * 0.58
-    const terrainOffset = sherwoodHeightAt(34 + x, -25 + z) - loggingHeight
-    log.position.set(x, terrainOffset + 0.32 + Math.floor(index / 4) * 0.48, z)
-    logging.add(log)
-  }
-  group.add(logging)
   let disposed = false
   return {
     group,
     windmillRotor: rotor,
     farmPosition,
+    stoneCirclePosition,
     wheatCount,
     dispose: () => {
       if (disposed) return

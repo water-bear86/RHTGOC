@@ -9,7 +9,7 @@ import {
   type RegionalLayoutVariant,
 } from "./regional-layout"
 import {
-  SHERWOOD_STATIC_OBSTACLES,
+  SHERWOOD_MISSION_STATIC_OBSTACLES,
   createSherwoodRiverObstacles,
   isPointInsideSherwoodObstacle,
 } from "./world-obstacles"
@@ -50,7 +50,7 @@ describe("5x5 regional mission layout", () => {
       objectiveCells.add(layout.objectiveCell.index)
       anchorPairs.add(`${layout.campfireCell.index}:${layout.objectiveCell.index}`)
       variants.add(layout.variant)
-      const blockers = [...SHERWOOD_STATIC_OBSTACLES, ...createSherwoodRiverObstacles(layout)]
+      const blockers = [...SHERWOOD_MISSION_STATIC_OBSTACLES, ...createSherwoodRiverObstacles(layout)]
       for (const anchor of [layout.campfirePosition, layout.objectivePosition]) {
         expect(
           blockers.some((blocker) => isPointInsideSherwoodObstacle(anchor, blocker, 0.45)),

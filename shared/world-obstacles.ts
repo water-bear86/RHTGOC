@@ -49,6 +49,9 @@ export const SHERWOOD_STATIC_OBSTACLES: readonly SherwoodObstacle[] = Object.fre
   ...SHERWOOD_TREE_OBSTACLES,
 ])
 
+/** Mission maps use generated settlements; the fixed cottage belongs only to the public camp hub. */
+export const SHERWOOD_MISSION_STATIC_OBSTACLES: readonly SherwoodObstacle[] = SHERWOOD_TREE_OBSTACLES
+
 export interface SherwoodRoadCorridor {
   width: number
   points: readonly { x: number; z: number }[]
