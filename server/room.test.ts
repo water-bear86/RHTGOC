@@ -137,7 +137,7 @@ describe("Merry Band room", () => {
     expect(room.mission).toBeNull()
     expect(room.village).toEqual({ granary: 1, infirmary: 0, watchtower: 0 })
     expect(room.lastResult).toEqual({ score: 8000, grade: "A", status: "succeeded", rescuedCaptives: 0, totalCaptives: 0 })
-    expect([...room.players.values()].every((player) => !player.ready && player.health === 3 && player.loot === 0)).toBe(true)
+    expect([...room.players.values()].every((player) => !player.ready && player.captureFor === 0 && player.loot === 0)).toBe(true)
   })
 
   it("pins experiment assignments to one mission run and clears them in the hub", () => {

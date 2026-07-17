@@ -1,7 +1,7 @@
 export const GAME_ACTIONS = [
   "moveUp", "moveDown", "moveLeft", "moveRight",
   "cameraLeft", "cameraRight",
-  "interact", "fire", "signature", "revive", "transferLoot",
+  "interact", "fire", "signature", "rescue", "transferLoot",
   "pingDanger", "pingTarget", "pingRoute", "pingLoot", "pingRegroup",
 ] as const
 
@@ -29,7 +29,7 @@ export const ACTION_LABELS: Record<GameAction, string> = {
   interact: "Interact / give",
   fire: "Loose arrow",
   signature: "Signature",
-  revive: "Revive outlaw",
+  rescue: "Free seized outlaw",
   transferLoot: "Share coin",
   pingDanger: "Danger signal",
   pingTarget: "Target signal",
@@ -49,7 +49,7 @@ export const DEFAULT_INPUT_SETTINGS: InputSettings = {
     interact: "KeyE",
     fire: "Space",
     signature: "KeyQ",
-    revive: "KeyR",
+    rescue: "KeyR",
     transferLoot: "KeyT",
     pingDanger: "Digit1",
     pingTarget: "Digit2",
@@ -63,7 +63,7 @@ export const DEFAULT_INPUT_SETTINGS: InputSettings = {
     interact: 0,
     fire: 1,
     signature: 2,
-    revive: 3,
+    rescue: 3,
     transferLoot: 4,
     pingDanger: 5,
     pingTarget: 6,

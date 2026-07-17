@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { createSherwoodWater } from "./water"
+import { SHERWOOD_RIVER_HALF_WIDTH } from "../shared/world-obstacles"
+import { SHERWOOD_RIVER_VISUAL_WIDTH, createSherwoodWater } from "./water"
 
 describe("Sherwood water surface", () => {
   it("layers an opaque river bed below a transparent animated surface", () => {
@@ -9,6 +10,7 @@ describe("Sherwood water surface", () => {
     expect(water.surface.material.transparent).toBe(true)
     expect(water.surface.material.depthWrite).toBe(false)
     expect(water.surface.geometry.getAttribute("position").count).toBeGreaterThan(1_000)
+    expect(SHERWOOD_RIVER_VISUAL_WIDTH).toBeLessThan(SHERWOOD_RIVER_HALF_WIDTH * 2)
   })
 
   it("updates time while clamping reduced-motion intensity", () => {

@@ -1,4 +1,5 @@
 import * as THREE from "three"
+import { SHERWOOD_RIVER_HALF_WIDTH } from "../shared/world-obstacles"
 
 export interface SherwoodWater {
   group: THREE.Group
@@ -51,12 +52,14 @@ const fragmentShader = /* glsl */ `
   }
 `
 
-export function createSherwoodWater(width = 5, length = 54): SherwoodWater {
+export const SHERWOOD_RIVER_VISUAL_WIDTH = SHERWOOD_RIVER_HALF_WIDTH * 2 - 0.6
+
+export function createSherwoodWater(length = 138): SherwoodWater {
   const group = new THREE.Group()
   group.name = "SherwoodRiver"
 
   const bed = new THREE.Mesh(
-    new THREE.PlaneGeometry(width, length),
+    new THREE.PlaneGeometry(SHERWOOD_RIVER_VISUAL_WIDTH + 0.25, length),
     new THREE.MeshToonMaterial({ color: 0x234d55 }),
   )
   bed.position.z = -0.035
@@ -68,7 +71,7 @@ export function createSherwoodWater(width = 5, length = 54): SherwoodWater {
     uMotion: { value: 1 },
   }
   const surface = new THREE.Mesh(
-    new THREE.PlaneGeometry(width, length, 12, 96),
+    new THREE.PlaneGeometry(SHERWOOD_RIVER_VISUAL_WIDTH, length, 12, 96),
     new THREE.ShaderMaterial({
       uniforms,
       vertexShader,

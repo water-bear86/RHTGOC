@@ -17,7 +17,7 @@ A failed rescue mission cannot generate another rescue offer. This bounds every 
 ## Player flow
 
 1. The failed mission produces an explicit result and one active offer.
-2. The leader returns the band to the normal campfire. All captured/downed state is reset, so every player can immediately choose an ordinary mission instead.
+2. The leader returns the band to the normal campfire. All capture state is reset, so every player can immediately choose an ordinary mission instead.
 3. The offer stays visible with its context and countdown. Existing room-code/direct-invite paths can bring replacement helpers into the private lobby.
 4. Only the room leader can accept or abandon. Concurrent or duplicate acceptance loses to the first valid transition.
 5. Acceptance selects a fresh `prison-wagon@1.0.0` mission reference carrying only `rescueOfferId` and `rescueSourceMissionId`; it does not clone guards, positions, timers, or rewards from the failed run.

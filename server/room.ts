@@ -26,7 +26,7 @@ interface ConnectedPlayer extends RoomPlayer {
   signatureCooldown: number
   invulnerableFor: number
   veilFor: number
-  downedFor: number
+  captureFor: number
   captured: boolean
   rescueCount: number
   transferCount: number
@@ -182,7 +182,6 @@ export class Room {
       connected: true,
       bandRole: authUserId ? this.bandMemberRoles.get(authUserId) ?? null : null,
       bandInvitePending: false,
-      health: 3,
       arrows: maxArrows(characterId),
       loot: 0,
       position: { ...position },
@@ -197,7 +196,7 @@ export class Room {
       signatureCooldown: 0,
       invulnerableFor: 0,
       veilFor: 0,
-      downedFor: 0,
+      captureFor: 0,
       captured: false,
       rescueCount: 0,
       transferCount: 0,
@@ -547,7 +546,7 @@ export class Room {
     this.mission?.setInput(playerId, sequence, move)
   }
 
-  action(playerId: string, action: "interact" | "shoot" | "signature" | "revive" | "transfer_loot", targetPlayerId?: string): boolean {
+  action(playerId: string, action: "interact" | "shoot" | "signature" | "rescue" | "transfer_loot", targetPlayerId?: string): boolean {
     return this.mission?.action(playerId, action, targetPlayerId) ?? false
   }
 
@@ -769,10 +768,9 @@ export class Room {
       connected: player.connected,
       bandRole: player.bandRole,
       bandInvitePending: player.bandInvitePending,
-      health: player.health,
       arrows: player.arrows,
       loot: player.loot,
-      downedFor: player.downedFor,
+      captureFor: player.captureFor,
       bowCooldown: player.bowCooldown,
       signatureCooldown: player.signatureCooldown,
       protectionScore: player.protectionScore,
@@ -940,7 +938,7 @@ export class Room {
       type: "snapshot",
       tick: this.tick,
       experiments: this.experimentAssignments.map((assignment) => ({ ...assignment, config: { ...assignment.config } })),
-      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, bowCooldown, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount, bowAction }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, bowCooldown, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount, bowAction: bowAction ? { ...bowAction } : null })),
+      players: [...this.players.values()].map(({ id, position, lastInputSequence, arrows, loot, captureFor, bowCooldown, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount, bowAction }) => ({ id, position, lastInputSequence, arrows, loot, captureFor, bowCooldown, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount, bowAction: bowAction ? { ...bowAction } : null })),
       mission: this.mission.snapshot(),
     })
   }
@@ -964,12 +962,11 @@ export class Room {
   private resetPlayerForHub(player: ConnectedPlayer): void {
     const spawn = spawnPoints[player.spawnIndex]
     player.ready = false
-    player.health = 3
     player.arrows = maxArrows(player.characterId)
     player.loot = 0
     player.position = { ...spawn }
     player.input = { x: 0, z: 0 }
-    player.downedFor = 0
+    player.captureFor = 0
     player.captured = false
     player.signatureCooldown = 0
     player.bowCooldown = 0

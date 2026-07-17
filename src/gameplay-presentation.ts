@@ -12,14 +12,13 @@ export interface GameplayPresentationStyle {
 const CRITICAL_THREATS = new Set<MissionEvent["type"]>([
   "alarm_triggered",
   "reinforcement_arrived",
-  "player_downed",
+  "player_seized",
   "player_captured",
   "mission_failed",
 ])
 
 const IMPORTANT_THREATS = new Set<MissionEvent["type"]>([
   "escort_blocking",
-  "player_hit",
   "trap_triggered",
 ])
 
@@ -34,7 +33,7 @@ const IMPORTANT_REWARDS = new Set<MissionEvent["type"]>([
   "cache_looted",
   "ledger_stolen",
   "extraction_reached",
-  "player_revived",
+  "player_freed",
   "vote_resolved",
 ])
 
@@ -53,7 +52,7 @@ const IMPORTANT_OBJECTIVES = new Set<MissionEvent["type"]>([
 const MISSION_EVENT_CUES: Partial<Record<MissionEvent["type"], AudioCueId>> = {
   alarm_triggered: "world.alarm",
   reinforcement_arrived: "world.reinforcement",
-  player_hit: "action.player-hit",
+  player_seized: "action.player-hit",
   trap_triggered: "action.trap-triggered",
   guard_stunned: "action.guard-stunned",
   cart_robbed: "world.cart-robbed",

@@ -8,15 +8,15 @@ Little John is the band stabilizer. He is slower while empty-handed than Robin o
 - Heavy carry: movement multiplier bottoms at 0.82 and scales over 1,100 coin; other roles bottom at 0.68 over 600 coin.
 - Quiver: 3 arrows, preserving Robin's ranged advantage.
 - Oak Sweep: 6-unit range, 5-second guard stun, 3.5-second nearby-ally protection, 20-second cooldown.
-- Vanguard revive: target returns with 2 health and 4.5 seconds of protection; standard revives return 1 health and 2.5 seconds of protection.
+- Vanguard rescue: a seized target is freed with 4.5 seconds of protection; standard rescues grant 2.5 seconds.
 
-The room server validates role, phase, range, connected state, health, cooldown, and valid targets. Clients send only the existing `signature` and `revive` intents.
+The room server validates role, phase, range, connected state, capture state, cooldown, and valid targets. Clients send only the existing `signature` and `rescue` intents.
 
 ## Mastery evidence
 
 Each Vanguard accumulates three visible, server-owned contributions:
 
-- protection score from protected allies and Vanguard revives;
+- protection score from protected allies and Vanguard rescues;
 - guards controlled by Oak Sweep;
 - highest heavy carry during the mission.
 

@@ -16,11 +16,11 @@ export const RECONNECT_GRACE_MS = 30_000
 
 export const CharacterIdSchema = z.enum(["robin", "marian", "little-john", "much"])
 export type CharacterId = z.infer<typeof CharacterIdSchema>
-export const LoadoutIdSchema = z.enum(["balanced", "bandage", "smoke"])
+export const LoadoutIdSchema = z.enum(["balanced", "smoke"])
 export type LoadoutId = z.infer<typeof LoadoutIdSchema>
 export const ContributionTypeSchema = z.enum(["supplies", "intelligence", "snare-kit", "safe-house"])
 export type ContributionType = z.infer<typeof ContributionTypeSchema>
-export const PlayerActionSchema = z.enum(["interact", "shoot", "signature", "revive", "transfer_loot"])
+export const PlayerActionSchema = z.enum(["interact", "shoot", "signature", "rescue", "transfer_loot"])
 export type PlayerAction = z.infer<typeof PlayerActionSchema>
 
 const DisplayNameSchema = z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9 _-]+$/)
@@ -143,10 +143,9 @@ export interface RoomPlayer {
   connected: boolean
   bandRole: "leader" | "member" | null
   bandInvitePending: boolean
-  health: number
   arrows: number
   loot: number
-  downedFor: number
+  captureFor: number
   bowCooldown: number
   signatureCooldown: number
   protectionScore: number
@@ -178,7 +177,7 @@ export interface MissionGuard {
 export interface MissionEvent {
   sequence: number
   tick: number
-  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "escort_blocking" | "loot_delivered" | "wagon_intercepted" | "lock_breached" | "captives_freed" | "captive_extracted" | "alarm_triggered" | "alarm_sabotaged" | "disguise_acquired" | "cache_looted" | "intel_found" | "ledger_stolen" | "extraction_reached" | "contribution_consumed" | "reinforcement_arrived" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "trap_placed" | "trap_triggered" | "reinforcement_sabotaged" | "player_hit" | "player_downed" | "player_revived" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
+  type: "mission_started" | "phase_changed" | "route_selected" | "cart_robbed" | "escort_blocking" | "loot_delivered" | "wagon_intercepted" | "lock_breached" | "captives_freed" | "captive_extracted" | "alarm_triggered" | "alarm_sabotaged" | "disguise_acquired" | "cache_looted" | "intel_found" | "ledger_stolen" | "extraction_reached" | "contribution_consumed" | "reinforcement_arrived" | "guard_stunned" | "crowd_controlled" | "ally_protected" | "heavy_carry" | "trap_placed" | "trap_triggered" | "reinforcement_sabotaged" | "player_seized" | "player_freed" | "player_captured" | "loot_transferred" | "ping_sent" | "signature_used" | "mission_succeeded" | "mission_failed" | "vote_cast" | "vote_resolved"
   playerId?: string
   value?: number
   detail?: string
@@ -379,7 +378,7 @@ export type ServerMessage =
   | { type: "chat_message"; message: ChatMessage }
   | { type: "chat_error"; channel: "band" | "camp"; code: ChatErrorCode; message: string; retryAfterMs?: number }
   | { type: "action_result"; requestId: number; action: PlayerAction; accepted: boolean }
-  | { type: "snapshot"; tick: number; experiments: RoomExperimentAssignment[]; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "bowCooldown" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount" | "bowAction">>; mission: MissionSnapshot }
+  | { type: "snapshot"; tick: number; experiments: RoomExperimentAssignment[]; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "arrows" | "loot" | "captureFor" | "bowCooldown" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount" | "bowAction">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string; buildId?: string }
 

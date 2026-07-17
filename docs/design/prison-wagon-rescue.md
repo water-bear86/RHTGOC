@@ -22,7 +22,7 @@ Both are viable with two players. Three- and four-player parties gain redundancy
 
 - **Robin Hood:** long-range guard openings and Twin Shot stop the moving escort before it escapes.
 - **Maid Marian:** fastest scouting, Veil pursuit control, and a clean lock contribution.
-- **Little John:** Oak Sweep controls the escort, his lock contribution is strongest, and his protection/revive kit stabilizes the captive column.
+- **Little John:** Oak Sweep controls the escort, his lock contribution is strongest, and his protected rescue stabilizes the captive column.
 - **Much:** road snares, signal sabotage, and a strong clean lock contribution delay reinforcement pressure.
 
 ## Authority and recovery

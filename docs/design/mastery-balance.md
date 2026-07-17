@@ -24,11 +24,11 @@ Every room receives two deterministic modifiers from its mission seed. Both name
 | Scout | Signals route and covers the band | Fastest landmark traversal | Protects the route and slower allies | Places a planned snare and finds sabotage opportunities |
 | Ambush | Highest reliable multi-stun output | Veil creates safe positioning and heat control | Oak Sweep controls clustered escorts | Road Snare changes patrol timing |
 | Pursuit | Protects the loot or captive carrier | Breaks pursuit and reaches rescue angles | Carries heavy loot and creates rescue windows | Delays reinforcements and traps the chase |
-| Support | Revive, ping, and transfer available | Revive, ping, and transfer available | Strongest revive and nearby ally protection | Signal and alarm sabotage support the full band |
+| Support | Rescue, ping, and transfer available | Rescue, ping, and transfer available | Strongest rescue protection and nearby ally protection | Signal and alarm sabotage support the full band |
 
 - Solo is a practice mode, not a verified four-player balance target.
 - Two players must be completable with either Robin/Marian or two of one role.
-- Four players add guards and coordination load rather than inflating guard health.
+- Four players add guards and coordination load rather than inflating guard resistance.
 - Expected success after tutorial completion: 55–70% for new bands, 80–90% for practiced bands.
 
 Tutorial completion is not inferred from reaching the Robbery phase. Universal, character, and mission-type gates have separate versions and completion state as defined in [Tutorials and discovery](./tutorials-and-discovery.md). Completing one gate cannot suppress an unlearned hero or mission, and every gate remains replayable.

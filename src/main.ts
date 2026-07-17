@@ -93,6 +93,7 @@ import {
   SHERWOOD_BRIDGE_ROTATION,
   SHERWOOD_BRIDGE_WIDTH,
   createSherwoodTerrain,
+  sherwoodFootprintGroundY,
   sherwoodHeightAt,
   sherwoodWalkableHeightAt,
 } from "./sherwood-terrain"
@@ -137,7 +138,6 @@ const objectiveElement = document.querySelector<HTMLElement>("#objective-text")!
 const missionTitle = document.querySelector<HTMLElement>("#mission-title")!
 const progressElement = document.querySelector<HTMLElement>("#progress-fill")!
 const missionModifiers = document.querySelector<HTMLElement>("#mission-modifiers")!
-const healthElement = document.querySelector<HTMLElement>("#health")!
 const arrowsElement = document.querySelector<HTMLElement>("#arrows")!
 const lootElement = document.querySelector<HTMLElement>("#loot")!
 const heatWrap = document.querySelector<HTMLElement>("#heat-wrap")!
@@ -305,14 +305,15 @@ const hubState = document.querySelector<HTMLElement>("#hub-state")!
 const returnHubButton = document.querySelector<HTMLButtonElement>("#return-hub")!
 const publicHubPanel = document.querySelector<HTMLElement>("#public-hub-panel")!
 const publicHubCount = document.querySelector<HTMLElement>("#public-hub-count")!
-const publicHubTarget = document.querySelector<HTMLSelectElement>("#public-hub-target")!
-const publicHubSize = document.querySelector<HTMLSelectElement>("#public-hub-size")!
 const publicHubLooking = document.querySelector<HTMLButtonElement>("#public-hub-looking")!
-const publicHubEmotes = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-emote]")]
-const publicHubPings = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-ping]")]
 const publicHubList = document.querySelector<HTMLUListElement>("#public-hub-list")!
 const publicHubLeave = document.querySelector<HTMLButtonElement>("#public-hub-leave")!
 const publicHubStatus = document.querySelector<HTMLElement>("#public-hub-status")!
+const publicCampChatLog = document.querySelector<HTMLOListElement>("#public-camp-chat-log")!
+const publicCampChatStatus = document.querySelector<HTMLElement>("#public-camp-chat-status")!
+const publicCampChatForm = document.querySelector<HTMLFormElement>("#public-camp-chat-form")!
+const publicCampChatInput = document.querySelector<HTMLInputElement>("#public-camp-chat-input")!
+const publicCampChatSubmit = publicCampChatForm.querySelector<HTMLButtonElement>("button[type='submit']")!
 const chatButton = document.querySelector<HTMLButtonElement>("#chat-button")!
 const chatUnreadBadge = document.querySelector<HTMLElement>("#chat-unread-badge")!
 const chatDrawer = document.querySelector<HTMLElement>("#chat-drawer")!
@@ -408,7 +409,7 @@ let pendingRoomSelection = false
 let localReady = false
 let currentRoomPlayers: RoomPlayer[] = []
 let lastMissionEventSequence = 0
-let localDownedFor = 0
+let localCaptureFor = 0
 let missionTarget = DELIVERY_TARGET
 let missionObjective = "Find the Sheriff's tax cart"
 let missionPrompt = "Scout together and signal a route"
@@ -489,7 +490,7 @@ interface RemoteView {
   snapshots: SnapshotBuffer
   lastPosition: THREE.Vector3
   characterId: CharacterId
-  downedFor: number
+  captureFor: number
   action: HeroAction
   actionStartedAt: number
   actionUntil: number
@@ -519,7 +520,7 @@ const authoredTreeInstances: AuthoredTreeInstance[] = []
 const regionFogViews: THREE.Mesh[] = []
 const medievalPropViews: THREE.Object3D[] = []
 const cameraOccluders: Array<{ view: THREE.Group; radius: number; maxDistance?: number }> = []
-const water = createSherwoodWater(7, 190)
+const water = createSherwoodWater(190)
 const crossingInfrastructure = new THREE.Group()
 const bowCacheInfrastructure = new THREE.Group()
 const missionCampfireView = new THREE.Group()
@@ -677,7 +678,7 @@ function resetLocalHeroActions(): void {
 function resetMissionRuntimeState(): void {
   latestMissionSnapshot = null
   lastMissionEventSequence = 0
-  localDownedFor = 0
+  localCaptureFor = 0
   lastGuardPositions.clear()
   guardMovingUntil.clear()
   for (const remote of remoteViews.values()) {
@@ -829,7 +830,7 @@ function createHut(x: number, z: number, rotation = 0): THREE.Group {
     width: 3.2,
     depth: 2.6,
   }, { castShadow: renderProfile.shadows })
-  hut.position.set(x, sherwoodHeightAt(x, z), z)
+  hut.position.set(x, sherwoodFootprintGroundY(x, z, 1.6, 1.3, rotation), z)
   hut.rotation.y = rotation
   scene.add(hut)
   cameraOccluders.push({ view: hut, radius: 2.2 })
@@ -1163,7 +1164,7 @@ function prepareVillageRuntimeObject<T extends THREE.Object3D>(root: T): T {
 function attachVillageSlice(cart: THREE.Group): void {
   void loadVillageCatalog().then((source) => {
     const cottage = prepareVillageRuntimeObject(createVillageCottage(source))
-    cottage.position.set(-10, sherwoodHeightAt(-10, 14), 14)
+    cottage.position.set(-10, sherwoodFootprintGroundY(-10, 14, 2.2, 2.3, -0.55), 14)
     cottage.rotation.y = -0.55
     cottage.visible = false
     const wagonShell = prepareVillageRuntimeObject(createVillageWagonShell(source))
@@ -1483,7 +1484,6 @@ const multiplayer = new MultiplayerClient({
     localRoleConfirmed = localPlayer?.roleConfirmed ?? false
     if (localPlayer) {
       if (localPlayer.characterId !== selectedCharacter) selectLocalCharacter(localPlayer.characterId, false)
-      state.player.health = localPlayer.health
       state.bowCooldown = localPlayer.bowCooldown
       if (phase === "lobby") state.player.position = { ...localPlayer.position }
     }
@@ -1525,18 +1525,17 @@ const multiplayer = new MultiplayerClient({
       if (player.id === multiplayer.playerId) {
         state.player.position.x += (player.position.x - state.player.position.x) * 0.35
         state.player.position.z += (player.position.z - state.player.position.z) * 0.35
-        state.player.health = player.health
         state.player.arrows = player.arrows
         state.player.loot = player.loot
         state.bowCooldown = player.bowCooldown
         state.player.signatureCooldown = player.signatureCooldown
-        localDownedFor = player.downedFor
+        localCaptureFor = player.captureFor
         reconcileLocalBowAction(player.bowAction, tick)
       } else {
         const remote = remoteViews.get(player.id)
         remote?.snapshots.push(player.position, receivedAt)
         if (remote) {
-          remote.downedFor = player.downedFor
+          remote.captureFor = player.captureFor
           reconcileRemoteBowAction(remote, player.bowAction, tick)
           if (!player.bowAction && player.signatureCooldown > remote.lastSignatureCooldown + 0.25) beginRemoteHeroAction(remote, "signature")
           remote.lastSignatureCooldown = player.signatureCooldown
@@ -1658,7 +1657,7 @@ function hubPlayerAsRoomPlayer(player: PublicHubPlayer): RoomPlayer {
     id: player.id, displayName: player.displayName, characterId: player.characterId, loadoutId: "balanced", ready: player.looking, connected: true,
     roleConfirmed: true,
     bandRole: null, bandInvitePending: false,
-    health: 3, arrows: 0, loot: 0, downedFor: 0, bowCooldown: 0, signatureCooldown: 0, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0, trapHits: 0, sabotageCount: 0,
+    arrows: 0, loot: 0, captureFor: 0, bowCooldown: 0, signatureCooldown: 0, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0, trapHits: 0, sabotageCount: 0,
     position: { ...player.position }, lastInputSequence: 0, bowAction: null,
   }
 }
@@ -1830,8 +1829,11 @@ function renderPublicHub(): void {
   const visiblePlayers = publicHubPlayers.filter((player) => !blockedPlayerIds.has(player.id))
   publicHubCount.textContent = `${visiblePlayers.length}/12`
   publicHubLooking.textContent = publicHubIsLooking ? "CANCEL SEARCH" : "FIND A BAND"
-  const desiredPartySize = Number(publicHubSize.value)
-  const compatible = visiblePlayers.filter((player) => player.id !== publicHubParticipantId && player.looking && player.desiredPartySize === desiredPartySize && (publicHubTarget.value === "any" || player.targetPreference === "any" || player.targetPreference === publicHubTarget.value)).length
+  const compatible = visiblePlayers.filter((player) => (
+    player.id !== publicHubParticipantId
+    && player.looking
+    && player.desiredPartySize === 2
+  )).length
   publicHubList.replaceChildren()
   for (const player of visiblePlayers) {
     const item = document.createElement("li")
@@ -1840,7 +1842,7 @@ function renderPublicHub(): void {
     const detail = document.createElement("small")
     const showSignals = !mutedPlayerIds.has(player.id)
     name.textContent = `${player.displayName} · ${characterName(player.characterId)}${showSignals && player.emote ? ` · ${player.emote.toUpperCase()}` : ""}${showSignals && player.ping ? ` · ${player.ping.toUpperCase()}!` : ""}`
-    detail.textContent = player.looking ? `LOOKING · ${player.targetPreference.replaceAll("-", " ")} · ${player.desiredPartySize}P` : "At the fire"
+    detail.textContent = player.looking ? "LOOKING FOR ONE OUTLAW" : "At the fire"
     copy.append(name, detail)
     const actions = document.createElement("div")
     if (player.id !== publicHubParticipantId) {
@@ -1878,8 +1880,9 @@ function renderPublicHub(): void {
     publicHubList.append(item)
   }
   publicHubStatus.textContent = publicHubIsLooking
-    ? `Searching across every public camp · ${compatible} visible match${compatible === 1 ? "" : "es"} here · friends receive priority but are never required.`
-    : "Choose a target and party size, then find a band automatically."
+    ? `Searching every public camp · ${compatible} other outlaw${compatible === 1 ? "" : "s"} visibly searching here · friends receive priority but are never required.`
+    : "One shared queue · two-outlaw band · mission chosen automatically."
+  renderPublicCampChat()
 }
 
 function renderRotationCountdown(): void {
@@ -2103,7 +2106,7 @@ const pointerActionLabels: Record<PointerAction, string> = {
   interact: ACTION_LABELS.interact,
   fire: ACTION_LABELS.fire,
   signature: ACTION_LABELS.signature,
-  revive: ACTION_LABELS.revive,
+  rescue: ACTION_LABELS.rescue,
   transferLoot: ACTION_LABELS.transferLoot,
   pingDanger: ACTION_LABELS.pingDanger,
   pingTarget: ACTION_LABELS.pingTarget,
@@ -2286,7 +2289,7 @@ function refreshControlCopy(): void {
   helpSignature.textContent = `${keyLabel(key.signature)} uses Twin Shot, Marian's Veil, Oak Sweep, or Much's Road Snare`
   signatureKeyElement.textContent = keyLabel(key.signature)
   helpSignals.textContent = `${keyLabel(key.pingDanger)} / ${keyLabel(key.pingTarget)} / ${keyLabel(key.pingRoute)} / ${keyLabel(key.pingLoot)} / ${keyLabel(key.pingRegroup)} place symbol-coded signals`
-  helpSupport.textContent = `${keyLabel(key.revive)} revives a nearby outlaw · ${keyLabel(key.transferLoot)} transfers up to 60 coin`
+  helpSupport.textContent = `${keyLabel(key.rescue)} frees a seized outlaw · ${keyLabel(key.transferLoot)} transfers up to 60 coin`
   for (const label of fieldMapSignalKeys) {
     const action = label.dataset.signalKey as "pingDanger" | "pingTarget" | "pingRoute" | "pingLoot" | "pingRegroup"
     label.textContent = keyLabel(key[action])
@@ -2453,7 +2456,7 @@ function performMappedAction(action: GameAction | PointerAction): void {
   if (action === "interact") handleInteraction()
   if (action === "fire") fireArrow()
   if (action === "signature") useSignature()
-  if (action === "revive" && multiplayerActive) sendSupportAction("revive")
+  if (action === "rescue" && multiplayerActive) sendSupportAction("rescue")
   if (action === "transferLoot" && multiplayerActive) sendSupportAction("transfer_loot")
   const pings: Partial<Record<GameAction, PingKind>> = {
     pingDanger: "danger",
@@ -2513,7 +2516,7 @@ function missionPromptForPhase(phase: MissionSnapshot["phase"]): string {
     ambush: `${keyLabel(key.fire)} or ${keyLabel(key.signature)} stuns escorts · ${keyLabel(key.pingDanger)} warns the band`,
     robbery: `Press ${keyLabel(key.interact)} beside the tax cart`,
     pursuit: `Carry coin to the forest north or river east · ${keyLabel(key.pingLoot)} marks loot`,
-    escape: `Reach the village fire · ${keyLabel(key.revive)} rescues · ${keyLabel(key.transferLoot)} shares coin`,
+    escape: `Reach the village fire · ${keyLabel(key.rescue)} frees seized outlaws · ${keyLabel(key.transferLoot)} shares coin`,
     extraction: `Press ${keyLabel(key.interact)} at the village fire`,
   }
   return prompts[phase]
@@ -2663,9 +2666,8 @@ function showMissionEvent(event: MissionEvent): void {
     trap_placed: "ROAD SNARE SET",
     trap_triggered: "SNARE CAUGHT AN ESCORT",
     reinforcement_sabotaged: "SHERIFF'S SIGNAL CUT",
-    player_hit: "The Sheriff strikes!",
-    player_downed: "AN OUTLAW IS DOWN",
-    player_revived: "OUTLAW RESCUED",
+    player_seized: "THE SHERIFF HAS AN OUTLAW",
+    player_freed: "OUTLAW FREED",
     player_captured: "AN OUTLAW WAS CAPTURED",
     loot_transferred: "COIN HANDED OFF",
     ping_sent: "SIGNAL PLACED",
@@ -3498,9 +3500,13 @@ function renderParty(players: RoomPlayer[]): void {
     compactIdentity.textContent = `${player.displayName} · ${characterName(player.characterId)}`
     const vitality = document.createElement("b")
     vitality.className = "vitality"
-    vitality.textContent = player.downedFor > 0
-      ? `DOWN ${Math.ceil(player.downedFor)}s`
-      : `${"♥".repeat(Math.max(0, player.health))}${player.characterId === "little-john" ? ` · 🛡${player.protectionScore} ⚒${player.crowdControl}` : player.characterId === "much" ? ` · ⛓${player.trapHits} ✂${player.sabotageCount}` : ""}`
+    vitality.textContent = player.captureFor > 0
+      ? `SEIZED ${Math.ceil(player.captureFor)}s`
+      : player.characterId === "little-john"
+        ? `🛡${player.protectionScore} · ⚒${player.crowdControl}`
+        : player.characterId === "much"
+          ? `⛓${player.trapHits} · ✂${player.sabotageCount}`
+          : "FREE"
     compact.append(presence, compactIdentity, vitality)
     missionPartyList.append(compact)
   }
@@ -3513,7 +3519,7 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
     if (player.id === multiplayer.playerId || blockedPlayerIds.has(player.id)) continue
     const existing = remoteViews.get(player.id)
     if (existing) {
-      existing.downedFor = player.downedFor
+      existing.captureFor = player.captureFor
       if (existing.characterId !== player.characterId) {
         disposeCharacterVisual(existing.fallback)
         existing.view.remove(existing.fallback)
@@ -3538,7 +3544,7 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
       snapshots: new SnapshotBuffer(),
       lastPosition: view.position.clone(),
       characterId: player.characterId,
-      downedFor: player.downedFor,
+      captureFor: player.captureFor,
       action: "idle",
       actionStartedAt: 0,
       actionUntil: 0,
@@ -3773,7 +3779,7 @@ function renderChatChrome(statusOverride?: string): void {
     else if (chatState.isAvailable("camp")) chatState.selectChannel("camp")
   }
   const anyAvailable = chatState.isAvailable("band") || chatState.isAvailable("camp")
-  chatButton.classList.toggle("hidden", !anyAvailable)
+  chatButton.classList.toggle("hidden", !anyAvailable || inPublicHub)
   for (const tab of chatTabs) {
     const channel = tab.dataset.chatChannel as ChatChannel
     tab.disabled = !chatState.isAvailable(channel)
@@ -3795,7 +3801,27 @@ function renderChatChrome(statusOverride?: string): void {
     const chatLabel = chatState.isAvailable("camp") ? "INSTANCE CHAT" : "CAMP CHAT OFF"
     missionModifiers.textContent = `OPT-IN PUBLIC CAMP · CAP ${publicHubCapacity} · ${chatLabel}`
   }
+  renderPublicCampChat(statusOverride)
   renderChatBadges()
+}
+
+function renderPublicCampChat(statusOverride?: string): void {
+  const available = inPublicHub && roomConnected && chatState.isAvailable("camp")
+  publicCampChatInput.disabled = !available
+  publicCampChatSubmit.disabled = !available
+  publicCampChatStatus.textContent = statusOverride ?? (
+    !inPublicHub
+      ? "Join the public camp to chat."
+      : !roomConnected
+        ? "Reconnecting to camp chat…"
+        : !chatState.isAvailable("camp")
+          ? "Camp chat is temporarily unavailable."
+          : "Visible only inside this camp."
+  )
+  const messages = chatState.messages("camp", hiddenChatPlayerIds())
+  const wasNearBottom = publicCampChatLog.scrollHeight - publicCampChatLog.scrollTop - publicCampChatLog.clientHeight < 52
+  publicCampChatLog.replaceChildren(...messages.map(createChatMessageElement))
+  if (wasNearBottom || messages.length <= 1) publicCampChatLog.scrollTop = publicCampChatLog.scrollHeight
 }
 
 function renderChatHistory(scrollToEnd: boolean): void {
@@ -3838,6 +3864,7 @@ function receiveChatHistory(channel: ChatChannel, messages: ChatMessage[]): void
   chatState.replaceHistory(channel, messages)
   if (channel === contextualChatChannel()) chatState.selectChannel(channel)
   renderChatChrome()
+  if (channel === "camp") renderPublicCampChat()
   if (chatState.drawerOpen && chatState.activeChannel === channel) renderChatHistory(true)
 }
 
@@ -3856,6 +3883,7 @@ function receiveChatMessage(message: ChatMessage): void {
     } else chatNewMessages.classList.remove("hidden")
   }
   renderChatChrome()
+  if (message.channel === "camp") renderPublicCampChat()
   renderChatPeek()
 }
 
@@ -4000,7 +4028,7 @@ function fireArrow(): void {
     showToast(`Bow ready in ${Math.max(1, Math.ceil(state.bowCooldown))}s`)
     return
   }
-  if (state.won || state.lost || localDownedFor > 0) return
+  if (state.won || state.lost || localCaptureFor > 0) return
   const move = getMoveInput()
   if (hasBowMovement(move)) {
     showToast("STAND STILL TO DRAW")
@@ -4055,7 +4083,7 @@ function createArrowEffect(guardId: number): void {
 function updatePendingMultiplayerShot(elapsed: number, move: Vec2): void {
   const pending = pendingLocalShot
   if (!pending) return
-  if (localDownedFor > 0 || state.won || state.lost) {
+  if (localCaptureFor > 0 || state.won || state.lost) {
     pendingLocalShot = null
     localBowActionSuppressed = false
     heroAttackStartedAt = 0
@@ -4220,7 +4248,6 @@ async function openLeaderboard(): Promise<void> {
 }
 
 function updateUI(): void {
-  healthElement.textContent = String(state.player.health)
   arrowsElement.textContent = String(state.player.arrows)
   const rescueMission = latestMissionSnapshot?.missionKind === "prison-wagon"
   lootElement.textContent = String(rescueMission ? latestMissionSnapshot!.captives.filter((captive) => captive.rewarded).length : state.player.loot)
@@ -4246,8 +4273,8 @@ function updateUI(): void {
     ? "Spectating the Merry Band · disable spectator mode in accessibility settings to play"
     : atSignal
       ? `${keyLabel(inputSettings.keyboard.interact)}  CUT THE SHERIFF'S REINFORCEMENT SIGNAL`
-    : localDownedFor > 0
-    ? `DOWNED · ${Math.ceil(localDownedFor)}s for a teammate to revive you`
+    : localCaptureFor > 0
+    ? `SEIZED · ${Math.ceil(localCaptureFor)}s for a teammate to free you`
     : multiplayerActive
       ? missionPrompt
       : getContextPrompt(state)
@@ -4495,7 +4522,7 @@ function syncViews(elapsed: number, dt: number): void {
     view.scale.setScalar(pulse)
   }
   const playerGroundY = sherwoodWalkableHeightAt(player.x, player.z, state.layout)
-  const playerRootBob = localDownedFor > 0 ? 0 : Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale
+  const playerRootBob = localCaptureFor > 0 ? 0 : Math.sin(elapsed * 9) * 0.035 * renderProfile.motionScale
   playerView.position.set(player.x, playerGroundY + playerRootBob, player.z)
   setObjectOpacityFactor(playerView, state.player.veilFor > 0 ? 0.48 : 1)
   const dx = player.x - lastPlayerPosition.x
@@ -4505,7 +4532,7 @@ function syncViews(elapsed: number, dt: number): void {
   const footstepCue = advanceMovementSound(movementSoundState, {
     distance: movementDistance,
     onRoad: composedWorld ? isPositionOnRoad(player, composedWorld.roads) : false,
-    enabled: running && localDownedFor <= 0 && !state.won && !state.lost,
+    enabled: running && localCaptureFor <= 0 && !state.won && !state.lost,
   })
   if (footstepCue) audioDirector.playCue(footstepCue)
   if (playerMoving) playerView.rotation.y = Math.atan2(dx, dz)
@@ -4530,7 +4557,7 @@ function syncViews(elapsed: number, dt: number): void {
     actionProgress: playerAction === "attack" && soloBowActionProgress !== null
       ? soloBowActionProgress
       : normalizedHeroActionProgress(elapsed, playerActionStartedAt, playerAction),
-    downed: localDownedFor > 0,
+    downed: localCaptureFor > 0,
     motionScale: renderProfile.motionScale,
   })
   for (const cache of bowCacheAnimations) cache.mixer.update(dt)
@@ -4583,7 +4610,7 @@ function syncViews(elapsed: number, dt: number): void {
       moving,
       action: remote.action,
       actionProgress: normalizedHeroActionProgress(elapsed, remote.actionStartedAt, remote.action),
-      downed: remote.downedFor > 0,
+      downed: remote.captureFor > 0,
       motionScale: renderProfile.motionScale,
     })
     remote.lastPosition.copy(remote.view.position)
@@ -4703,8 +4730,8 @@ function animate(): void {
         audioDirector.playCue("action.arrow-impact")
         showToast("Guard stunned")
       }
-      if (event === "player-hit") {
-        showToast("The Sheriff strikes!", { channel: "threat", priority: "important", cue: "action.player-hit" })
+      if (event === "player-captured") {
+        showToast("THE SHERIFF CAPTURED YOU", { channel: "threat", priority: "critical", cue: "action.player-hit" })
       }
       if (event === "cart-ready") {
         showToast("A new tax cart has entered Sherwood", { channel: "objective", priority: "important", cue: "ui.notice" })
@@ -4735,7 +4762,7 @@ function animate(): void {
 
 function predictMultiplayerMovement(move: Vec2, dt: number): void {
   const length = Math.hypot(move.x, move.z)
-  if (length <= 0.001 || state.player.health <= 0 || localDownedFor > 0) return
+  if (length <= 0.001 || localCaptureFor > 0) return
   const speed = state.player.characterId === "marian" ? 6.75 : state.player.characterId === "little-john" ? 5.9 : 6.2
   const lootPenalty = state.player.characterId === "little-john"
     ? Math.max(0.82, 1 - state.player.loot / 1_100)
@@ -4760,10 +4787,10 @@ function nearbyTeammate(predicate: (player: RoomPlayer) => boolean): RoomPlayer 
     .sort((a, b) => a.distance - b.distance)[0]?.player ?? null
 }
 
-function sendSupportAction(action: "revive" | "transfer_loot"): void {
-  const target = nearbyTeammate((player) => action === "revive" ? player.downedFor > 0 : player.downedFor <= 0)
+function sendSupportAction(action: "rescue" | "transfer_loot"): void {
+  const target = nearbyTeammate((player) => action === "rescue" ? player.captureFor > 0 : player.captureFor <= 0)
   if (!target) {
-    showToast(action === "revive" ? "No downed outlaw nearby" : "No outlaw nearby")
+    showToast(action === "rescue" ? "No seized outlaw nearby" : "No outlaw nearby")
     return
   }
   if (action === "transfer_loot" && state.player.loot <= 0) {
@@ -4897,14 +4924,21 @@ hubAbandonRescue.addEventListener("click", () => {
 })
 publicHubLooking.addEventListener("click", () => {
   publicHubIsLooking = !publicHubIsLooking
-  multiplayer.setHubIntent(publicHubIsLooking, publicHubTarget.value as PublicHubPlayer["targetPreference"], Number(publicHubSize.value) as 2 | 3 | 4)
+  multiplayer.setHubIntent(publicHubIsLooking, "any", 2)
   renderPublicHub()
 })
-for (const select of [publicHubTarget, publicHubSize]) select.addEventListener("change", () => {
-  if (publicHubIsLooking) multiplayer.setHubIntent(true, publicHubTarget.value as PublicHubPlayer["targetPreference"], Number(publicHubSize.value) as 2 | 3 | 4)
+publicCampChatForm.addEventListener("submit", (event) => {
+  event.preventDefault()
+  if (!chatState.isAvailable("camp") || !roomConnected) return
+  if (sendChatInput(publicCampChatInput, "camp")) {
+    chatState.markRead("camp")
+    renderPublicCampChat()
+  }
 })
-publicHubEmotes.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubEmote(button.dataset.hubEmote as "wave" | "cheer" | "bow")))
-publicHubPings.forEach((button) => button.addEventListener("click", () => multiplayer.sendHubPing(button.dataset.hubPing as "regroup" | "target")))
+publicCampChatInput.addEventListener("input", () => {
+  publicCampChatInput.value = truncateChatInput(publicCampChatInput.value)
+})
+publicCampChatInput.addEventListener("keydown", (event) => event.stopPropagation())
 chatButton.addEventListener("click", () => {
   if (!isModalOpen()) openChatDrawer()
 })

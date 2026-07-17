@@ -21,7 +21,6 @@ Only the first room member can change the target. Role and kit selection remain 
 ## Field kits
 
 - `balanced`: the standard mission configuration.
-- `bandage`: a successful revive restores one additional health, capped at the normal maximum.
 - `smoke`: the player starts the mission with two seconds of veil protection.
 
 Kits are server-authoritative mission inputs. They are visible in the hub and cannot be used to alter simulation state directly from the client.

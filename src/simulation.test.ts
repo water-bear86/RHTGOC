@@ -109,11 +109,10 @@ describe("Sherwood simulation", () => {
     expect(state.bowAction).toBeNull()
   })
 
-  it("cancels a drawing shot before release when a guard downs the player", () => {
+  it("cancels a drawing shot before release when a guard captures the player", () => {
     const state = createInitialState()
     state.objectiveDiscovered = true
     state.player.position = { x: -30, z: -30 }
-    state.player.health = 1
     state.heat = 100
     state.guards = [{ id: 0, position: { x: -28.8, z: -30 }, home: { x: -28.8, z: -30 }, patrolAngle: 0, stunnedFor: 0 }]
     expect(beginSoloBowDraw(state, { x: 0, z: 0 })).toBe("started")

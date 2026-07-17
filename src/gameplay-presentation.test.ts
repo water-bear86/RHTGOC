@@ -3,14 +3,9 @@ import { cueForPing, presentationForMissionEvent } from "./gameplay-presentation
 
 describe("gameplay presentation", () => {
   it("reserves urgent warning cues for meaningful threats", () => {
-    expect(presentationForMissionEvent("player_downed")).toMatchObject({
+    expect(presentationForMissionEvent("player_seized")).toMatchObject({
       channel: "threat",
       priority: "critical",
-      cue: "ui.warning",
-    })
-    expect(presentationForMissionEvent("player_hit")).toMatchObject({
-      channel: "threat",
-      priority: "important",
       cue: "action.player-hit",
     })
   })

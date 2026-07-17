@@ -7,6 +7,7 @@ import {
   SHERWOOD_BRIDGE_WIDTH,
   SHERWOOD_VISUAL_TERRAIN_SIZE,
   createSherwoodTerrain,
+  sherwoodFootprintGroundY,
   sherwoodHeightAt,
   sherwoodWalkableHeightAt,
 } from "./sherwood-terrain"
@@ -30,6 +31,16 @@ describe("Sherwood terrain", () => {
     expect(SHERWOOD_VISUAL_TERRAIN_SIZE / 2).toBeGreaterThan(SHERWOOD_REGIONAL_BOUNDS + 20)
     expect(bounds.min.x).toBeLessThan(-SHERWOOD_REGIONAL_BOUNDS)
     expect(bounds.max.x).toBeGreaterThan(SHERWOOD_REGIONAL_BOUNDS)
+  })
+
+  it("grounds a rotated footprint at its highest terrain sample", () => {
+    const x = -14
+    const z = 11
+    const rotation = 0.35
+    const grounded = sherwoodFootprintGroundY(x, z, 1.6, 1.3, rotation)
+    const center = sherwoodHeightAt(x, z)
+    expect(grounded).toBeGreaterThanOrEqual(center)
+    expect(Number.isFinite(grounded)).toBe(true)
   })
 
   it("uses the bridge deck as the visual standing surface only inside its rotated footprint", () => {

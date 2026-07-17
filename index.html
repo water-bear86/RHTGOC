@@ -26,7 +26,6 @@
         <div class="progress"><i id="progress-fill"></i></div>
       </div>
       <div class="status">
-        <span title="Health"><i class="heart"></i><b id="health">3</b></span>
         <span title="Arrows"><i class="arrow">➶</i><b id="arrows">5</b></span>
         <span title="Stolen coin"><i class="coin"></i><b id="loot">0</b></span>
         <span class="signature-status" title="Signature ability"><i>Q</i><b id="signature">READY</b></span>
@@ -167,7 +166,7 @@
         <dt>Loose arrow</dt><dd id="help-fire">Press once while still; moving before release cancels the draw</dd>
         <dt>Signature</dt><dd id="help-signature">Q uses Robin's Twin Shot or Marian's Veil</dd>
         <dt>Signal</dt><dd id="help-signals">1–5 place danger, target, route, loot, and regroup pings</dd>
-        <dt>Rescue / share</dt><dd id="help-support">R revives a nearby outlaw · T transfers up to 60 coin</dd>
+        <dt>Rescue / share</dt><dd id="help-support">R frees an outlaw being seized · T transfers up to 60 coin</dd>
         <dt>Chat</dt><dd>Press Enter for a quick message, or use the pencil button for the full Band / Camp trollbox</dd>
         <dt>Survive</dt><dd>Break line of pursuit among the trees</dd>
       </dl>
@@ -395,7 +394,7 @@
       </div>
       <label class="hub-loadout">FIELD KIT
         <select id="hub-loadout">
-          <option value="balanced">Balanced kit</option><option value="bandage">Extra bandage</option><option value="smoke">Smoke pouch</option>
+          <option value="balanced">Balanced kit</option><option value="smoke">Smoke pouch</option>
         </select>
       </label>
       <div class="hub-actions"><button id="hub-copy-code">COPY INVITE CODE</button><button id="hub-ready">START SOLO</button></div>
@@ -404,14 +403,20 @@
     <section class="public-hub-panel hidden" id="public-hub-panel" aria-label="Opt-in public campfire">
       <span class="eyebrow">OPT-IN PUBLIC CAMP</span>
       <div class="hub-heading"><h2>Find a band</h2><b id="public-hub-count">0/12</b></div>
-      <p>Authenticated Camp chat appears when moderation storage is online and stays inside this 12-player instance. Voice remains off; mute, block, and report are always available.</p>
-      <label>TARGET <select id="public-hub-target"><option value="any">Any trusted mission</option><option value="peoples-purse">People's Purse</option><option value="prison-wagon">Iron Road</option><option value="royal-storehouse">Nottingham Ledger</option></select></label>
-      <label>PARTY SIZE <select id="public-hub-size"><option value="2">2 outlaws</option><option value="3">3 outlaws</option><option value="4">4 outlaws</option></select></label>
+      <p>Chat with this camp while Sherwood finds one other outlaw. The mission is chosen automatically so a small crowd does not split into empty queues.</p>
       <div class="public-hub-actions"><button id="public-hub-looking">FIND A BAND</button></div>
-      <div class="public-hub-emotes"><button data-hub-emote="wave">WAVE</button><button data-hub-emote="cheer">CHEER</button><button data-hub-emote="bow">BOW</button><button data-hub-ping="regroup">REGROUP</button></div>
+      <section class="public-camp-chat" aria-labelledby="public-camp-chat-title">
+        <div><b id="public-camp-chat-title">CAMP CHAT</b><small id="public-camp-chat-status" role="status" aria-live="polite">Connecting to camp chat…</small></div>
+        <ol id="public-camp-chat-log" role="log" aria-live="polite" aria-relevant="additions" aria-label="Camp chat messages"></ol>
+        <form id="public-camp-chat-form" autocomplete="off">
+          <label class="sr-only" for="public-camp-chat-input">Camp message</label>
+          <input id="public-camp-chat-input" maxlength="160" enterkeyhint="send" placeholder="Message this camp" disabled />
+          <button type="submit" disabled>SEND</button>
+        </form>
+      </section>
       <ul id="public-hub-list"></ul>
       <button id="public-hub-leave">LEAVE PUBLIC CAMP</button>
-      <small id="public-hub-status">Presence in this instance expires after one idle minute.</small>
+      <small id="public-hub-status">Find a band searches one shared two-outlaw queue.</small>
     </section>
     <script type="module" src="/src/main.ts"></script>
   </body>

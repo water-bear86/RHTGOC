@@ -181,7 +181,7 @@ function analyticsEventForMissionEvent(type: string): GameplayAnalyticsEvent | n
   if (type === "mission_started") return "mission-start"
   if (type === "mission_succeeded") return "mission-success"
   if (type === "mission_failed") return "mission-failure"
-  if (type === "player_downed") return "player-downed"
+  if (type === "player_seized") return "player-downed"
   return objectiveAnalyticsEvents.has(type) ? "objective-interaction" : null
 }
 

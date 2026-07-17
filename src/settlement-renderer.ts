@@ -11,7 +11,7 @@ import {
   type StylizedBuildingDescriptor,
   type StylizedBuildingPalette,
 } from "./building-visuals"
-import { sherwoodHeightAt } from "./sherwood-terrain"
+import { sherwoodFootprintGroundY, sherwoodHeightAt } from "./sherwood-terrain"
 import { createToonMaterial } from "./toon-materials"
 import {
   countVillageDrawCalls,
@@ -62,7 +62,13 @@ function buildingDescriptor(
     palette: paletteFor(settlementKind),
     position: {
       x: building.position.x,
-      y: sherwoodHeightAt(building.position.x, building.position.z),
+      y: sherwoodFootprintGroundY(
+        building.position.x,
+        building.position.z,
+        building.halfExtents.x,
+        building.halfExtents.z,
+        building.rotation,
+      ),
       z: building.position.z,
     },
     rotation: building.rotation,
@@ -76,7 +82,13 @@ function createBuildingMarker(building: ComposedBuilding, settlementKind: Settle
   marker.name = building.id
   marker.position.set(
     building.position.x,
-    sherwoodHeightAt(building.position.x, building.position.z),
+    sherwoodFootprintGroundY(
+      building.position.x,
+      building.position.z,
+      building.halfExtents.x,
+      building.halfExtents.z,
+      building.rotation,
+    ),
     building.position.z,
   )
   marker.rotation.y = building.rotation
@@ -120,15 +132,16 @@ function createSettlementSquares(world: ComposedWorld): THREE.InstancedMesh {
       4.9,
       Math.max(2.8, riverDistance - SHERWOOD_RIVER_HALF_WIDTH - settlementGreenRiverMargin),
     )
+    const rotation = riverNormalRotation + (index % 2) * Math.PI
     return new THREE.Matrix4().compose(
       new THREE.Vector3(
         settlement.center.x,
-        sherwoodHeightAt(settlement.center.x, settlement.center.z) + 0.035,
+        sherwoodFootprintGroundY(settlement.center.x, settlement.center.z, normalRadius, 5, rotation) + 0.035,
         settlement.center.z,
       ),
       new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(0, 1, 0),
-        riverNormalRotation + (index % 2) * Math.PI,
+        rotation,
       ),
       new THREE.Vector3(normalRadius, 1, 5 + (index % 3) * 0.18),
     )
@@ -194,7 +207,13 @@ function authoredCottageInstance(building: ComposedBuilding): VillageCottageInst
     id: building.id,
     position: {
       x: building.position.x,
-      y: sherwoodHeightAt(building.position.x, building.position.z),
+      y: sherwoodFootprintGroundY(
+        building.position.x,
+        building.position.z,
+        building.halfExtents.x,
+        building.halfExtents.z,
+        building.rotation,
+      ),
       z: building.position.z,
     },
     rotation: building.rotation,

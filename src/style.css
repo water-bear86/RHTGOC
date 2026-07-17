@@ -394,9 +394,8 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .public-hub-panel p, .public-hub-panel small { color: #f7f0d489; font-size: 8px; line-height: 1.45; }
 .public-hub-panel label { display: grid; grid-template-columns: 1fr 1.5fr; align-items: center; margin: 7px 0; color: var(--gold); font-size: 8px; font-weight: 800; }
 .public-hub-panel select { padding: 7px; color: var(--cream); background: #203c2d; border: 1px solid #f7f0d42b; font-size: 8px; }
-.public-hub-actions, .public-hub-emotes { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 9px 0; }
+.public-hub-actions { display: grid; grid-template-columns: 1fr; gap: 5px; margin: 9px 0; }
 .public-hub-actions { grid-template-columns: 1fr; }
-.public-hub-emotes { grid-template-columns: repeat(4,1fr); }
 .public-hub-panel button { padding: 8px; color: var(--cream); background: #294632; border: 1px solid #f7f0d42b; cursor: pointer; font-size: 8px; font-weight: 800; }
 .public-hub-panel button:disabled { opacity: .42; cursor: default; }
 .public-hub-panel ul { display: grid; gap: 5px; margin: 9px 0; padding: 0; list-style: none; }
@@ -404,6 +403,19 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .public-hub-panel li span, .public-hub-panel li small { display: block; }
 .public-hub-panel li span { font-size: 9px; }
 .public-hub-panel li i { color: var(--gold); font-style: normal; }
+.public-camp-chat { margin: 12px 0; overflow: hidden; background: #07120bb3; border: 1px solid #e4b65345; }
+.public-camp-chat > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 9px 10px 7px; border-bottom: 1px solid #f7f0d41a; }
+.public-camp-chat > div b { color: var(--gold); font-size: 8px; letter-spacing: .11em; }
+.public-camp-chat > div small { overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.public-camp-chat ol { min-height: 118px; max-height: 210px; display: block; margin: 0; padding: 4px 9px; overflow-y: auto; }
+.public-camp-chat .chat-message { display: block; padding: 7px 2px; background: transparent; }
+.public-camp-chat .chat-message header { display: flex; }
+.public-camp-chat .chat-message p { margin-top: 3px; font-size: 11px; }
+.public-camp-chat .chat-message-actions { display: flex; }
+.public-camp-chat form { display: grid; grid-template-columns: minmax(0, 1fr) auto; border-top: 1px solid #f7f0d41a; }
+.public-camp-chat input { min-width: 0; padding: 10px; color: var(--cream); background: #10251d; border: 0; outline: none; font-size: 16px; user-select: text; }
+.public-camp-chat form button { min-width: 58px; color: var(--ink); background: var(--gold); border: 0; }
+.public-camp-chat input:disabled, .public-camp-chat form button:disabled { opacity: .45; cursor: default; }
 .hub-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-right: 34px; }
 .hub-heading h2 { margin: 6px 0 10px; font: 700 25px Cinzel, serif; }
 .hub-heading h2:focus { outline: none; }

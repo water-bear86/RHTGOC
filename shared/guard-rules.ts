@@ -8,6 +8,8 @@ export interface GuardRuleState {
   stunnedFor: number
 }
 
+export const GUARD_ARROW_STUN_SECONDS = 4.5
+
 export type GuardPatrolShape = "ellipse" | "figure-eight" | "clover"
 
 export interface GuardPatrolProfile {

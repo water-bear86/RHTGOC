@@ -11,7 +11,7 @@ At the campfire, every connected outlaw may deposit up to two available preparat
 | Supplies | A one-use field restock | Gold-banded supply crate near the spawn | On interaction |
 | Intelligence | The contributor's scout report is credited in the plan | Map board at the planning point | At mission start |
 | Snare kit | A trap is pre-positioned on the chosen approach | Full road-snare world model and authoritative trap | At mission start |
-| Safe house | A one-use recovery point is prepared | Green extraction tent that restores health and arrows | On interaction |
+| Safe house | A one-use recovery point is prepared | Green extraction tent that restocks arrows and grants brief capture protection | On interaction |
 
 The planning list, mission debug view, HUD preparation count, world models, event captions, and results breakdown all expose who contributed and whether the resource was consumed. No contribution changes mission reward calculation.
 

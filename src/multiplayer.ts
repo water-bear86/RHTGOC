@@ -12,7 +12,7 @@ import type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
   onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[], missionSlug: string, village: VillageState, lastResult: LastMissionResult | null, selectedRotationId: string | null, rotationsPaused: boolean, rotations: SheriffRotation[], upcomingRotations: SheriffRotation[], rescueOffer: RescueOffer | null, contributions: BandContribution[], selectedContributionIds: string[], season: SherwoodSeasonSnapshot | null, band: MerryBandState | null) => void
-  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "bowCooldown" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount" | "bowAction">>, mission: MissionSnapshot) => void
+  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "arrows" | "loot" | "captureFor" | "bowCooldown" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount" | "bowAction">>, mission: MissionSnapshot) => void
   onError?: (message: string) => void
   onConnection?: (connected: boolean) => void
   onHubWelcome?: (instanceId: string, participantId: string, capacity: number) => void

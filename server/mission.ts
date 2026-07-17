@@ -6,6 +6,7 @@ import {
   SHERWOOD_GUARD_SEPARATION,
   activeEscortCount,
   activeGuardPositions,
+  GUARD_ARROW_STUN_SECONDS,
   initialGuardPatrolAngle,
   stepGuardPatrol,
 } from "../shared/guard-rules"
@@ -28,7 +29,6 @@ export interface MissionPlayer {
   loadoutId: LoadoutId
   connected: boolean
   position: { x: number; z: number }
-  health: number
   arrows: number
   loot: number
   input: { x: number; z: number }
@@ -39,7 +39,7 @@ export interface MissionPlayer {
   signatureCooldown: number
   invulnerableFor: number
   veilFor: number
-  downedFor: number
+  captureFor: number
   captured: boolean
   rescueCount: number
   transferCount: number
@@ -51,6 +51,8 @@ export interface MissionPlayer {
   trapHits: number
   sabotageCount: number
 }
+
+export const OUTLAW_CAPTURE_SECONDS = 8
 
 interface MissionGuardState {
   id: number
@@ -233,7 +235,7 @@ export class Mission {
 
   setInput(playerId: string, sequence: number, move: { x: number; z: number }, now = Date.now()): boolean {
     const player = this.players.get(playerId)
-    if (!player || this.status !== "active" || !player.connected || player.health <= 0 || player.downedFor > 0 || player.captured) return false
+    if (!player || this.status !== "active" || !player.connected || player.captureFor > 0 || player.captured) return false
     const stopsMovement = hasBowMovement(player.input) && !hasBowMovement(move)
     if (sequence <= player.lastInputSequence || (now - player.lastInputAt < 20 && !stopsMovement)) return false
     const length = Math.hypot(move.x, move.z)
@@ -244,9 +246,9 @@ export class Mission {
     return true
   }
 
-  action(playerId: string, action: "interact" | "shoot" | "signature" | "revive" | "transfer_loot", targetPlayerId?: string): boolean {
+  action(playerId: string, action: "interact" | "shoot" | "signature" | "rescue" | "transfer_loot", targetPlayerId?: string): boolean {
     const player = this.players.get(playerId)
-    if (!player || this.status !== "active" || !player.connected || player.health <= 0 || player.downedFor > 0 || player.captured) return false
+    if (!player || this.status !== "active" || !player.connected || player.captureFor > 0 || player.captured) return false
     if (action === "interact") return this.interact(player)
     if (action === "shoot") {
       if ((this.signatureActionEndsAtTick.get(player.id) ?? 0) > this.tick) return false
@@ -261,7 +263,7 @@ export class Mission {
     if (!targetPlayerId) return false
     const target = this.players.get(targetPlayerId)
     if (!target || target.id === player.id || distance(player.position, target.position) > 2.4) return false
-    if (action === "revive") return this.revive(player, target)
+    if (action === "rescue") return this.rescue(player, target)
     return this.transferLoot(player, target)
   }
 
@@ -334,16 +336,16 @@ export class Mission {
       player.signatureCooldown = Math.max(0, player.signatureCooldown - dt)
       player.invulnerableFor = Math.max(0, player.invulnerableFor - dt)
       player.veilFor = Math.max(0, player.veilFor - dt)
-      if (player.downedFor > 0) {
-        player.downedFor = Math.max(0, player.downedFor - dt)
+      if (player.captureFor > 0) {
+        player.captureFor = Math.max(0, player.captureFor - dt)
         player.input = { x: 0, z: 0 }
-        if (player.downedFor === 0) {
+        if (player.captureFor === 0) {
           player.captured = true
           this.capturedOccurred = true
           this.record("player_captured", player.id)
         }
       }
-      if (!player.connected || player.health <= 0 || player.captured) {
+      if (!player.connected || player.captured || player.captureFor > 0) {
         this.cancelPlayerActions(player.id)
         continue
       }
@@ -372,7 +374,7 @@ export class Mission {
       player.position.z = resolved.z
     }
 
-    const activePlayers = [...this.players.values()].filter((player) => player.connected && player.health > 0 && !player.captured)
+    const activePlayers = [...this.players.values()].filter((player) => player.connected && !player.captured && player.captureFor <= 0)
     for (const player of activePlayers) this.exploredCellIndices.add(regionCellIndexAt(player.position))
     if (this.missionKind === "prison-wagon") this.updatePrisonWagon(activePlayers, dt)
     if (this.missionKind === "storehouse") this.updateStorehouse(activePlayers, dt)
@@ -537,7 +539,6 @@ export class Mission {
     if (!preparation || distance(preparation.position, player.position) > 2.6) return false
     if (preparation.type === "supplies") player.arrows = player.characterId === "robin" ? 6 : player.characterId === "little-john" ? 3 : 4
     if (preparation.type === "safe-house") {
-      player.health = 3
       player.arrows = player.characterId === "robin" ? 6 : player.characterId === "little-john" ? 3 : 4
       player.invulnerableFor = Math.max(player.invulnerableFor, 2)
     }
@@ -810,7 +811,7 @@ export class Mission {
   private updateBowAction(player: MissionPlayer): void {
     const action = player.bowAction
     if (!action) return
-    if (!player.connected || player.health <= 0 || player.downedFor > 0 || player.captured || this.status !== "active") {
+    if (!player.connected || player.captureFor > 0 || player.captured || this.status !== "active") {
       this.cancelBowAction(player.id)
       return
     }
@@ -841,7 +842,7 @@ export class Mission {
     }
     const target = this.guards.find((guard) => guard.id === targetId && guard.stunnedFor <= 0 && distance(guard.position, player.position) <= BOW_RANGE)
     if (!target) return
-    target.stunnedFor = 3.2
+    target.stunnedFor = GUARD_ARROW_STUN_SECONDS
     this.shotsHit += 1
     this.record("guard_stunned", player.id, target.id)
     if (this.phase === "ambush") {
@@ -885,7 +886,7 @@ export class Mission {
         .sort((a, b) => distance(a.position, player.position) - distance(b.position, player.position))
         .slice(0, 2)
       if (targets.length === 0) return false
-      for (const target of targets) target.stunnedFor = 3.2
+      for (const target of targets) target.stunnedFor = GUARD_ARROW_STUN_SECONDS
       if (this.phase === "ambush") {
         this.ambushStuns += targets.length
         if (this.ambushStuns >= this.ambushTarget) this.setPhase("robbery", player.id)
@@ -897,22 +898,21 @@ export class Mission {
     return true
   }
 
-  private revive(player: MissionPlayer, target: MissionPlayer): boolean {
-    if (target.downedFor <= 0 || target.captured) return false
-    target.health = Math.min(3, (player.characterId === "little-john" ? 2 : 1) + (player.loadoutId === "bandage" ? 1 : 0))
-    target.downedFor = 0
+  private rescue(player: MissionPlayer, target: MissionPlayer): boolean {
+    if (target.captureFor <= 0 || target.captured) return false
+    target.captureFor = 0
     target.invulnerableFor = player.characterId === "little-john" ? 4.5 : 2.5
     player.rescueCount += 1
     if (player.characterId === "little-john") {
       player.protectionScore += 250
-      this.record("ally_protected", player.id, 250, "vanguard-revive")
+      this.record("ally_protected", player.id, 250, "vanguard-rescue")
     }
-    this.record("player_revived", player.id, player.rescueCount)
+    this.record("player_freed", player.id, player.rescueCount)
     return true
   }
 
   private transferLoot(player: MissionPlayer, target: MissionPlayer): boolean {
-    if (player.loot <= 0 || target.health <= 0 || target.captured || target.downedFor > 0) return false
+    if (player.loot <= 0 || target.captured || target.captureFor > 0) return false
     const amount = Math.min(60, player.loot)
     player.loot -= amount
     target.loot += amount
@@ -940,17 +940,12 @@ export class Mission {
     if (target && this.heat > 8 && distance(target.position, guard.position) < 22) {
       const disruption = this.reinforcementDelaySeconds > 0 ? 0.7 : 0
       this.moveGuardToward(guard, target.position, 3.35 + this.heat * 0.008 - disruption, dt, players)
-      if (distance(target.position, guard.position) < 1.25 && target.invulnerableFor === 0) {
-        target.health = Math.max(0, target.health - 1)
-        this.damageTaken += 1
+      if (distance(target.position, guard.position) < 1.25 && target.invulnerableFor === 0 && target.captureFor === 0) {
+        target.captureFor = OUTLAW_CAPTURE_SECONDS
         target.invulnerableFor = 2
         this.heat = Math.min(100, this.heat + 15)
-        this.record("player_hit", target.id, target.health)
-        if (target.health === 0 && target.downedFor === 0) {
-          target.downedFor = 20
-          target.input = { x: 0, z: 0 }
-          this.record("player_downed", target.id, 20)
-        }
+        target.input = { x: 0, z: 0 }
+        this.record("player_seized", target.id, OUTLAW_CAPTURE_SECONDS)
       }
       return
     }

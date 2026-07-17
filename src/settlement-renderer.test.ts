@@ -10,7 +10,7 @@ import { composeSherwoodWorld } from "../shared/world-composer"
 import { SHERWOOD_RIVER_HALF_WIDTH, selectSherwoodRidgeRockObstaclesForRoads } from "../shared/world-obstacles"
 import { SHERWOOD_RIDGE_ROCK_LAYOUT } from "../shared/world-layout"
 import { SHERWOOD_SETTLEMENT_SITES } from "../shared/world-topology"
-import { sherwoodHeightAt } from "./sherwood-terrain"
+import { sherwoodFootprintGroundY } from "./sherwood-terrain"
 import {
   SETTLEMENT_WORLD_DRAW_CALL_BUDGET,
   authoredCottageScaleForCollider,
@@ -49,7 +49,13 @@ describe("settlement renderer", () => {
         expect(marker).toBeTruthy()
         expect(marker?.position.toArray()).toEqual([
           building.position.x,
-          sherwoodHeightAt(building.position.x, building.position.z),
+          sherwoodFootprintGroundY(
+            building.position.x,
+            building.position.z,
+            building.halfExtents.x,
+            building.halfExtents.z,
+            building.rotation,
+          ),
           building.position.z,
         ])
         expect(marker?.rotation.y).toBeCloseTo(building.rotation)

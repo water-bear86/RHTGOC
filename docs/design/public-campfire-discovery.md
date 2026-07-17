@@ -17,12 +17,10 @@ The browser reuses the existing 3D character pipeline and snapshot interpolation
 The Camp channel is an authenticated, instance-local trollbox, not a global feed. It is available only when durable moderation-evidence storage is configured. It keeps at most 100 in-memory messages for 30 minutes, applies its own send and duplicate limits, and never carries text between public-camp instances. There is no voice, direct messaging, or cross-instance text. Players may also use:
 
 - looking-for-band on/off;
-- one trusted-mission preference;
-- desired party size from two to four;
-- wave, cheer, or bow;
-- regroup or target ping.
+- one shared two-outlaw queue;
+- automatic mission selection so a small population is never divided by preferences.
 
-Emotes have a one-second cooldown and short visual lifetime. Pings have a two-second cooldown. A report is limited to one per target per session and no more than one every five seconds. The server waits for the requested party size, matches compatible looking-for-band players, prioritizes accepted friends, reserves an empty private room for ten seconds, and sends the requester first so leadership is deterministic. Every client then re-enters through normal authenticated room admission, role limits, readiness, and mission validation.
+A report is limited to one per target per session and no more than one every five seconds. The server pairs looking-for-band players across public-camp instances, prioritizes accepted friends, reserves an empty private room for ten seconds, and sends the requester first so leadership is deterministic. Every client then re-enters through normal authenticated room admission, role limits, readiness, and mission validation. Private invite rooms retain their two-to-four-player setup.
 
 ## Safety
 

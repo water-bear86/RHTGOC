@@ -74,7 +74,7 @@ Long-term mastery should come from systems rather than hidden controls:
 - Managing Wanted pressure instead of simply outrunning it.
 - Coordinating role abilities and rescues with precise timing.
 - Choosing faster, riskier routes and extraction plans.
-- Preserving arrows, health, stealth, and carried loot.
+- Preserving arrows, stealth, freedom from capture, and carried loot.
 - Completing optional objectives without triggering reinforcements.
 - Building a chain of clean actions that increases mission score.
 
@@ -88,7 +88,7 @@ Difficulty may increase through smarter combinations, shorter timing windows, ad
 4. Choose roles, equipment, entry route, and escape plan.
 5. Scout and infiltrate the target area.
 6. Rob the target and trigger a dynamic Wanted response.
-7. Escape while protecting the loot and reviving downed allies.
+7. Escape while protecting the loot and freeing seized allies.
 8. Return to safety and vote on how to distribute the haul.
 9. Improve villages, the outlaw camp, equipment, reputation, or future opportunities.
 10. Select the next target as the Sheriff adapts.
@@ -98,7 +98,7 @@ Difficulty may increase through smarter combinations, shorter timing windows, ad
 The permanent M7 playtest establishes:
 
 - A true 3D Sherwood world with a perspective follow camera, click and keyboard movement, archery, role abilities, Wanted pressure, loot, rescue, redistribution, and mastery scoring.
-- Server-authoritative private Merry Band rooms for two to four players, shared missions, reconnects, role selection, readiness, pings, downing, revives, loot transfer, and redistribution votes.
+- Server-authoritative private Merry Band rooms for two to four players, shared missions, reconnects, role selection, readiness, pings, guard capture, teammate rescue, loot transfer, and redistribution votes.
 - Four playable named heroes: Robin, Maid Marian, Little John, and Much.
 - A campfire mission board and three versioned missions: the People's Purse tax-cart heist, prison-wagon rescue, and royal-storehouse infiltration.
 - An opt-in public campfire, privacy-safe friends and invitations, daily Sheriff targets, rescue follow-ups, asynchronous band preparations, and seasonal village projects.
@@ -128,7 +128,7 @@ A band may eventually have:
 The initial characters should create complementary play without rigidly preventing solo action:
 
 - **Robin — Marksman:** marks priority targets, disables guards at range, and creates openings.
-- **Little John — Vanguard:** controls crowds, carries heavy loot, and protects downed allies.
+- **Little John — Vanguard:** controls crowds, carries heavy loot, and protects seized allies.
 - **Maid Marian — Scout:** reveals patrol routes, uses disguises, cools Wanted pressure more efficiently, and opens alternate paths. Marian must be fully playable from the first character-select milestone rather than existing only as an NPC or support ability.
 - **Much — Saboteur:** places traps, disrupts reinforcements, and interferes with wagons or gates.
 
@@ -143,7 +143,7 @@ The first social layer should include:
 - Contextual pings for targets, danger, routes, loot, and regrouping.
 - A small set of expressive emotes.
 - Shared objectives and team-level Wanted pressure.
-- Downed state, rescue, and revival.
+- Guard seizure, bounded rescue window, and capture.
 - Shared mission results and redistribution vote.
 
 Text and voice chat were not required for the first multiplayer milestone. The game remains understandable through movement, pings, animation, and contextual actions. The later bounded text layer now supports the current private Band and authenticated public-camp instance, but it must not become global discovery infrastructure or replace readable cooperative verbs.
@@ -157,7 +157,7 @@ Initial leaderboard boards should include:
 - **Master Outlaws:** highest validated mission mastery score.
 - **People's Champions:** most wealth successfully redistributed.
 - **Clean Escapes:** highest-value missions completed without damage or capture.
-- **Rescuers:** most teammate revives and rescue missions completed.
+- **Rescuers:** most seized teammates freed and rescue missions completed.
 - **Swift Arrows:** fastest validated heist completion for each mission and party size.
 
 Leaderboard entries must record season, mission, party size, character or role, score breakdown, completion time, and validation status. Competitive boards must accept results only from the authoritative mission server. Prototype or offline results may be shown locally but must never be represented as globally verified.
@@ -178,11 +178,11 @@ The first social release must support one complete four-player experience:
 ### Shared 3D mission
 
 - Two to four players inhabit the same authoritative mission instance.
-- Remote players move smoothly and display their role, health, and downed state.
+- Remote players move smoothly and display their role and capture state.
 - Players can ping world positions and mission objects.
 - The tax-cart objective, guards, loot, damage, and Wanted state are shared.
 - A player carrying loot moves more slowly and can transfer the burden to an ally.
-- A downed player can be revived by another player within a limited window.
+- A seized player can be freed by another player within a limited window.
 - The band succeeds only if the required loot reaches the village or safe house.
 
 ### Mission resolution
@@ -245,7 +245,7 @@ Later regions may include Nottingham, Locksley, royal estates, woodland settleme
 ## 12. UX requirements
 
 - The first playable view must prioritize the 3D world over interface chrome.
-- The persistent HUD should show only health, role resources, carried loot, Wanted pressure, and the current objective.
+- The persistent HUD should show only role resources, carried loot, Wanted pressure, and the current objective.
 - Party status should remain compact and readable without covering the playfield.
 - Contextual pings and interaction prompts should reduce dependence on chat.
 - The fixed signal vocabulary is 1 danger, 2 target, 3 route, 4 loot, and 5 regroup; labels must follow remapped inputs where applicable.
@@ -272,7 +272,7 @@ Later regions may include Nottingham, Locksley, royal estates, woodland settleme
 - Multiplayer missions must be server-authoritative.
 - Clients send input and action intent, not final position, damage, loot, or reward outcomes.
 - WebSockets distribute world snapshots, events, pings, and party state.
-- The server owns guards, objectives, loot, combat validation, Wanted state, revives, and mission resolution.
+- The server owns guards, objectives, loot, capture validation, Wanted state, rescues, and mission resolution.
 - Match instances must support reconnect grace periods and clean host-independent shutdown.
 
 ### Persistence
@@ -302,7 +302,7 @@ The social MVP should be evaluated on:
 - Percentage of created rooms that reach mission start.
 - Median time from room creation to mission start.
 - Mission completion rate by party size.
-- Percentage of missions containing a revive, ping, or loot transfer.
+- Percentage of missions containing a teammate rescue, ping, or loot transfer.
 - Percentage of players who complete a second band mission in the same session.
 - Seven-day return rate for players who complete at least one social mission.
 - Distribution of redistribution-vote outcomes.

@@ -70,7 +70,7 @@ export const CHARACTER_LESSONS: Readonly<Record<CharacterId, TutorialLesson>> = 
     eyebrow: "OUTLAW LESSON · LITTLE JOHN",
     title: "Carry the weight and hold the line",
     body: "Little John is the vanguard. Stay near the outlaw carrying the objective, move heavy loads efficiently, and make space when guards close in.",
-    points: Object.freeze(["You are the band's strongest heavy carrier.", "Guard revives and vulnerable teammates at close range.", "Your Signature action uses Oak Sweep to clear space around you."]),
+    points: Object.freeze(["You are the band's strongest heavy carrier.", "Free seized teammates at close range.", "Your Signature action uses Oak Sweep to clear space around you."]),
     visual: "character",
   }),
   much: Object.freeze({

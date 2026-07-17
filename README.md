@@ -50,7 +50,7 @@ Configure `ROBINHOOD_CHAIN`, a production RPC in `ROBINHOOD_RPC_URL`, the exact 
 
 ## Multiplayer and persistence
 
-Private rooms support two to four players. Robin, Maid Marian, Little John, and Much are playable across three versioned missions, with shared guards, pings, loot, Wanted pressure, revives, redistribution, rotations, rescue follow-ups, preparations, and seasonal campaign state.
+Private rooms support two to four players. Robin, Maid Marian, Little John, and Much are playable across three versioned missions, with shared guards, pings, loot, Wanted pressure, guard captures, teammate rescues, redistribution, rotations, rescue follow-ups, preparations, and seasonal campaign state.
 
 The Supabase schema is in [`supabase/migrations`](./supabase/migrations); generated types are in [`src/database.types.ts`](./src/database.types.ts). Browser clients use only the publishable key. The authoritative room service requires `SUPABASE_SECRET_KEY` for durable band, rescue, contribution, campaign, social, token-access, and verified leaderboard writes. Without it, persistence remains unavailable; paid access also remains unavailable when its switch is on. Private Band chat remains in memory. Authenticated, instance-local Camp chat additionally requires `PUBLIC_CAMP_CHAT_ENABLED=true` and a successful startup probe of the private moderation-evidence RPC, so it fails closed when evidence retention is not ready.
 

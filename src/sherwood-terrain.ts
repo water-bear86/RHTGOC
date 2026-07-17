@@ -15,6 +15,26 @@ export function sherwoodHeightAt(x: number, z: number): number {
   return sherwoodTopologyHeightAt(x, z)
 }
 
+export function sherwoodFootprintGroundY(
+  x: number,
+  z: number,
+  halfWidth: number,
+  halfDepth: number,
+  rotation = 0,
+): number {
+  const cosine = Math.cos(rotation)
+  const sine = Math.sin(rotation)
+  let highest = Number.NEGATIVE_INFINITY
+  for (const localX of [-halfWidth, 0, halfWidth]) {
+    for (const localZ of [-halfDepth, 0, halfDepth]) {
+      const sampleX = x + cosine * localX + sine * localZ
+      const sampleZ = z - sine * localX + cosine * localZ
+      highest = Math.max(highest, sherwoodHeightAt(sampleX, sampleZ))
+    }
+  }
+  return Number.isFinite(highest) ? highest : sherwoodHeightAt(x, z)
+}
+
 function pointInsideBridgeDeck(
   x: number,
   z: number,
@@ -42,7 +62,7 @@ export function sherwoodWalkableHeightAt(
     : terrainHeight
 }
 
-export function createSherwoodTerrain(size = SHERWOOD_VISUAL_TERRAIN_SIZE, segments = 96): THREE.Mesh {
+export function createSherwoodTerrain(size = SHERWOOD_VISUAL_TERRAIN_SIZE, segments = 112): THREE.Mesh {
   const geometry = new THREE.PlaneGeometry(size, size, segments, segments)
   geometry.rotateX(-Math.PI / 2)
   const positions = geometry.getAttribute("position")

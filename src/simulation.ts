@@ -3,6 +3,7 @@ import {
   SHERWOOD_GUARD_SEPARATION,
   activeEscortCount,
   activeGuardPositions,
+  GUARD_ARROW_STUN_SECONDS,
   initialGuardPatrolAngle,
   stepGuardPatrol,
 } from "../shared/guard-rules"
@@ -48,7 +49,6 @@ export interface GameState {
   player: {
     characterId: CharacterId
     position: Vec2
-    health: number
     arrows: number
     loot: number
     invulnerableFor: number
@@ -102,7 +102,6 @@ export function createInitialState(characterId: CharacterId = "robin", seed = st
     player: {
       characterId,
       position: { ...regional.definition.spawns.players[0] },
-      health: 3,
       arrows: getMaxArrows(characterId),
       loot: 0,
       invulnerableFor: 0,
@@ -262,29 +261,12 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
     })
 
     if (distance(guard.position, player.position) < 1.25 && player.invulnerableFor === 0) {
-      player.health -= 1
-      state.stats.damageTaken += 1
-      player.invulnerableFor = 2
+      state.stats.damageTaken = 3
       state.heat = Math.min(100, state.heat + 15)
-      const knockbackOrigin = { ...player.position }
-      const knockback = resolveSherwoodCombinedMovement(knockbackOrigin, {
-        x: -(guard.position.x - player.position.x) * 1.8,
-        z: -(guard.position.z - player.position.z) * 1.8,
-      }, {
-        worldBounds: state.layout.worldBounds,
-        layout: state.layout,
-        circleBlockers: activeGuardPositions(state.guards),
-        circleSeparation: SHERWOOD_GUARD_SEPARATION,
-      })
-      player.position.x = knockback.x
-      player.position.z = knockback.z
-      events.push("player-hit")
-      if (player.health <= 0) {
-        state.lost = true
-        state.bowAction = null
-        state.signatureActionRemaining = 0
-        events.push("lost")
-      }
+      state.lost = true
+      state.bowAction = null
+      state.signatureActionRemaining = 0
+      events.push("player-captured", "lost")
     }
   }
   if (!cancelsBowDraw) events.push(...stepSoloBowAction(state, input.move, dt))
@@ -389,7 +371,7 @@ function releaseSoloBowShot(state: GameState, lockedTargetId: number): number | 
     && guard.stunnedFor <= 0
     && distance(guard.position, state.player.position) <= BOW_RANGE)
   if (!target) return null
-  target.stunnedFor = 3.2
+  target.stunnedFor = GUARD_ARROW_STUN_SECONDS
   state.stats.shotsHit += 1
   return target.id
 }
@@ -444,7 +426,7 @@ export function activateSignature(state: GameState): { event: string; guardIds: 
     .filter(({ range }) => range < 11)
     .sort((a, b) => a.range - b.range)
     .slice(0, 2)
-  for (const { guard } of targets) guard.stunnedFor = Math.max(guard.stunnedFor, 2.4)
+  for (const { guard } of targets) guard.stunnedFor = Math.max(guard.stunnedFor, GUARD_ARROW_STUN_SECONDS)
   if (targets.length > 0) state.signatureActionRemaining = SIGNATURE_ACTION_SECONDS
   return { event: targets.length > 0 ? "robin-volley" : "volley-missed", guardIds: targets.map(({ guard }) => guard.id) }
 }

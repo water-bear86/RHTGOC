@@ -40,7 +40,7 @@ Displayed keys must come from the current input settings rather than being hard-
 | --- | --- |
 | Robin | Six-arrow economy, longest ranged opening, Twin Shot, and covering the carrier or captive column. |
 | Maid Marian | Fast scouting, Veil, Wanted-pressure control, disguises, and clean positioning. |
-| Little John | Oak Sweep, heavy carry, protected revives, crowd control, and stabilizing a pressured band. |
+| Little John | Oak Sweep, heavy carry, protected rescues, crowd control, and stabilizing a pressured band. |
 | Much | Road Snare placement, reinforcement-signal or alarm sabotage, and changing the timing of a pursuit. |
 
 The resolved briefing should also state the hero's useful contribution to the chosen mission. Examples include Robin stopping a moving prison wagon, Marian using the storehouse disguise, Little John making a strong prison-lock contribution, and Much cutting an alarm line.

@@ -17,7 +17,6 @@ function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer
     loadoutId: "balanced",
     connected: true,
     position: { x: -8, z: 7 },
-    health: 3,
     arrows: characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4,
     loot: 0,
     input: { x: 0, z: 0 },
@@ -28,7 +27,7 @@ function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer
     signatureCooldown: 0,
     invulnerableFor: 0,
     veilFor: 0,
-    downedFor: 0,
+    captureFor: 0,
     captured: false,
     rescueCount: 0,
     transferCount: 0,
@@ -214,18 +213,17 @@ describe("authoritative mission", () => {
     expect(mission.shotsFired).toBe(1)
   })
 
-  it("cancels an unfinished draw when the outlaw is downed or the mission ends", () => {
+  it("cancels an unfinished draw when the outlaw is seized or the mission ends", () => {
     const robin = player()
     const mission = new Mission("DOWNED", new Map([[robin.id, robin]]))
     robin.position = { ...mission.guards[0].position }
     expect(mission.action(robin.id, "shoot")).toBe(true)
-    robin.downedFor = 5
+    robin.captureFor = 5
     mission.update(1 / 20)
     expect(robin.bowAction).toBeNull()
     expect(mission.shotsFired).toBe(0)
 
-    robin.downedFor = 0
-    robin.health = 3
+    robin.captureFor = 0
     robin.captured = false
     expect(mission.action(robin.id, "shoot")).toBe(true)
     mission.status = "succeeded"
@@ -393,7 +391,7 @@ describe("authoritative mission", () => {
     expect(Math.hypot(guard.position.x - guard.home.x, guard.position.z - guard.home.z)).toBeLessThanOrEqual(expected.moveSpeed * 0.25 + 0.0001)
   })
 
-  it("requires proximity for revive and loot transfer and scores support", () => {
+  it("requires proximity for rescue and loot transfer and scores support", () => {
     const robin = player("robin", "robin")
     const marian = player("marian", "marian")
     const mission = new Mission("ABC234", new Map([[robin.id, robin], [marian.id, marian]]))
@@ -403,27 +401,23 @@ describe("authoritative mission", () => {
     marian.position = { ...robin.position }
     expect(mission.action(robin.id, "transfer_loot", marian.id)).toBe(true)
     expect([robin.loot, marian.loot]).toEqual([40, 60])
-    marian.health = 0
-    marian.downedFor = 10
-    expect(mission.action(robin.id, "revive", marian.id)).toBe(true)
-    expect(marian.health).toBe(1)
-    expect(marian.downedFor).toBe(0)
+    marian.captureFor = 8
+    expect(mission.action(robin.id, "rescue", marian.id)).toBe(true)
+    expect(marian.captureFor).toBe(0)
     expect(mission.snapshot().supportScore).toBe(450)
   })
 
   it("applies synchronized field-kit rules without trusting the renderer", () => {
     const rescuer = player("rescuer", "robin")
-    rescuer.loadoutId = "bandage"
     const target = player("target", "marian")
-    target.health = 0
-    target.downedFor = 10
+    target.captureFor = 8
     target.position = { ...rescuer.position }
     const smoker = player("smoker", "much")
     smoker.loadoutId = "smoke"
     const mission = new Mission("ABC234", new Map([[rescuer.id, rescuer], [target.id, target], [smoker.id, smoker]]))
     expect(smoker.veilFor).toBe(2)
-    expect(mission.action(rescuer.id, "revive", target.id)).toBe(true)
-    expect(target.health).toBe(2)
+    expect(mission.action(rescuer.id, "rescue", target.id)).toBe(true)
+    expect(target.captureFor).toBe(0)
   })
 
   it("materializes bounded band preparations and consumes only authoritative interactions", () => {
@@ -468,16 +462,15 @@ describe("authoritative mission", () => {
     expect(mission.events.some((event) => event.type === "crowd_controlled" && event.detail === "little-john-sweep")).toBe(true)
   })
 
-  it("gives the Vanguard a stronger revive and lower heavy-loot slowdown", () => {
+  it("gives the Vanguard stronger rescue protection and lower heavy-loot slowdown", () => {
     const john = player("john", "little-john")
     const robin = player("robin", "robin")
     const downed = player("downed", "marian")
-    downed.health = 0
-    downed.downedFor = 10
+    downed.captureFor = 8
     downed.position = { ...john.position }
     const mission = new Mission("ABC234", new Map([[john.id, john], [robin.id, robin], [downed.id, downed]]))
-    expect(mission.action(john.id, "revive", downed.id)).toBe(true)
-    expect(downed.health).toBe(2)
+    expect(mission.action(john.id, "rescue", downed.id)).toBe(true)
+    expect(downed.captureFor).toBe(0)
     expect(downed.invulnerableFor).toBe(4.5)
     expect(john.protectionScore).toBe(250)
 
@@ -544,13 +537,11 @@ describe("authoritative mission", () => {
     expect(mission.snapshot().pings).toHaveLength(0)
   })
 
-  it("fails only after every downed player is captured", () => {
+  it("fails only after every seized player is captured", () => {
     const robin = player("robin", "robin")
     const marian = player("marian", "marian")
-    robin.health = 0
-    marian.health = 0
-    robin.downedFor = 0.05
-    marian.downedFor = 0.05
+    robin.captureFor = 0.05
+    marian.captureFor = 0.05
     const mission = new Mission("ABC234", new Map([[robin.id, robin], [marian.id, marian]]))
     expect(mission.isCleanEscape()).toBe(true)
     mission.update(0.05)
@@ -827,6 +818,7 @@ describe("authoritative mission", () => {
     robin.position = { ...mission.guards[0].position }
     expect(mission.action(robin.id, "signature")).toBe(true)
     if (mission.snapshot().phase !== "robbery") {
+      robin.invulnerableFor = 30
       mission.update(18)
       advanceMissionTicks(mission, SIGNATURE_ACTION_TICKS - 1, 0)
       robin.position = { ...mission.guards.find((guard) => guard.stunnedFor <= 0)!.position }
