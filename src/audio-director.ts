@@ -18,6 +18,21 @@ interface MusicTrack {
   gain: GainNode
 }
 
+interface ForestAmbienceBed {
+  wind: AudioBufferSourceNode
+  leaves: AudioBufferSourceNode
+  windFilter: BiquadFilterNode
+  leavesFilter: BiquadFilterNode
+  windGain: GainNode
+  leavesGain: GainNode
+}
+
+export interface ForestAmbienceProfile {
+  active: boolean
+  inHub: boolean
+  threatLevel: number
+}
+
 interface DynamicRangeProfile {
   threshold: number
   knee: number
@@ -41,6 +56,8 @@ export class AudioDirector {
   private readonly activeCueSources = new Set<CueSource>()
   private readonly cuePlayCounts = new Map<AudioCueId, number>()
   private currentMusic: MusicTrack | null = null
+  private forestAmbience: ForestAmbienceBed | null = null
+  private ambienceProfileKey = ""
   private noiseBuffer: AudioBuffer | null = null
   private settings: AudioSettings
   private unlocked = false
@@ -195,8 +212,32 @@ export class AudioDirector {
     this.retireMusicTrack(previous, fadeSeconds)
   }
 
+  updateForestAmbience(profile: ForestAmbienceProfile): boolean {
+    const context = this.context
+    const bus = this.buses.get("ambience")
+    if (!context || context.state !== "running" || !bus) return false
+    if (!this.forestAmbience) this.forestAmbience = this.createForestAmbience(context, bus)
+    const key = `${profile.active}:${profile.inHub}:${Math.max(0, Math.floor(profile.threatLevel))}`
+    if (key === this.ambienceProfileKey) return true
+    this.ambienceProfileKey = key
+    const now = context.currentTime
+    const active = profile.active
+    const threat = Math.max(0, profile.threatLevel)
+    const windLevel = !active ? 0.0001 : profile.inHub ? 0.032 : threat >= 2 ? 0.014 : 0.026
+    const leavesLevel = !active ? 0.0001 : profile.inHub ? 0.011 : threat >= 2 ? 0.006 : 0.015
+    this.forestAmbience.windGain.gain.setTargetAtTime(windLevel, now, 0.8)
+    this.forestAmbience.leavesGain.gain.setTargetAtTime(leavesLevel, now, 0.6)
+    this.forestAmbience.windFilter.frequency.setTargetAtTime(
+      profile.inHub ? 620 : threat >= 2 ? 410 : 760,
+      now,
+      0.8,
+    )
+    return true
+  }
+
   async destroy(): Promise<void> {
     if (!this.context || this.context.state === "closed") return
+    this.disposeForestAmbience()
     for (const track of this.musicTracks) this.disposeMusicTrack(track)
     this.musicTracks.clear()
     this.currentMusic = null
@@ -207,6 +248,7 @@ export class AudioDirector {
     this.buses.clear()
     this.activeCueSources.clear()
     this.cuePlayCounts.clear()
+    this.ambienceProfileKey = ""
     this.noiseBuffer = null
     this.unlocked = false
   }
@@ -256,7 +298,7 @@ export class AudioDirector {
   private ensureNoiseBuffer(context: AudioContext): AudioBuffer {
     if (this.noiseBuffer) return this.noiseBuffer
     const sampleRate = Math.max(8_000, context.sampleRate || 44_100)
-    const buffer = context.createBuffer(1, sampleRate, sampleRate)
+    const buffer = context.createBuffer(1, sampleRate * 4, sampleRate)
     const channel = buffer.getChannelData(0)
     let seed = 0x53484552
     for (let index = 0; index < channel.length; index += 1) {
@@ -266,6 +308,52 @@ export class AudioDirector {
     }
     this.noiseBuffer = buffer
     return buffer
+  }
+
+  private createForestAmbience(context: AudioContext, bus: GainNode): ForestAmbienceBed {
+    const wind = context.createBufferSource()
+    const leaves = context.createBufferSource()
+    const windFilter = context.createBiquadFilter()
+    const leavesFilter = context.createBiquadFilter()
+    const windGain = context.createGain()
+    const leavesGain = context.createGain()
+    wind.buffer = this.ensureNoiseBuffer(context)
+    leaves.buffer = this.ensureNoiseBuffer(context)
+    wind.loop = true
+    leaves.loop = true
+    wind.playbackRate.value = 0.19
+    leaves.playbackRate.value = 0.31
+    windFilter.type = "lowpass"
+    windFilter.frequency.value = 760
+    windFilter.Q.value = 0.35
+    leavesFilter.type = "bandpass"
+    leavesFilter.frequency.value = 2_450
+    leavesFilter.Q.value = 0.7
+    windGain.gain.value = 0.0001
+    leavesGain.gain.value = 0.0001
+    wind.connect(windFilter)
+    windFilter.connect(windGain)
+    windGain.connect(bus)
+    leaves.connect(leavesFilter)
+    leavesFilter.connect(leavesGain)
+    leavesGain.connect(bus)
+    wind.start()
+    leaves.start()
+    return { wind, leaves, windFilter, leavesFilter, windGain, leavesGain }
+  }
+
+  private disposeForestAmbience(): void {
+    const ambience = this.forestAmbience
+    if (!ambience) return
+    ambience.wind.stop()
+    ambience.leaves.stop()
+    ambience.wind.disconnect()
+    ambience.leaves.disconnect()
+    ambience.windFilter.disconnect()
+    ambience.leavesFilter.disconnect()
+    ambience.windGain.disconnect()
+    ambience.leavesGain.disconnect()
+    this.forestAmbience = null
   }
 
   private applySettings(): void {

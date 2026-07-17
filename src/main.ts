@@ -80,7 +80,12 @@ import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } 
 import { createAuthoredForestDressing, createForestDressing } from "./forest-dressing"
 import { indexNatureCatalog, type NatureCatalog } from "./nature-assets"
 import { createSherwoodLandmarks, type SherwoodLandmarks } from "./world-landmarks"
-import { composeSherwoodWorld } from "../shared/world-composer"
+import { composeSherwoodWorld, type ComposedWorld } from "../shared/world-composer"
+import {
+  advanceMovementSound,
+  createMovementSoundState,
+  isPositionOnRoad,
+} from "./movement-sound"
 import {
   SHERWOOD_BRIDGE_CENTER_Y,
   SHERWOOD_BRIDGE_HEIGHT,
@@ -392,6 +397,7 @@ const unsubscribePresentationEvents = presentationEvents.subscribe((event) => {
 })
 let ended = false
 let lastPlayerPosition = { ...state.player.position }
+const movementSoundState = createMovementSoundState()
 let resultSubmitted = false
 let unsubscribeLeaderboard: (() => void) | null = null
 let multiplayerActive = false
@@ -523,6 +529,7 @@ let landmarkViews: SherwoodLandmarks | null = null
 let forestDressingView: THREE.Group | null = null
 let composedWorldView: THREE.Group | null = null
 let composedRoadView: THREE.Group | null = null
+let composedWorld: ComposedWorld | null = null
 let settlementWorldView: THREE.Group | null = null
 let composedWorldLayoutKey = ""
 let terrainView: THREE.Mesh | null = null
@@ -912,6 +919,7 @@ function rebuildComposedWorld(layout: RegionalMissionLayout, force = false): voi
   composedWorldLayoutKey = key
   composedWorldView = nextWorldView
   composedRoadView = nextRoadView
+  composedWorld = composed
   settlementWorldView = nextSettlementView
   scene.add(nextWorldView)
 }
@@ -3553,6 +3561,11 @@ function syncAdaptiveMusic(): void {
     phase: latestMissionSnapshot?.phase ?? currentMissionPhase,
     threatLevel,
   })
+  audioDirector.updateForestAmbience({
+    active: running && !state.won && !state.lost,
+    inHub: inHub || inPublicHub,
+    threatLevel,
+  })
   if (next === requestedMusicState) return
   requestedMusicState = next
   void audioDirector.playMusic(next, MUSIC_TRACKS[next])
@@ -4422,7 +4435,14 @@ function syncViews(elapsed: number, dt: number): void {
   setObjectOpacityFactor(playerView, state.player.veilFor > 0 ? 0.48 : 1)
   const dx = player.x - lastPlayerPosition.x
   const dz = player.z - lastPlayerPosition.z
-  const playerMoving = Math.hypot(dx, dz) > 0.001
+  const movementDistance = Math.hypot(dx, dz)
+  const playerMoving = movementDistance > 0.001
+  const footstepCue = advanceMovementSound(movementSoundState, {
+    distance: movementDistance,
+    onRoad: composedWorld ? isPositionOnRoad(player, composedWorld.roads) : false,
+    enabled: running && localDownedFor <= 0 && !state.won && !state.lost,
+  })
+  if (footstepCue) audioDirector.playCue(footstepCue)
   if (playerMoving) playerView.rotation.y = Math.atan2(dx, dz)
   lastPlayerPosition = { ...player }
   const soloBowActionProgress = !multiplayerActive && state.bowAction
