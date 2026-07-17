@@ -93,7 +93,7 @@
       "qualityGate": {
         "decision": "accept",
         "reviewedAt": "2026-07-15",
-        "rationale": "CC0 KayKit Rogue rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, a Marian burgundy palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
+        "rationale": "CC0 KayKit Rogue rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, a distinct sage-green Marian palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
       },
       "provenance": {
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
@@ -111,7 +111,7 @@
         "suppliedBy": "project owner",
         "conversionScript": "tools/build-kaykit-characters.py",
         "conversionDoc": "docs/operations/3d-assets.md",
-        "optimizer": "Blender 5.1.2 glTF exporter with embedded WebP"
+        "optimizer": "Blender 5.1.2 glTF exporter; glTF Transform 4.4.1 and Sharp lossless WebP palette repair"
       },
       "license": {
         "status": "verified",
@@ -121,7 +121,7 @@
       },
       "uri": "assets/characters/marian-kaykit-rogue.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "3f3ef7ac29c38f25ce9e629e7ee87ba672659bf40b3f2ec4ba9b645ae70e113a",
+      "sha256": "415133812f5798a595c506db9d9cffa0f0650c521d5bbd91f0def5d616b2b4e5",
       "bytesMax": 750000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
@@ -137,7 +137,7 @@
         "format": "webp",
         "width": 1024,
         "height": 1024,
-        "encodedBytes": 8042,
+        "encodedBytes": 49676,
         "gpuBytesApprox": 5592404
       },
       "clips": ["Idle", "Walk", "Attack", "Signature"],
@@ -167,7 +167,7 @@
       "qualityGate": {
         "decision": "accept",
         "reviewedAt": "2026-07-15",
-        "rationale": "CC0 KayKit Barbarian rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, its readable leather-and-bear palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
+        "rationale": "CC0 KayKit Barbarian rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, a moss-green underlayer beneath the readable leather-and-bear silhouette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
       },
       "provenance": {
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
@@ -185,7 +185,7 @@
         "suppliedBy": "project owner",
         "conversionScript": "tools/build-kaykit-characters.py",
         "conversionDoc": "docs/operations/3d-assets.md",
-        "optimizer": "Blender 5.1.2 glTF exporter with embedded WebP"
+        "optimizer": "Blender 5.1.2 glTF exporter; glTF Transform 4.4.1 and Sharp lossless WebP palette repair"
       },
       "license": {
         "status": "verified",
@@ -195,7 +195,7 @@
       },
       "uri": "assets/characters/little-john-kaykit-barbarian.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "bfd8dea52da11de7602fda5dc37a61ecf169d82cdab26014a65c88fb3afd9ece",
+      "sha256": "82e1b7a7b90ef2d50dfd31574ddb1e626e1b88c69fad0e0842faf158ea17787b",
       "bytesMax": 750000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
@@ -211,7 +211,7 @@
         "format": "webp",
         "width": 1024,
         "height": 1024,
-        "encodedBytes": 6986,
+        "encodedBytes": 48036,
         "gpuBytesApprox": 5592404
       },
       "clips": ["Idle", "Walk", "Attack", "Signature"],
@@ -241,7 +241,7 @@
       "qualityGate": {
         "decision": "accept",
         "reviewedAt": "2026-07-15",
-        "rationale": "CC0 KayKit Hooded Rogue rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, an olive Sherwood palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
+        "rationale": "CC0 KayKit Hooded Rogue rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, a muted olive Sherwood palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
       },
       "provenance": {
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
@@ -259,7 +259,7 @@
         "suppliedBy": "project owner",
         "conversionScript": "tools/build-kaykit-characters.py",
         "conversionDoc": "docs/operations/3d-assets.md",
-        "optimizer": "Blender 5.1.2 glTF exporter with embedded WebP"
+        "optimizer": "Blender 5.1.2 glTF exporter; glTF Transform 4.4.1 and Sharp lossless WebP palette repair"
       },
       "license": {
         "status": "verified",
@@ -269,7 +269,7 @@
       },
       "uri": "assets/characters/much-kaykit-rogue-hooded.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "20cb311c1b2649e5e31245bcae2bf6c877b80e98639735304844fca1b1a94004",
+      "sha256": "6bdae460d557efaa3568700d6a9461db32842186e6c3d7316ca120aeeff5674d",
       "bytesMax": 750000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
@@ -285,7 +285,7 @@
         "format": "webp",
         "width": 1024,
         "height": 1024,
-        "encodedBytes": 8034,
+        "encodedBytes": 49096,
         "gpuBytesApprox": 5592404
       },
       "clips": ["Idle", "Walk", "Attack", "Signature"],

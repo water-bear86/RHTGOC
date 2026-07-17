@@ -44,9 +44,9 @@ The validator hashes the shipping file and compares it with the declared SHA-256
 | Character | Shipping GLB bytes | Triangles | Upload vertices | Draws | Palette texture | Clips |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Robin / Ranger | 1,702,460 | 23,084 | 32,898 | 10 | 1024² + 512² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
-| Marian / Rogue | 573,668 | 8,246 | 7,429 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
-| Little John / Barbarian | 548,656 | 7,807 | 7,017 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
-| Much / Hooded Rogue | 542,264 | 7,869 | 6,839 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
+| Marian / Rogue | 604,532 | 8,246 | 7,429 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
+| Little John / Barbarian | 578,928 | 7,807 | 7,017 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
+| Much / Hooded Rogue | 572,640 | 7,869 | 6,839 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
 
 The active Merry Band uses KayKit's complete character parts rather than modifying the rejected Meshy meshes. Ranger, Rogue, Barbarian, and Hooded Rogue have the same exact 23-bone `Rig_Medium` rest skeleton. Their native weighted hand geometry is already a closed stylized fist, so the conversion adds no finger bones, hand remodelling, fused geometry, metaballs, or runtime retargeting. Independent comparison keeps the source arm surfaces within floating-point export tolerance and all 23 bones receive channels in every clip.
 
@@ -71,6 +71,8 @@ Every KayKit bow keeps its `Basis` and `Draw` morph targets and is parented dire
 The runtime wrapper creates the procedural character synchronously, then atomically replaces it with a cloned authored skeleton after the GLB, bow morph, and all four required clips validate. Load failure and the currently unauthored downed pose retain the deterministic procedural model. Character-only deformed bounds drive scale, grounding, and horizontal centering, so the asymmetric bow cannot shift the gameplay body root. One-shot animation time is sampled from normalized action progress; idle/walk local time respects reduced motion while mixer time continues so crossfades still complete. This preserves startup, multiplayer spawning, and failure behavior without making asset loading part of simulation state. Native walk clips can dip a foot roughly six centimetres below the source ground plane; a dedicated foot-lock pass remains the appropriate later fix if gameplay review finds it noticeable.
 
 The older Meshy/Rigify scripts remain only for the explicit `character.robin.meshy-rollback` artifact and historical audit reproduction. They are not the active hero pipeline.
+
+`tools/recolor-authored-heroes.mjs` is the deterministic repair pass for the accepted checked-in KayKit GLBs. It preserves geometry, skinning, clips, and non-cloth atlas colours while remapping Marian's authored cloth to sage, Little John's blue underlayer to moss, and Much's bright green cloth to muted olive. It updates the embedded lossless WebP plus the manifest checksum and encoded texture size. The Blender builder remains the source pipeline and emits the same role palette when the untouched source packs are available.
 
 ## Validation
 
