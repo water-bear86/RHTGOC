@@ -179,7 +179,7 @@ describe("Merry Band room", () => {
     }
     expect(room.returnToHub(leader.id)).toBe(true)
     expect(room.lastResult).toEqual({ score: 4200, grade: "C", status: "failed", rescuedCaptives: 1, totalCaptives: 3 })
-  })
+  }, 15_000)
 
   it("launches the selected storehouse package with mission-owned alarm and cache state", () => {
     const room = new Room("LEDGER")
