@@ -293,20 +293,46 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ready="$(
-            curl -fsS --retry 12 --retry-delay 5 --retry-all-errors \
-              "${PUBLIC_ORIGIN}/ready"
-          )"
-          health="$(
-            curl -fsS --retry 12 --retry-delay 5 --retry-all-errors \
-              "${PUBLIC_ORIGIN}/health"
-          )"
-          jq -e --arg build "$BUILD_ID" \
-            '.ready == true and .buildId == $build' \
-            <<< "$ready" >/dev/null
-          jq -e --arg build "$BUILD_ID" \
-            '.ok == true and .buildId == $build' \
-            <<< "$health" >/dev/null
+          verified=false
+          ready=""
+          health=""
+          deadline=$((SECONDS + 300))
+          while (( SECONDS < deadline )); do
+            remaining=$((deadline - SECONDS))
+            request_timeout=$((remaining < 10 ? remaining : 10))
+            ready="$(curl -fsS --connect-timeout 5 --max-time "$request_timeout" "${PUBLIC_ORIGIN}/ready" || true)"
+            remaining=$((deadline - SECONDS))
+            if (( remaining <= 0 )); then
+              break
+            fi
+            request_timeout=$((remaining < 10 ? remaining : 10))
+            health="$(curl -fsS --connect-timeout 5 --max-time "$request_timeout" "${PUBLIC_ORIGIN}/health" || true)"
+            if jq -e --arg build "$BUILD_ID" \
+              '.ready == true and .buildId == $build' \
+              <<< "$ready" >/dev/null 2>&1 \
+              && jq -e --arg build "$BUILD_ID" \
+                '.ok == true and .buildId == $build' \
+                <<< "$health" >/dev/null 2>&1
+            then
+              verified=true
+              break
+            fi
+
+            ready_build="$(jq -r '.buildId // "unavailable"' <<< "$ready" 2>/dev/null || echo unavailable)"
+            health_build="$(jq -r '.buildId // "unavailable"' <<< "$health" 2>/dev/null || echo unavailable)"
+            remaining=$((deadline - SECONDS))
+            if (( remaining <= 0 )); then
+              break
+            fi
+            echo "Waiting for public server build ${BUILD_ID} (${remaining}s remaining; ready=${ready_build}; health=${health_build})"
+            sleep_for=$((remaining < 5 ? remaining : 5))
+            sleep "$sleep_for"
+          done
+
+          if [[ "$verified" != "true" ]]; then
+            echo "::error::The public server did not expose build ${BUILD_ID} within 5 minutes"
+            exit 1
+          fi
 
       - name: Capture the current client rollback state
         shell: bash
@@ -581,10 +607,34 @@ jobs:
           if [[ -s "$previous" ]]; then
             previous_build="$(jq -r --arg container "$CONTAINER_NAME" '.[$container].environment.BUILD_ID // empty' "$previous")"
             if [[ -n "$previous_build" ]]; then
-              ready="$(curl -fsS --retry 12 --retry-delay 5 --retry-all-errors "${PUBLIC_ORIGIN}/ready")"
-              jq -e --arg build "$previous_build" \
-                '.ready == true and .buildId == $build' \
-                <<< "$ready" >/dev/null
+              public_rollback_verified=false
+              deadline=$((SECONDS + 300))
+              while (( SECONDS < deadline )); do
+                remaining=$((deadline - SECONDS))
+                request_timeout=$((remaining < 10 ? remaining : 10))
+                ready="$(curl -fsS --connect-timeout 5 --max-time "$request_timeout" "${PUBLIC_ORIGIN}/ready" || true)"
+                if jq -e --arg build "$previous_build" \
+                  '.ready == true and .buildId == $build' \
+                  <<< "$ready" >/dev/null 2>&1
+                then
+                  public_rollback_verified=true
+                  break
+                fi
+
+                ready_build="$(jq -r '.buildId // "unavailable"' <<< "$ready" 2>/dev/null || echo unavailable)"
+                remaining=$((deadline - SECONDS))
+                if (( remaining <= 0 )); then
+                  break
+                fi
+                echo "Waiting for public rollback build ${previous_build} (${remaining}s remaining; ready=${ready_build})"
+                sleep_for=$((remaining < 5 ? remaining : 5))
+                sleep "$sleep_for"
+              done
+
+              if [[ "$public_rollback_verified" != "true" ]]; then
+                echo "::error::The public server did not expose rollback build ${previous_build} within 5 minutes"
+                exit 1
+              fi
             fi
           fi
           echo "::warning::The failed release was rolled back to ${previous_image:-the previous server image}"
