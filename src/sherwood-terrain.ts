@@ -8,6 +8,8 @@ export const SHERWOOD_BRIDGE_HEIGHT = 0.3
 export const SHERWOOD_BRIDGE_CENTER_Y = 0.18
 export const SHERWOOD_BRIDGE_ROTATION = -0.1
 export const SHERWOOD_BRIDGE_DECK_Y = SHERWOOD_BRIDGE_CENTER_Y + SHERWOOD_BRIDGE_HEIGHT / 2
+/** Visual overdraw beyond the authoritative 67 m play boundary hides the square world edge from perimeter cameras. */
+export const SHERWOOD_VISUAL_TERRAIN_SIZE = 184
 
 export function sherwoodHeightAt(x: number, z: number): number {
   return sherwoodTopologyHeightAt(x, z)
@@ -40,7 +42,7 @@ export function sherwoodWalkableHeightAt(
     : terrainHeight
 }
 
-export function createSherwoodTerrain(size = 134, segments = 72): THREE.Mesh {
+export function createSherwoodTerrain(size = SHERWOOD_VISUAL_TERRAIN_SIZE, segments = 96): THREE.Mesh {
   const geometry = new THREE.PlaneGeometry(size, size, segments, segments)
   geometry.rotateX(-Math.PI / 2)
   const positions = geometry.getAttribute("position")

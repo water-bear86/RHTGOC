@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { SHERWOOD_PASSES, SHERWOOD_RIDGE_SEGMENTS, SHERWOOD_SETTLEMENT_SITES } from "../shared/world-topology"
+import { SHERWOOD_REGIONAL_BOUNDS } from "../shared/regional-layout"
 import {
   SHERWOOD_BRIDGE_DECK_Y,
   SHERWOOD_BRIDGE_ROTATION,
   SHERWOOD_BRIDGE_WIDTH,
+  SHERWOOD_VISUAL_TERRAIN_SIZE,
   createSherwoodTerrain,
   sherwoodHeightAt,
   sherwoodWalkableHeightAt,
@@ -20,6 +22,14 @@ describe("Sherwood terrain", () => {
     const terrain = createSherwoodTerrain(134, 24)
     expect(terrain.name).toBe("SherwoodTopography")
     expect(terrain.geometry.boundingBox).toBeTruthy()
+  })
+
+  it("overdraws the visual terrain beyond the authoritative mission boundary", () => {
+    const terrain = createSherwoodTerrain()
+    const bounds = terrain.geometry.boundingBox!
+    expect(SHERWOOD_VISUAL_TERRAIN_SIZE / 2).toBeGreaterThan(SHERWOOD_REGIONAL_BOUNDS + 20)
+    expect(bounds.min.x).toBeLessThan(-SHERWOOD_REGIONAL_BOUNDS)
+    expect(bounds.max.x).toBeGreaterThan(SHERWOOD_REGIONAL_BOUNDS)
   })
 
   it("uses the bridge deck as the visual standing surface only inside its rotated footprint", () => {

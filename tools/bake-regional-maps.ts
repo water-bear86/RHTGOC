@@ -11,7 +11,7 @@ import {
   type MapQualityEvidence,
   type MapQualityVector,
 } from "../shared/map-quality"
-import type { RegionalizedMission, RegionalMissionLayout } from "../shared/regional-layout"
+import type { RegionalizedMission, RegionalLayoutVariant, RegionalMissionLayout } from "../shared/regional-layout"
 import { stableSeed } from "../shared/regional-layout"
 import {
   RegionalMapGenerationError,
@@ -31,6 +31,7 @@ export interface RegionalMapBakeOptions {
 export interface BakedRegionalMapCandidate {
   requestedSeed: number
   layoutSeed: number
+  variant: RegionalLayoutVariant
   attempts: number
   fingerprint: string
   quality: MapQualityVector
@@ -105,6 +106,7 @@ function bakedCandidate(candidate: ScoredRegionalMap): BakedRegionalMapCandidate
   return {
     requestedSeed: candidate.requestedSeed,
     layoutSeed: candidate.generation.layoutSeed,
+    variant: layout.variant,
     attempts: candidate.generation.attempts,
     fingerprint: candidate.fingerprint,
     quality: { ...candidate.quality },
@@ -241,7 +243,7 @@ function renderCandidatePanel(
   return `
     <g class="panel">
       <rect x="${x}" y="${y}" width="${panelWidth}" height="${panelHeight}" rx="8" class="panel-bg" />
-      <text x="${x + 16}" y="${y + 20}" class="panel-title">${index + 1}. seed ${candidate.generation.layoutSeed} · ${candidate.fingerprint}</text>
+      <text x="${x + 16}" y="${y + 20}" class="panel-title">${index + 1}. ${candidate.regional.layout.variant} · seed ${candidate.generation.layoutSeed} · ${candidate.fingerprint}</text>
       <text x="${x + 16}" y="${y + 38}" class="quality">${escapeXml(compactQuality(candidate.quality))}</text>
       <rect x="${mapX}" y="${mapY}" width="${mapSize}" height="${mapSize}" class="map-bg" />
       <g class="grid">${gridLines}</g>

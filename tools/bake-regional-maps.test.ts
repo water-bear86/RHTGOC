@@ -48,6 +48,9 @@ describe("regional map baker", () => {
     expect(first.manifest.portfolio.every((candidate) => (
       Object.values(candidate.quality).every((value) => value >= 0 && value <= 1)
     ))).toBe(true)
+    expect(first.manifest.portfolio.every((candidate) => (
+      ["long-haul", "cross-river", "same-bank", "central-expedition"].includes(candidate.variant)
+    ))).toBe(true)
     expect(first.manifestJson).toContain(first.manifest.manifestHash)
     expect(first.contactSheetSvg).toContain("<svg")
     expect(first.contactSheetSvg).toContain("The People&apos;s Purse")
