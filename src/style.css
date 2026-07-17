@@ -355,6 +355,15 @@ h1 em { color: #b7cd8b; font-style: normal; }
 .settings-panel legend { padding: 0 6px; color: var(--gold); font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .settings-panel label { display: flex; align-items: center; gap: 7px; color: #f7f0d4c9; font-size: 11px; }
 .settings-panel input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--gold); }
+.settings-panel .audio-options { grid-template-columns: 1fr 1fr; }
+.audio-level { display: grid !important; grid-template-columns: 1fr; gap: 4px !important; }
+.audio-level span, .audio-select { display: flex; align-items: center; justify-content: space-between; }
+.audio-level output { color: var(--gold); font: 700 9px Cinzel, serif; }
+.audio-level input[type="range"] { width: 100%; accent-color: var(--gold); cursor: pointer; }
+.audio-select { grid-column: 1 / -1; }
+.audio-select select { min-width: 140px; padding: 7px 8px; color: var(--cream); background: #0b1b14; border: 1px solid #f7f0d43d; }
+.audio-preview { grid-column: 1 / -1; position: static !important; padding: 8px 10px; color: var(--ink); background: var(--gold); border: 0; cursor: pointer; font-size: 9px; font-weight: 800; letter-spacing: .09em; }
+.audio-options .settings-note { grid-column: 1 / -1; margin: 0; }
 .settings-panel .analytics-preference { grid-template-columns: 1fr; }
 .analytics-preference .settings-note { margin: 0 0 0 24px; }
 .settings-panel details { border-top: 1px solid #f7f0d421; }

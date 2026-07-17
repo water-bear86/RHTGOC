@@ -42,6 +42,18 @@ import {
   type InputSettings,
   type PointerAction,
 } from "./input-settings"
+import { AudioDirector } from "./audio-director"
+import {
+  AUDIO_BUS_IDS,
+  DEFAULT_AUDIO_SETTINGS,
+  copyAudioSettings,
+  loadAudioSettings,
+  saveAudioSettings,
+  type AudioBusId,
+  type AudioSettings,
+  type DynamicRangePreset,
+} from "./audio-settings"
+import { PresentationEventBus, type PresentationEventInput } from "./presentation-events"
 import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, updateSocialPresence, type SocialState } from "./social"
 import { currentWalletSession, disconnectRobinhoodWallet, shortWalletAddress, signInWithRobinhoodWallet, walletAddress } from "./wallet-auth"
 import { loadAccessState, purchaseTokenPass, type AccessState } from "./token-access"
@@ -236,6 +248,11 @@ const captionsSetting = document.querySelector<HTMLInputElement>("#setting-capti
 const readableTextSetting = document.querySelector<HTMLInputElement>("#setting-readable-text")!
 const mobileSpectatorSetting = document.querySelector<HTMLInputElement>("#setting-mobile-spectator")!
 const gameplayAnalyticsSetting = document.querySelector<HTMLInputElement>("#setting-gameplay-analytics")!
+const audioLevelSettings = [...document.querySelectorAll<HTMLInputElement>("[data-audio-bus]")]
+const audioLevelOutputs = [...document.querySelectorAll<HTMLOutputElement>("[data-audio-output]")]
+const dynamicRangeSetting = document.querySelector<HTMLSelectElement>("#setting-dynamic-range")!
+const monoAudioSetting = document.querySelector<HTMLInputElement>("#setting-mono-audio")!
+const audioPreview = document.querySelector<HTMLButtonElement>("#audio-preview")!
 const missionDebugButton = document.querySelector<HTMLButtonElement>("#mission-debug-button")!
 const graphicsRestoreButton = document.querySelector<HTMLButtonElement>("#graphics-restore-button")!
 const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
@@ -315,6 +332,9 @@ const lastRoomCode = localStorage.getItem("sherwood:last-room-code")
 if (lastRoomCode?.match(/^[A-Z2-9]{6}$/)) rejoinRoomButton.classList.remove("hidden")
 
 let inputSettings: InputSettings = loadInputSettings(localStorage)
+let audioSettings: AudioSettings = loadAudioSettings(localStorage)
+const audioDirector = new AudioDirector(audioSettings)
+const presentationEvents = new PresentationEventBus()
 let diagnosticReporter: ClientDiagnosticReporter | null = null
 let lastDiagnosticSnapshotAt = 0
 
@@ -358,6 +378,14 @@ const clickPoint = new THREE.Vector3()
 let clickTarget: Vec2 | null = null
 let running = false
 let toastTimer = 0
+const unsubscribePresentationEvents = presentationEvents.subscribe((event) => {
+  toastElement.textContent = event.message
+  toastElement.dataset.channel = event.channel
+  toastElement.dataset.priority = event.priority
+  toastElement.classList.add("show")
+  toastTimer = event.lifetimeSeconds ?? (event.priority === "critical" ? 4 : event.priority === "important" ? 3 : 2.4)
+  if (event.cue) audioDirector.playCue(event.cue)
+})
 let ended = false
 let lastPlayerPosition = { ...state.player.position }
 let resultSubmitted = false
@@ -2248,6 +2276,28 @@ function persistInputSettings(message = "Changes saved on this device."): void {
   settingsStatus.textContent = message
 }
 
+function applyAudioSettings(): void {
+  audioDirector.updateSettings(audioSettings)
+  for (const input of audioLevelSettings) {
+    const bus = input.dataset.audioBus as AudioBusId
+    if (!AUDIO_BUS_IDS.includes(bus)) continue
+    input.value = String(Math.round(audioSettings.levels[bus] * 100))
+  }
+  for (const output of audioLevelOutputs) {
+    const bus = output.dataset.audioOutput as AudioBusId
+    if (!AUDIO_BUS_IDS.includes(bus)) continue
+    output.textContent = `${Math.round(audioSettings.levels[bus] * 100)}%`
+  }
+  dynamicRangeSetting.value = audioSettings.dynamicRange
+  monoAudioSetting.checked = audioSettings.mono
+}
+
+function persistAudioSettings(message = "Audio mix saved on this device."): void {
+  saveAudioSettings(localStorage, audioSettings)
+  applyAudioSettings()
+  settingsStatus.textContent = message
+}
+
 function renderBindingControls(): void {
   keyboardBindings.replaceChildren()
   for (const action of GAME_ACTIONS) {
@@ -3445,10 +3495,18 @@ function getMoveInput(): Vec2 {
   return { x: 0, z: 0 }
 }
 
-function showToast(message: string): void {
-  toastElement.textContent = message
-  toastElement.classList.add("show")
-  toastTimer = 2.4
+function showToast(
+  message: string,
+  options: Partial<Omit<PresentationEventInput, "message">> = {},
+): void {
+  presentationEvents.publish({
+    channel: options.channel ?? "system",
+    priority: options.priority ?? "routine",
+    message,
+    cue: options.cue,
+    dedupeKey: options.dedupeKey,
+    lifetimeSeconds: options.lifetimeSeconds,
+  })
 }
 
 function contextualChatChannel(): ChatChannel {
@@ -4895,6 +4953,7 @@ socialPresence.addEventListener("change", () => void updateSocialPresence(social
 }).catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to update presence" }))
 settingsButton.addEventListener("click", () => {
   renderBindingControls()
+  applyAudioSettings()
   openPanel(settingsPanel, settingsButton)
 })
 closeSettings.addEventListener("click", () => closePanel(settingsPanel))
@@ -4911,6 +4970,29 @@ gameplayAnalyticsSetting.addEventListener("change", () => {
     ? "Anonymous play diagnostics enabled on this device."
     : "Anonymous play diagnostics disabled on this device."
 })
+for (const input of audioLevelSettings) {
+  input.addEventListener("input", () => {
+    const bus = input.dataset.audioBus as AudioBusId
+    if (!AUDIO_BUS_IDS.includes(bus)) return
+    audioSettings.levels[bus] = Number(input.value) / 100
+    applyAudioSettings()
+  })
+  input.addEventListener("change", () => persistAudioSettings())
+}
+dynamicRangeSetting.addEventListener("change", () => {
+  audioSettings.dynamicRange = dynamicRangeSetting.value as DynamicRangePreset
+  persistAudioSettings()
+})
+monoAudioSetting.addEventListener("change", () => {
+  audioSettings.mono = monoAudioSetting.checked
+  persistAudioSettings()
+})
+audioPreview.addEventListener("click", () => {
+  audioPreview.disabled = true
+  void audioDirector.preview().then((played) => {
+    settingsStatus.textContent = played ? "Interface mix preview played." : "Browser audio is still blocked."
+  }).finally(() => { audioPreview.disabled = false })
+})
 resetSettings.addEventListener("click", () => {
   inputSettings = {
     ...DEFAULT_INPUT_SETTINGS,
@@ -4918,8 +5000,11 @@ resetSettings.addEventListener("click", () => {
     controller: { ...DEFAULT_INPUT_SETTINGS.controller },
     pointer: { ...DEFAULT_INPUT_SETTINGS.pointer },
   }
+  audioSettings = copyAudioSettings(DEFAULT_AUDIO_SETTINGS)
   capturingAction = null
-  persistInputSettings("Default controls restored.")
+  saveAudioSettings(localStorage, audioSettings)
+  applyAudioSettings()
+  persistInputSettings("Default controls and audio mix restored.")
   renderBindingControls()
 })
 
@@ -5040,8 +5125,18 @@ window.addEventListener("resize", () => {
 })
 
 window.addEventListener("blur", () => keys.clear())
-document.addEventListener("visibilitychange", () => diagnosticReporter?.resetFrameClock())
-window.addEventListener("beforeunload", () => unsubscribeLeaderboard?.())
+window.addEventListener("pointerdown", () => void audioDirector.unlock(), { once: true, passive: true })
+window.addEventListener("keydown", () => void audioDirector.unlock(), { once: true })
+document.addEventListener("visibilitychange", () => {
+  diagnosticReporter?.resetFrameClock()
+  if (document.hidden) void audioDirector.suspend()
+  else void audioDirector.resume()
+})
+window.addEventListener("beforeunload", () => {
+  unsubscribeLeaderboard?.()
+  unsubscribePresentationEvents()
+  void audioDirector.destroy()
+})
 renderer.domElement.addEventListener("webglcontextlost", (event) => {
   event.preventDefault()
   void diagnosticReporter?.report("webgl_context_lost")
@@ -5051,6 +5146,7 @@ renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sh
 
 renderBindingControls()
 applyInputSettings()
+applyAudioSettings()
 refreshSelectedOutlawSummary()
 setIntroVisible(true)
 updateMissionDebug()
