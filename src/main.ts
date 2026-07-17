@@ -55,6 +55,7 @@ import {
 } from "./audio-settings"
 import { PresentationEventBus, type PresentationEventInput } from "./presentation-events"
 import { cueForPing, presentationForMissionEvent } from "./gameplay-presentation"
+import { MUSIC_TRACKS, musicStateForSituation, type MusicState } from "./music-state"
 import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, updateSocialPresence, type SocialState } from "./social"
 import { currentWalletSession, disconnectRobinhoodWallet, shortWalletAddress, signInWithRobinhoodWallet, walletAddress } from "./wallet-auth"
 import { loadAccessState, purchaseTokenPass, type AccessState } from "./token-access"
@@ -336,6 +337,7 @@ let inputSettings: InputSettings = loadInputSettings(localStorage)
 let audioSettings: AudioSettings = loadAudioSettings(localStorage)
 const audioDirector = new AudioDirector(audioSettings)
 const presentationEvents = new PresentationEventBus()
+let requestedMusicState: MusicState | null = null
 let diagnosticReporter: ClientDiagnosticReporter | null = null
 let lastDiagnosticSnapshotAt = 0
 
@@ -3520,6 +3522,35 @@ function showToast(
   })
 }
 
+function syncAdaptiveMusic(): void {
+  if (!running || audioDirector.state !== "running") return
+  const player = state.player.position
+  const nearestActiveGuard = state.guards.reduce((nearest, guard) => {
+    if (guard.stunnedFor > 0) return nearest
+    return Math.min(nearest, Math.hypot(guard.position.x - player.x, guard.position.z - player.z))
+  }, Number.POSITIVE_INFINITY)
+  const searchPressure = latestMissionSnapshot?.searchPressure ?? state.searchPressure
+  const threatLevel = nearestActiveGuard < 6
+    ? 3
+    : nearestActiveGuard < 12 || searchPressure >= 2
+      ? 2
+      : searchPressure >= 1
+        ? 1
+        : 0
+  const outcome = latestMissionSnapshot?.status
+    ?? (state.won ? "succeeded" : state.lost ? "failed" : "active")
+  const next = musicStateForSituation({
+    running,
+    inHub: inHub || inPublicHub,
+    outcome,
+    phase: latestMissionSnapshot?.phase ?? currentMissionPhase,
+    threatLevel,
+  })
+  if (next === requestedMusicState) return
+  requestedMusicState = next
+  void audioDirector.playMusic(next, MUSIC_TRACKS[next])
+}
+
 function contextualChatChannel(): ChatChannel {
   return inPublicHub ? "camp" : "band"
 }
@@ -4584,6 +4615,7 @@ function animate(): void {
     }
     if ((state.won || state.lost) && !multiplayerActive) showEnding(state.won)
   }
+  syncAdaptiveMusic()
   syncViews(elapsed, dt)
   renderer.render(scene, camera)
 }
@@ -5143,8 +5175,16 @@ window.addEventListener("resize", () => {
 })
 
 window.addEventListener("blur", () => keys.clear())
-window.addEventListener("pointerdown", () => void audioDirector.unlock(), { once: true, passive: true })
-window.addEventListener("keydown", () => void audioDirector.unlock(), { once: true })
+window.addEventListener("pointerdown", () => {
+  void audioDirector.unlock().then((unlocked) => {
+    if (unlocked) syncAdaptiveMusic()
+  })
+}, { once: true, passive: true })
+window.addEventListener("keydown", () => {
+  void audioDirector.unlock().then((unlocked) => {
+    if (unlocked) syncAdaptiveMusic()
+  })
+}, { once: true })
 document.addEventListener("visibilitychange", () => {
   diagnosticReporter?.resetFrameClock()
   if (document.hidden) void audioDirector.suspend()
