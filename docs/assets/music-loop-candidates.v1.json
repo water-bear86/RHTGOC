@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "status": "producer-review-required",
+  "source": "producer_export_2026-07-13.zip",
+  "timeUnit": "seconds",
+  "analysisNotes": [
+    "Markers are phrase-aligned analysis candidates, not approved sample-accurate loops.",
+    "Tempo and key labels are estimates and must be confirmed in the source session.",
+    "Final loop exports should include dry loop bodies plus two bars of pre-roll and reverb tail as separate handles.",
+    "Do not independently loudness-normalize individual loops; master each track family together."
+  ],
+  "tracks": {
+    "exploration": {
+      "file": "ancient-oaks-exploration.m4a",
+      "duration": 174.997,
+      "sampleRate": 48000,
+      "estimatedTempoBpm": 82,
+      "estimatedKey": "E minor",
+      "loops": [
+        { "id": "exploration-b", "start": 47.601, "end": 94.343, "bars": 16, "intensity": 1 },
+        { "id": "exploration-c", "start": 94.343, "end": 141.224, "bars": 16, "intensity": 2 }
+      ],
+      "transitionOnly": [
+        { "start": 0, "end": 24.149, "role": "opening" },
+        { "start": 141.224, "end": 173.784, "role": "crest-and-outro" }
+      ]
+    },
+    "stealth": {
+      "file": "sherwood-surf-spy-stealth.m4a",
+      "duration": 163.328,
+      "sampleRate": 48000,
+      "estimatedTempoBpm": 147.7,
+      "estimatedHalfTimeBpm": 73.85,
+      "estimatedKey": "A minor",
+      "loops": [
+        { "id": "stealth-a", "start": 13.723, "end": 39.66, "bars": 16, "intensity": 1 },
+        { "id": "stealth-b", "start": 39.66, "end": 91.696, "bars": 32, "intensity": 2 },
+        { "id": "stealth-c", "start": 130.682, "end": 156.642, "bars": 16, "intensity": 3 }
+      ],
+      "transitionOnly": [
+        { "start": 91.696, "end": 104.629, "role": "bridge" },
+        { "start": 156.642, "end": 162.961, "role": "outro" }
+      ]
+    },
+    "enemy-near": {
+      "file": "thicket-pursuit-enemy-near.m4a",
+      "duration": 156.032,
+      "sampleRate": 48000,
+      "estimatedTempoBpm": 147.7,
+      "estimatedHalfTimeBpm": 73.85,
+      "estimatedKey": "G major / E minor",
+      "loops": [
+        { "id": "enemy-near-a", "start": 13.375, "end": 39.311, "bars": 16, "intensity": 1 },
+        { "id": "enemy-near-b", "start": 52.361, "end": 78.298, "bars": 16, "intensity": 2 },
+        { "id": "enemy-near-c", "start": 104.397, "end": 143.383, "bars": 24, "intensity": 3 }
+      ],
+      "transitionOnly": [
+        { "start": 78.298, "end": 91.394, "role": "tension-reset" },
+        { "start": 143.383, "end": 155.672, "role": "outro" }
+      ]
+    },
+    "pursuit": {
+      "file": "sherwood-pursuit-acoustic-metal.m4a",
+      "duration": 157.824,
+      "sampleRate": 48000,
+      "estimatedTempoBpm": 101.3,
+      "estimatedKey": "A minor",
+      "loops": [
+        { "id": "pursuit-a", "start": 38.638, "end": 95.48, "bars": 24, "intensity": 2 },
+        { "id": "pursuit-b", "start": 76.626, "end": 114.428, "bars": 16, "intensity": 3 },
+        { "id": "pursuit-c", "start": 114.428, "end": 152.416, "bars": 16, "intensity": 4 }
+      ],
+      "transitionOnly": [
+        { "start": 0, "end": 19.667, "role": "opening" },
+        { "start": 152.416, "end": 157.168, "role": "outro" }
+      ]
+    },
+    "duel": {
+      "file": "outlaws-duel-flamenco.m4a",
+      "duration": 106.666,
+      "sampleRate": 44100,
+      "estimatedTempoBpm": 115,
+      "estimatedKey": "A minor",
+      "loops": [
+        { "id": "duel-a", "start": 18.39, "end": 51.78, "bars": 16, "intensity": 3 }
+      ],
+      "transitionOnly": [
+        { "start": 0, "end": 18.39, "role": "opening" },
+        { "start": 51.78, "end": 63.15, "role": "breakdown" },
+        { "start": 63.15, "end": 77.898, "role": "intentional-silence-and-pickups" }
+      ],
+      "blockedRegions": [
+        {
+          "start": 85.24,
+          "end": 106.666,
+          "reason": "Do not loop until the known clipping near 93 seconds is repaired and the track is remastered below -1 dBTP."
+        }
+      ]
+    },
+    "victory": {
+      "file": "whistle-stop-win-victory.m4a",
+      "duration": 146.752,
+      "sampleRate": 48000,
+      "estimatedTempoBpm": 115,
+      "estimatedKey": "D minor",
+      "loops": [
+        { "id": "victory-a", "start": 33.437, "end": 83.522, "bars": 24, "intensity": 2 },
+        { "id": "victory-b", "start": 66.804, "end": 100.194, "bars": 16, "intensity": 3 }
+      ],
+      "transitionOnly": [
+        { "start": 0, "end": 33.437, "role": "victory-opening-one-shot" },
+        { "start": 116.936, "end": 146.085, "role": "results-tail" }
+      ],
+      "masteringNote": "Current source measures +0.01 dBTP and needs true-peak headroom in the final delivery."
+    }
+  },
+  "transitions": [
+    {
+      "from": "exploration",
+      "to": "stealth",
+      "exit": 94.343,
+      "entry": 13.723,
+      "crossfadeSeconds": 6,
+      "schedule": "next-source-phrase-boundary"
+    },
+    {
+      "from": "stealth",
+      "to": "enemy-near",
+      "exit": 39.66,
+      "entry": 52.361,
+      "crossfadeSeconds": 6,
+      "schedule": "matched-tempo-phrase-boundary"
+    },
+    {
+      "from": "enemy-near",
+      "to": "pursuit",
+      "exit": 104.397,
+      "entry": 57.632,
+      "crossfadeSeconds": 6,
+      "schedule": "next-source-phrase-boundary"
+    },
+    {
+      "from": "stealth",
+      "to": "duel",
+      "exit": 13.723,
+      "entry": 18.39,
+      "crossfadeSeconds": 6,
+      "schedule": "next-source-phrase-boundary"
+    },
+    {
+      "from": "duel",
+      "to": "pursuit",
+      "exit": 35.109,
+      "entry": 57.632,
+      "crossfadeSeconds": 6,
+      "schedule": "next-source-phrase-boundary"
+    },
+    {
+      "from": "pursuit",
+      "to": "victory",
+      "exit": 95.48,
+      "entry": 0.046,
+      "crossfadeSeconds": 6,
+      "schedule": "immediate-outcome-or-next-source-beat"
+    }
+  ]
+}

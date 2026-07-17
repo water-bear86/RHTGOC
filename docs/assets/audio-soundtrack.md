@@ -17,3 +17,11 @@ to avoid a lossy second transcode.
 The runtime lazy-loads only the active state and crossfades through the Music
 bus. Master level, Music level, mono output, tab suspension, and dynamic-range
 compression remain under the shared audio director.
+
+Producer-review loop regions, transition markers, source defects, and delivery
+requirements are tracked in
+[`music-loop-production-brief.md`](./music-loop-production-brief.md) and the
+machine-readable
+[`music-loop-candidates.v1.json`](./music-loop-candidates.v1.json). Those
+markers remain analysis candidates until approved against the lossless source
+session.
