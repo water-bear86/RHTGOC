@@ -11,7 +11,7 @@ describe("gameplay presentation", () => {
     expect(presentationForMissionEvent("player_hit")).toMatchObject({
       channel: "threat",
       priority: "important",
-      cue: "ui.warning",
+      cue: "action.player-hit",
     })
   })
 
@@ -19,17 +19,26 @@ describe("gameplay presentation", () => {
     expect(presentationForMissionEvent("cart_robbed")).toMatchObject({
       channel: "objective",
       priority: "important",
-      cue: "ui.notice",
+      cue: "world.cart-robbed",
     })
     expect(presentationForMissionEvent("mission_succeeded")).toMatchObject({
       channel: "reward",
       priority: "critical",
-      cue: "ui.confirm",
+      cue: "world.victory",
     })
     expect(presentationForMissionEvent("guard_stunned")).toEqual({
       channel: "action",
       priority: "routine",
+      cue: "action.guard-stunned",
     })
+  })
+
+  it("uses world-specific cues for mission-critical interactions", () => {
+    expect(presentationForMissionEvent("alarm_triggered").cue).toBe("world.alarm")
+    expect(presentationForMissionEvent("reinforcement_arrived").cue).toBe("world.reinforcement")
+    expect(presentationForMissionEvent("lock_breached").cue).toBe("world.lock-break")
+    expect(presentationForMissionEvent("cache_looted").cue).toBe("world.cache-open")
+    expect(presentationForMissionEvent("loot_delivered").cue).toBe("world.coin-delivered")
   })
 
   it("provides a distinct semantic cue for every co-op ping", () => {

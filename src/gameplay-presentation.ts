@@ -50,22 +50,37 @@ const IMPORTANT_OBJECTIVES = new Set<MissionEvent["type"]>([
   "reinforcement_sabotaged",
 ])
 
+const MISSION_EVENT_CUES: Partial<Record<MissionEvent["type"], AudioCueId>> = {
+  alarm_triggered: "world.alarm",
+  reinforcement_arrived: "world.reinforcement",
+  player_hit: "action.player-hit",
+  trap_triggered: "action.trap-triggered",
+  guard_stunned: "action.guard-stunned",
+  cart_robbed: "world.cart-robbed",
+  lock_breached: "world.lock-break",
+  cache_looted: "world.cache-open",
+  loot_delivered: "world.coin-delivered",
+  mission_succeeded: "world.victory",
+}
+
 export function presentationForMissionEvent(type: MissionEvent["type"]): GameplayPresentationStyle {
+  const semanticCue = MISSION_EVENT_CUES[type]
   if (CRITICAL_THREATS.has(type)) {
-    return { channel: "threat", priority: "critical", cue: "ui.warning", lifetimeSeconds: 4 }
+    return { channel: "threat", priority: "critical", cue: semanticCue ?? "ui.warning", lifetimeSeconds: 4 }
   }
   if (IMPORTANT_THREATS.has(type)) {
-    return { channel: "threat", priority: "important", cue: "ui.warning", lifetimeSeconds: 3 }
+    return { channel: "threat", priority: "important", cue: semanticCue ?? "ui.warning", lifetimeSeconds: 3 }
   }
   if (CRITICAL_REWARDS.has(type)) {
-    return { channel: "reward", priority: "critical", cue: "ui.confirm", lifetimeSeconds: 4 }
+    return { channel: "reward", priority: "critical", cue: semanticCue ?? "ui.confirm", lifetimeSeconds: 4 }
   }
   if (IMPORTANT_REWARDS.has(type)) {
-    return { channel: "reward", priority: "important", cue: "ui.confirm", lifetimeSeconds: 3 }
+    return { channel: "reward", priority: "important", cue: semanticCue ?? "ui.confirm", lifetimeSeconds: 3 }
   }
   if (IMPORTANT_OBJECTIVES.has(type)) {
-    return { channel: "objective", priority: "important", cue: "ui.notice", lifetimeSeconds: 3 }
+    return { channel: "objective", priority: "important", cue: semanticCue ?? "ui.notice", lifetimeSeconds: 3 }
   }
+  if (semanticCue) return { channel: "action", priority: "routine", cue: semanticCue }
   if (type === "ping_sent" || type === "loot_transferred" || type === "ally_protected") {
     return { channel: "party", priority: "routine" }
   }

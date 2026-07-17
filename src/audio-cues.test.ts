@@ -10,12 +10,34 @@ describe("semantic audio cues", () => {
       for (const note of cue.notes) {
         expect(note.frequency).toBeGreaterThanOrEqual(20)
         expect(note.frequency).toBeLessThanOrEqual(20_000)
+        if (note.endFrequency !== undefined) {
+          expect(note.endFrequency).toBeGreaterThanOrEqual(20)
+          expect(note.endFrequency).toBeLessThanOrEqual(20_000)
+        }
         expect(note.delay).toBeGreaterThanOrEqual(0)
         expect(note.duration).toBeGreaterThan(0)
         expect(note.level).toBeGreaterThan(0)
         expect(note.level).toBeLessThanOrEqual(0.2)
       }
+      for (const noise of cue.noise ?? []) {
+        expect(noise.frequency).toBeGreaterThanOrEqual(20)
+        expect(noise.frequency).toBeLessThanOrEqual(20_000)
+        expect(noise.delay).toBeGreaterThanOrEqual(0)
+        expect(noise.duration).toBeGreaterThan(0)
+        expect(noise.level).toBeGreaterThan(0)
+        expect(noise.level).toBeLessThanOrEqual(0.2)
+      }
+      expect(cue.pitchVariation ?? 0).toBeGreaterThanOrEqual(0)
+      expect(cue.pitchVariation ?? 0).toBeLessThanOrEqual(0.2)
     }
+  })
+
+  it("gives every declared mission action a unique layered signature", () => {
+    const actionIds = AUDIO_CUE_IDS.filter((id) => id.startsWith("action.") || id.startsWith("world."))
+    const signatures = actionIds.map((id) => JSON.stringify(AUDIO_CUES[id]))
+    expect(actionIds.length).toBeGreaterThanOrEqual(10)
+    expect(new Set(signatures).size).toBe(actionIds.length)
+    expect(actionIds.every((id) => (AUDIO_CUES[id].noise?.length ?? 0) > 0 || AUDIO_CUES[id].notes.length > 1)).toBe(true)
   })
 
   it("keeps all five band signals perceptually distinct", () => {
@@ -25,4 +47,3 @@ describe("semantic audio cues", () => {
     expect(new Set(signatures).size).toBe(5)
   })
 })
-

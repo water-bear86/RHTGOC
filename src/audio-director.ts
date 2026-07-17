@@ -9,6 +9,7 @@ import {
 
 type ContextFactory = () => AudioContext
 type MediaElementFactory = (url: string) => HTMLAudioElement
+type CueSource = OscillatorNode | AudioBufferSourceNode
 
 interface MusicTrack {
   id: string
@@ -37,7 +38,10 @@ export class AudioDirector {
   private compressor: DynamicsCompressorNode | null = null
   private readonly buses = new Map<Exclude<AudioBusId, "master">, GainNode>()
   private readonly musicTracks = new Set<MusicTrack>()
+  private readonly activeCueSources = new Set<CueSource>()
+  private readonly cuePlayCounts = new Map<AudioCueId, number>()
   private currentMusic: MusicTrack | null = null
+  private noiseBuffer: AudioBuffer | null = null
   private settings: AudioSettings
   private unlocked = false
 
@@ -79,28 +83,68 @@ export class AudioDirector {
     if (!context || context.state !== "running") return false
     const definition = AUDIO_CUES[id]
     const bus = this.buses.get(definition.bus)
-    if (!bus) return false
+    if (!bus || this.activeCueSources.size >= 40) return false
     const base = context.currentTime + 0.005
+    const playCount = (this.cuePlayCounts.get(id) ?? 0) + 1
+    this.cuePlayCounts.set(id, playCount)
+    const variationUnit = ((Math.imul(playCount, 1103515245) + 12345) >>> 8) / 0x01000000
+    const pitchVariation = definition.pitchVariation ?? 0
+    const pitchScale = 1 + (variationUnit * 2 - 1) * pitchVariation
+    let scheduled = false
     for (const note of definition.notes) {
+      if (this.activeCueSources.size >= 40) break
       const oscillator = context.createOscillator()
       const envelope = context.createGain()
       const start = base + note.delay
       const end = start + note.duration
       oscillator.type = note.wave
-      oscillator.frequency.setValueAtTime(note.frequency, start)
+      oscillator.frequency.setValueAtTime(note.frequency * pitchScale, start)
+      if (note.endFrequency) oscillator.frequency.exponentialRampToValueAtTime(note.endFrequency * pitchScale, end)
       envelope.gain.setValueAtTime(0.0001, start)
       envelope.gain.exponentialRampToValueAtTime(note.level, start + Math.min(0.012, note.duration * 0.25))
       envelope.gain.exponentialRampToValueAtTime(0.0001, end)
       oscillator.connect(envelope)
       envelope.connect(bus)
+      this.activeCueSources.add(oscillator)
       oscillator.addEventListener("ended", () => {
+        this.activeCueSources.delete(oscillator)
         oscillator.disconnect()
         envelope.disconnect()
       }, { once: true })
       oscillator.start(start)
       oscillator.stop(end + 0.02)
+      scheduled = true
     }
-    return true
+    for (const noise of definition.noise ?? []) {
+      if (this.activeCueSources.size >= 40) break
+      const source = context.createBufferSource()
+      const filter = context.createBiquadFilter()
+      const envelope = context.createGain()
+      const start = base + noise.delay
+      const end = start + noise.duration
+      source.buffer = this.ensureNoiseBuffer(context)
+      source.playbackRate.setValueAtTime(pitchScale, start)
+      filter.type = noise.filter
+      filter.frequency.setValueAtTime(noise.frequency * pitchScale, start)
+      filter.Q.setValueAtTime(noise.q ?? 0.7, start)
+      envelope.gain.setValueAtTime(0.0001, start)
+      envelope.gain.exponentialRampToValueAtTime(noise.level, start + Math.min(0.008, noise.duration * 0.2))
+      envelope.gain.exponentialRampToValueAtTime(0.0001, end)
+      source.connect(filter)
+      filter.connect(envelope)
+      envelope.connect(bus)
+      this.activeCueSources.add(source)
+      source.addEventListener("ended", () => {
+        this.activeCueSources.delete(source)
+        source.disconnect()
+        filter.disconnect()
+        envelope.disconnect()
+      }, { once: true })
+      source.start(start)
+      source.stop(end + 0.02)
+      scheduled = true
+    }
+    return scheduled
   }
 
   async preview(): Promise<boolean> {
@@ -161,6 +205,9 @@ export class AudioDirector {
     this.master = null
     this.compressor = null
     this.buses.clear()
+    this.activeCueSources.clear()
+    this.cuePlayCounts.clear()
+    this.noiseBuffer = null
     this.unlocked = false
   }
 
@@ -204,6 +251,21 @@ export class AudioDirector {
       this.buses.set(id, bus)
     }
     this.applySettings()
+  }
+
+  private ensureNoiseBuffer(context: AudioContext): AudioBuffer {
+    if (this.noiseBuffer) return this.noiseBuffer
+    const sampleRate = Math.max(8_000, context.sampleRate || 44_100)
+    const buffer = context.createBuffer(1, sampleRate, sampleRate)
+    const channel = buffer.getChannelData(0)
+    let seed = 0x53484552
+    for (let index = 0; index < channel.length; index += 1) {
+      seed = Math.imul(seed ^ (seed >>> 15), 2246822519)
+      seed = Math.imul(seed ^ (seed >>> 13), 3266489917)
+      channel[index] = ((seed >>> 0) / 0xffffffff) * 2 - 1
+    }
+    this.noiseBuffer = buffer
+    return buffer
   }
 
   private applySettings(): void {

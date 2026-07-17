@@ -548,7 +548,13 @@ let heroAttackUntil = 0
 let heroSignatureUntil = 0
 let heroAttackStartedAt = 0
 let heroSignatureStartedAt = 0
-let pendingLocalShot: { releaseAt: number; requestId: number | null; accepted: boolean; cancelled: boolean } | null = null
+let pendingLocalShot: {
+  releaseAt: number
+  requestId: number | null
+  accepted: boolean
+  cancelled: boolean
+  releaseCuePlayed: boolean
+} | null = null
 let localServerBowActionSeen = false
 let localBowActionSuppressed = false
 
@@ -633,6 +639,7 @@ function reconcileLocalBowAction(action: BowActionSnapshot | null, tick: number)
       requestId: pendingLocalShot?.requestId ?? null,
       accepted: true,
       cancelled: false,
+      releaseCuePlayed: pendingLocalShot?.releaseCuePlayed ?? false,
     }
   } else {
     pendingLocalShot = null
@@ -3881,8 +3888,14 @@ function handleInteraction(): void {
     "bow-cache": "QUIVER REFILLED — CHEST OPENED",
     "quiver-full": "Your quiver is already full",
   }
+  const resultCues: Partial<Record<keyof typeof messages, Parameters<AudioDirector["playCue"]>[0]>> = {
+    "robbed-cart": "world.cart-robbed",
+    delivered: "world.coin-delivered",
+    won: "world.victory",
+    "bow-cache": "world.cache-open",
+  }
   if (result === "bow-cache") openNearbyBowCache()
-  if (messages[result]) showToast(messages[result])
+  if (messages[result]) showToast(messages[result], { cue: resultCues[result] })
 }
 
 function fireArrow(): void {
@@ -3935,7 +3948,9 @@ function fireArrow(): void {
       requestId,
       accepted: false,
       cancelled: false,
+      releaseCuePlayed: false,
     }
+    audioDirector.playCue("action.bow-draw")
     return
   }
   const result = beginSoloBowDraw(state, move)
@@ -3943,7 +3958,9 @@ function fireArrow(): void {
     heroAttackStartedAt = 0
     heroAttackUntil = 0
     showToast(result === "moving" ? "STAND STILL TO DRAW" : result === "no-target" ? "No guard in range" : "Bow not ready")
+    return
   }
+  audioDirector.playCue("action.bow-draw")
 }
 
 function createArrowEffect(guardId: number): void {
@@ -3968,7 +3985,13 @@ function updatePendingMultiplayerShot(elapsed: number, move: Vec2): void {
     return
   }
   if (pending.cancelled) return
-  if (elapsed >= pending.releaseAt) return
+  if (elapsed >= pending.releaseAt) {
+    if (!pending.releaseCuePlayed) {
+      pending.releaseCuePlayed = true
+      audioDirector.playCue("action.bow-release")
+    }
+    return
+  }
   if (!hasBowMovement(move)) return
   pending.cancelled = true
   localBowActionSuppressed = true
@@ -4584,14 +4607,19 @@ function animate(): void {
         heroAttackUntil = 0
         showToast("STAND STILL TO DRAW")
       }
-      if (event === "bow-missed") showToast("SHOT MISSED — ARROW SPENT")
+      if (event === "bow-missed") {
+        audioDirector.playCue("action.bow-release")
+        showToast("SHOT MISSED — ARROW SPENT")
+      }
       if (event.startsWith("bow-hit:")) {
         const guardId = Number(event.slice("bow-hit:".length))
         if (Number.isInteger(guardId)) createArrowEffect(guardId)
+        audioDirector.playCue("action.bow-release")
+        audioDirector.playCue("action.arrow-impact")
         showToast("Guard stunned")
       }
       if (event === "player-hit") {
-        showToast("The Sheriff strikes!", { channel: "threat", priority: "important", cue: "ui.warning" })
+        showToast("The Sheriff strikes!", { channel: "threat", priority: "important", cue: "action.player-hit" })
       }
       if (event === "cart-ready") {
         showToast("A new tax cart has entered Sherwood", { channel: "objective", priority: "important", cue: "ui.notice" })
@@ -4603,7 +4631,7 @@ function animate(): void {
         showToast(`SEARCH DELAY — SHERIFF PRESSURE ${state.searchPressure}/3`, {
           channel: "threat",
           priority: "critical",
-          cue: "ui.warning",
+          cue: "world.reinforcement",
           lifetimeSeconds: 4,
         })
       }
