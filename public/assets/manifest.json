@@ -9,8 +9,313 @@
       "category": "hero",
       "qualityGate": {
         "decision": "accept",
-        "reviewedAt": "2026-07-11",
-        "rationale": "Project-owner supplied Meshy Robin, rebound to a grounded 22-bone game rig, reduced to one draw, simplified below the hero triangle budget, stripped to the toon-relevant base-color texture, and validated with three runtime animation clips."
+        "reviewedAt": "2026-07-15",
+        "rationale": "Project-authorized Robin composite built from the CC0 KayKit Ranger and animations plus the project owner's positioned hat and feather, attached directly to the verified head bone. It retains the unchanged native 23-bone skin, closed hands, Sherwood-green palette, four named clips, a ten-draw ceiling, a left-hand bow, the complete 0.6-second bow load before release, and the legacy volley signature."
+      },
+      "provenance": {
+        "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
+        "sourceSha256": "abe48f4763fba0896bab486ee9e6d08ca6b5b3884b9601f235c8847ae94dc479",
+        "sourceBytes": 13024345,
+        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33 characters; v3.4.50 bow_withString",
+        "additionalSources": [
+          {
+            "sourceAsset": "KayKit_Character_Animations_1.1.zip",
+            "sourceSha256": "65882f31f905ad2e953819648a59287cdeab8f623908d5ef701971d3758be20f",
+            "sourceBytes": 14858957,
+            "sourceGenerator": "Khronos glTF Blender I/O v1.7.33"
+          },
+          {
+            "sourceAsset": "robinHoodHatLowPoly.blend",
+            "sourceSha256": "ddb78e4c5a2bbc76a24e33eda22ee6aaedfd0d2ba47da84b7122d959725b609b",
+            "sourceBytes": 5074705,
+            "sourceGenerator": "Blender 5.1.2 assembly from Sketchfab-12.67.0 hat geometry and project-owner feather placement"
+          }
+        ],
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/build-kaykit-characters.py",
+        "conversionDoc": "docs/operations/3d-assets.md",
+        "optimizer": "Blender 5.1.2 glTF exporter with embedded WebP"
+      },
+      "license": {
+        "status": "project-authorized",
+        "identifier": "LicenseRef-Project-Owner-Authorized",
+        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
+        "evidenceSha256": "1f21c2cf454a1709d0dcf809fed89879510a972179bfdb87570711b15df8fc63"
+      },
+      "uri": "assets/characters/robin-kaykit-ranger.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "aec332616f1e70717c1f07d355d9c1a4977494657a3cf2c1c4296be401f04bc6",
+      "bytesMax": 2000000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 69252,
+        "uploadVertices": 32898,
+        "triangles": 23084,
+        "uniquePrimitives": 10,
+        "sceneDrawCalls": 10
+      },
+      "materials": {
+        "count": 3,
+        "names": ["ranger", "Robin_Hat_Material", "Robin_Feather_Material"]
+      },
+      "texture": {
+        "count": 2,
+        "format": "webp",
+        "width": 1024,
+        "height": 1024,
+        "encodedBytes": 30900,
+        "gpuBytesApprox": 6990504
+      },
+      "clips": ["Idle", "Walk", "Attack", "Signature"],
+      "pivot": {
+        "policy": "runtime foot grounding from centered source pivot",
+        "passes": true,
+        "evidence": "Runtime Box3 normalization scales the complete Ranger and hand-slot bow to 2.35 meters and grounds its minimum Y"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-0.97126, -0.00203, -0.79717],
+        "boundsMax": [0.99979, 2.89321, 0.7589],
+        "runtimeMaxHeight": 2.35
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": { "type": "capsule", "radius": 0.55, "height": 2.1, "centerY": 1.05 },
+      "lod": [
+        { "level": 0, "maxDistance": 24, "asset": "self" },
+        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+      ]
+    },
+    {
+      "id": "character.marian.scout",
+      "category": "hero",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-15",
+        "rationale": "CC0 KayKit Rogue rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, a Marian burgundy palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
+      },
+      "provenance": {
+        "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
+        "sourceSha256": "abe48f4763fba0896bab486ee9e6d08ca6b5b3884b9601f235c8847ae94dc479",
+        "sourceBytes": 13024345,
+        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33 characters; v3.4.50 bow_withString",
+        "additionalSources": [
+          {
+            "sourceAsset": "KayKit_Character_Animations_1.1.zip",
+            "sourceSha256": "65882f31f905ad2e953819648a59287cdeab8f623908d5ef701971d3758be20f",
+            "sourceBytes": 14858957,
+            "sourceGenerator": "Khronos glTF Blender I/O v1.7.33"
+          }
+        ],
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/build-kaykit-characters.py",
+        "conversionDoc": "docs/operations/3d-assets.md",
+        "optimizer": "Blender 5.1.2 glTF exporter with embedded WebP"
+      },
+      "license": {
+        "status": "verified",
+        "identifier": "CC0-1.0",
+        "evidence": "docs/assets/licenses/kaykit-adventurers-and-character-animations-cc0.txt",
+        "evidenceSha256": "17d0717d98ea5d86ccd8edf8520c0d2ed0e35be61291135bba5daba16575e031"
+      },
+      "uri": "assets/characters/marian-kaykit-rogue.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "3f3ef7ac29c38f25ce9e629e7ee87ba672659bf40b3f2ec4ba9b645ae70e113a",
+      "bytesMax": 750000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 24738,
+        "uploadVertices": 7429,
+        "triangles": 8246,
+        "uniquePrimitives": 8,
+        "sceneDrawCalls": 8
+      },
+      "materials": { "count": 1, "names": ["rogue"] },
+      "texture": {
+        "count": 1,
+        "format": "webp",
+        "width": 1024,
+        "height": 1024,
+        "encodedBytes": 8042,
+        "gpuBytesApprox": 5592404
+      },
+      "clips": ["Idle", "Walk", "Attack", "Signature"],
+      "pivot": {
+        "policy": "runtime foot grounding from centered source pivot",
+        "passes": true,
+        "evidence": "Runtime Box3 normalization scales the Rogue to 2.15 meters and grounds its minimum Y"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-0.97235, -0.00203, -0.58067],
+        "boundsMax": [0.99979, 2.17833, 0.56319],
+        "runtimeMaxHeight": 2.15
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": { "type": "capsule", "radius": 0.5, "height": 1.95, "centerY": 0.975 },
+      "lod": [
+        { "level": 0, "maxDistance": 24, "asset": "self" },
+        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+      ]
+    },
+    {
+      "id": "character.little-john.vanguard",
+      "category": "hero",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-15",
+        "rationale": "CC0 KayKit Barbarian rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, its readable leather-and-bear palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
+      },
+      "provenance": {
+        "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
+        "sourceSha256": "abe48f4763fba0896bab486ee9e6d08ca6b5b3884b9601f235c8847ae94dc479",
+        "sourceBytes": 13024345,
+        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33 characters; v3.4.50 bow_withString",
+        "additionalSources": [
+          {
+            "sourceAsset": "KayKit_Character_Animations_1.1.zip",
+            "sourceSha256": "65882f31f905ad2e953819648a59287cdeab8f623908d5ef701971d3758be20f",
+            "sourceBytes": 14858957,
+            "sourceGenerator": "Khronos glTF Blender I/O v1.7.33"
+          }
+        ],
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/build-kaykit-characters.py",
+        "conversionDoc": "docs/operations/3d-assets.md",
+        "optimizer": "Blender 5.1.2 glTF exporter with embedded WebP"
+      },
+      "license": {
+        "status": "verified",
+        "identifier": "CC0-1.0",
+        "evidence": "docs/assets/licenses/kaykit-adventurers-and-character-animations-cc0.txt",
+        "evidenceSha256": "17d0717d98ea5d86ccd8edf8520c0d2ed0e35be61291135bba5daba16575e031"
+      },
+      "uri": "assets/characters/little-john-kaykit-barbarian.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "bfd8dea52da11de7602fda5dc37a61ecf169d82cdab26014a65c88fb3afd9ece",
+      "bytesMax": 750000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 23421,
+        "uploadVertices": 7017,
+        "triangles": 7807,
+        "uniquePrimitives": 8,
+        "sceneDrawCalls": 8
+      },
+      "materials": { "count": 1, "names": ["barbarian"] },
+      "texture": {
+        "count": 1,
+        "format": "webp",
+        "width": 1024,
+        "height": 1024,
+        "encodedBytes": 6986,
+        "gpuBytesApprox": 5592404
+      },
+      "clips": ["Idle", "Walk", "Attack", "Signature"],
+      "pivot": {
+        "policy": "runtime foot grounding from centered source pivot",
+        "passes": true,
+        "evidence": "Runtime Box3 normalization scales the Barbarian to 2.5 meters and grounds its minimum Y"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-0.97126, 0, -0.5253],
+        "boundsMax": [0.99979, 2.39777, 0.73859],
+        "runtimeMaxHeight": 2.5
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": { "type": "capsule", "radius": 0.65, "height": 2.25, "centerY": 1.125 },
+      "lod": [
+        { "level": 0, "maxDistance": 24, "asset": "self" },
+        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+      ]
+    },
+    {
+      "id": "character.much.saboteur",
+      "category": "hero",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-15",
+        "rationale": "CC0 KayKit Hooded Rogue rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, an olive Sherwood palette, four named clips, a complete 0.6-second bow load before release, and a left-hand bow within the eight-draw hero ceiling."
+      },
+      "provenance": {
+        "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
+        "sourceSha256": "abe48f4763fba0896bab486ee9e6d08ca6b5b3884b9601f235c8847ae94dc479",
+        "sourceBytes": 13024345,
+        "sourceGenerator": "Khronos glTF Blender I/O v1.7.33 characters; v3.4.50 bow_withString",
+        "additionalSources": [
+          {
+            "sourceAsset": "KayKit_Character_Animations_1.1.zip",
+            "sourceSha256": "65882f31f905ad2e953819648a59287cdeab8f623908d5ef701971d3758be20f",
+            "sourceBytes": 14858957,
+            "sourceGenerator": "Khronos glTF Blender I/O v1.7.33"
+          }
+        ],
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/build-kaykit-characters.py",
+        "conversionDoc": "docs/operations/3d-assets.md",
+        "optimizer": "Blender 5.1.2 glTF exporter with embedded WebP"
+      },
+      "license": {
+        "status": "verified",
+        "identifier": "CC0-1.0",
+        "evidence": "docs/assets/licenses/kaykit-adventurers-and-character-animations-cc0.txt",
+        "evidenceSha256": "17d0717d98ea5d86ccd8edf8520c0d2ed0e35be61291135bba5daba16575e031"
+      },
+      "uri": "assets/characters/much-kaykit-rogue-hooded.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "20cb311c1b2649e5e31245bcae2bf6c877b80e98639735304844fca1b1a94004",
+      "bytesMax": 750000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 23607,
+        "uploadVertices": 6839,
+        "triangles": 7869,
+        "uniquePrimitives": 8,
+        "sceneDrawCalls": 8
+      },
+      "materials": { "count": 1, "names": ["rogue"] },
+      "texture": {
+        "count": 1,
+        "format": "webp",
+        "width": 1024,
+        "height": 1024,
+        "encodedBytes": 8034,
+        "gpuBytesApprox": 5592404
+      },
+      "clips": ["Idle", "Walk", "Attack", "Signature"],
+      "pivot": {
+        "policy": "runtime foot grounding from centered source pivot",
+        "passes": true,
+        "evidence": "Runtime Box3 normalization scales the Hooded Rogue to 1.92 meters and grounds its minimum Y"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-0.97235, -0.00203, -0.54146],
+        "boundsMax": [0.99979, 2.17097, 0.55774],
+        "runtimeMaxHeight": 1.92
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": { "type": "capsule", "radius": 0.48, "height": 1.75, "centerY": 0.875 },
+      "lod": [
+        { "level": 0, "maxDistance": 24, "asset": "self" },
+        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+      ]
+    },
+    {
+      "id": "character.robin.meshy-rollback",
+      "category": "hero",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-15",
+        "rationale": "Technically valid project-owner Meshy conversion retained only as an explicit rollback artifact. Runtime character loading now uses the native KayKit Ranger; this file is not the active Robin visual."
       },
       "provenance": {
         "sourceAsset": "Meshy_AI_Robin_Hood_0711214327_image-to-3d-texture (1).blend",
@@ -18,7 +323,7 @@
         "sourceBytes": 43186851,
         "sourceGenerator": "Meshy",
         "suppliedBy": "project owner",
-        "conversionScript": "tools/rig-forest-ranger.py and tools/strip-robin-pbr.mjs",
+        "conversionScript": "tools/rig-human-character.py, tools/optimize-character.sh, and tools/strip-robin-pbr.mjs",
         "conversionDoc": "docs/operations/3d-assets.md",
         "optimizer": "glTF Transform simplify, prune, and WebP"
       },
@@ -26,17 +331,17 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "0fe4d8f7f3be0b1364ab9589cb2fc7bbf6385c0a53d926422862b37d475e706d"
+        "evidenceSha256": "1f21c2cf454a1709d0dcf809fed89879510a972179bfdb87570711b15df8fc63"
       },
       "uri": "assets/characters/robin-ranger-rigged.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "6007cdf67a7fa2c3d7a6c2e6e1d862230b0099f8ce3023c3444fab93772d03dc",
+      "sha256": "ba55b2f45feab43b41cb2c01e6930c53691dd8f07b956a8a3e9293520e26f82b",
       "bytesMax": 2500000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
-        "renderVertices": 181635,
-        "uploadVertices": 35448,
-        "triangles": 60545,
+        "renderVertices": 181641,
+        "uploadVertices": 34329,
+        "triangles": 60547,
         "uniquePrimitives": 1,
         "sceneDrawCalls": 1
       },
@@ -49,7 +354,7 @@
         "format": "webp",
         "width": 1024,
         "height": 1024,
-        "encodedBytes": 52720,
+        "encodedBytes": 65812,
         "gpuBytesApprox": 5592404
       },
       "clips": ["Ranger_Idle", "Ranger_Walk", "Ranger_Attack"],
@@ -61,8 +366,8 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.93649, -1.06475, -0.20565],
-        "boundsMax": [0.9346, 0.83455, 0.20387],
+        "boundsMin": [-0.93645, -0.95079, -0.20565],
+        "boundsMax": [0.93457, 0.94855, 0.20393],
         "runtimeMaxHeight": 2.35
       },
       "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
@@ -135,6 +440,67 @@
       ]
     },
     {
+      "id": "environment.sherwood.nature-dressing",
+      "category": "modular-environment",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-07-15",
+        "rationale": "Nine CC0 MegaKit ground-cover variants replace textureless wheat, grass, flowers, mushrooms, bushes, rocks, and pebbles through deterministic instancing while preserving gameplay collision and procedural load-failure fallbacks."
+      },
+      "provenance": {
+        "sourceAsset": "Stylized Nature MegaKit[Standard]/glTF curated ground-cover subset",
+        "sourceSha256": "f1627c4ee6f49341c0d652426bcac9fc8c50a3a96b173f3edc9b9dcd4ac52fa5",
+        "sourceBytes": 21061635,
+        "sourceGenerator": "Quaternius Blender glTF export",
+        "suppliedBy": "project owner",
+        "conversionScript": "tools/build-stylized-nature-dressing.py",
+        "conversionDoc": "docs/operations/3d-assets.md",
+        "optimizer": "Blender 5.1.2 glTF exporter with embedded 512px WebP"
+      },
+      "license": {
+        "status": "verified",
+        "identifier": "CC0-1.0",
+        "evidence": "docs/assets/licenses/stylized-nature-megakit-cc0.txt",
+        "evidenceSha256": "5de0412f4f694f3d8cfa2b334a3ddb7ebbdc3ac5b1e9c262ff4870d0564341db"
+      },
+      "uri": "assets/environment/sherwood-nature-dressing.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "667fa5da509abceaa6e9da1ed9c68b292077cc622b99e987d20e8ef297b60c64",
+      "bytesMax": 3000000,
+      "resources": { "embedded": true, "externalUris": [] },
+      "geometry": {
+        "renderVertices": 13023,
+        "uploadVertices": 4860,
+        "triangles": 4341,
+        "uniquePrimitives": 10,
+        "sceneDrawCalls": 10
+      },
+      "materials": {
+        "count": 8,
+        "names": ["Grass", "Nature_Wheat", "Leaves", "Leaves_TwistedTree", "Flowers", "Mushrooms", "Rocks", "PathRocks"]
+      },
+      "texture": { "count": 8, "format": "webp", "width": 512, "height": 512, "encodedBytes": 125888, "gpuBytesApprox": 9748052 },
+      "clips": [],
+      "pivot": {
+        "policy": "every variant bottom-centered at origin",
+        "passes": true,
+        "evidence": "All nine catalogue roots are normalized to one meter and grounded at minY=0 before export"
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [-2.27986, 0, -2.45791],
+        "boundsMax": [2.27986, 1, 2.45791]
+      },
+      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "collision": { "type": "none", "reason": "nonblocking decorative dressing; authoritative navigation and exclusions remain unchanged" },
+      "lod": [
+        { "level": 0, "maxDistance": 34, "asset": "instanced textured catalogue variants" },
+        { "level": 1, "maxDistance": 48, "asset": "reduced instance population in degraded mode" },
+        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
+      ]
+    },
+    {
       "id": "prop.sherwood.treasure-chest",
       "category": "repeated-prop",
       "qualityGate": {
@@ -156,7 +522,7 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "0fe4d8f7f3be0b1364ab9589cb2fc7bbf6385c0a53d926422862b37d475e706d"
+        "evidenceSha256": "1f21c2cf454a1709d0dcf809fed89879510a972179bfdb87570711b15df8fc63"
       },
       "uri": "assets/props/treasure-chest.glb",
       "format": "glTF 2.0 GLB",
@@ -176,7 +542,7 @@
         "format": "webp",
         "width": 512,
         "height": 512,
-        "encodedBytes": 41636,
+        "encodedBytes": 40656,
         "gpuBytesApprox": 1398100
       },
       "clips": [
@@ -210,8 +576,8 @@
       "category": "modular-environment",
       "qualityGate": {
         "decision": "accept",
-        "reviewedAt": "2026-07-11",
-        "rationale": "Ten licensed low-poly props curated into one grounded, meter-scaled, embedded catalog with shared material, deterministic placement, distance culling, and nonblocking gameplay policy."
+        "reviewedAt": "2026-07-15",
+        "rationale": "Ten licensed low-poly props curated into one grounded, meter-scaled catalogue with their shared palette atlas embedded; these now replace textureless regional props and mission loot caches on the normal runtime path."
       },
       "provenance": {
         "sourceAsset": "free-medieval-props-3d-low-poly-pack.zip curated 10-prop slice",
@@ -221,7 +587,7 @@
         "suppliedBy": "project owner",
         "conversionScript": "tools/build-craftpix-medieval-props.py",
         "conversionDoc": "docs/assets/quality-gate-audit.md#july-11-supplied-character-and-prop-packs",
-        "optimizer": "Blender glTF exporter and glTF Transform dedup/prune"
+        "optimizer": "Blender 5.1.2 glTF exporter with embedded WebP"
       },
       "license": {
         "status": "project-authorized",
@@ -231,7 +597,7 @@
       },
       "uri": "assets/environment/craftpix-medieval-props.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "851c3ec8da70675b035b01e2da3d2ac9b373dbf9e87a680b99e6d1914e84f181",
+      "sha256": "e216542caeb1f7202f720f1bc6411b947e70f12290cef9a2783f3e6be80086bb",
       "bytesMax": 3000000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
@@ -241,8 +607,8 @@
         "uniquePrimitives": 10,
         "sceneDrawCalls": 10
       },
-      "materials": { "count": 1, "names": ["Material #25.001"] },
-      "texture": { "count": 0, "format": "none", "width": 0, "height": 0, "encodedBytes": 0, "gpuBytesApprox": 0 },
+      "materials": { "count": 1, "names": ["CraftPix_Medieval_Props"] },
+      "texture": { "count": 1, "format": "webp", "width": 32, "height": 32, "encodedBytes": 118, "gpuBytesApprox": 5460 },
       "clips": [],
       "pivot": {
         "policy": "each prop bottom-centered at origin",
@@ -336,11 +702,19 @@
     }
   ],
   "catalog": {
-    "shipped": ["character.robin.ranger", "environment.sherwood.tree-catalog", "prop.sherwood.treasure-chest", "environment.craftpix.medieval-props", "environment.sherwood.village-slice"],
-    "procedural": [
+    "shipped": [
+      "character.robin.ranger",
       "character.marian.scout",
       "character.little-john.vanguard",
       "character.much.saboteur",
+      "character.robin.meshy-rollback",
+      "environment.sherwood.tree-catalog",
+      "environment.sherwood.nature-dressing",
+      "prop.sherwood.treasure-chest",
+      "environment.craftpix.medieval-props",
+      "environment.sherwood.village-slice"
+    ],
+    "procedural": [
       "character.sheriff.guard",
       "character.villager.captive",
       "environment.sherwood.common",
@@ -376,11 +750,11 @@
         "renderVerticesMax": 200000,
         "uploadVerticesMax": 50000,
         "trianglesMax": 100000,
-        "uniquePrimitivesMax": 8,
-        "sceneDrawCallsMax": 8,
+        "uniquePrimitivesMax": 10,
+        "sceneDrawCallsMax": 10,
         "materialsMax": 8,
         "textureEdgeMax": 1024,
-        "textureGpuBytesMax": 6000000
+        "textureGpuBytesMax": 7500000
       },
       "modular-environment": {
         "bytesMax": 3000000,

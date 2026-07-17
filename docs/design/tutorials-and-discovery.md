@@ -23,7 +23,7 @@ The first briefing establishes the complete action vocabulary, while ordinary pl
 - Move with the mapped perspective controls or pointer movement.
 - Rotate the camera by 90-degree steps.
 - Interact with the mapped interaction action.
-- Fire and observe a valid ranged result.
+- Stand still, fire, and remain planted through the 0.6-second bow load. Moving before release cancels the shot without spending an arrow; a released miss still spends one.
 - Use the selected hero's signature successfully.
 - Use or review the Merry Band's fixed signals:
   - `1` — danger;

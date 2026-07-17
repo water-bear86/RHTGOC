@@ -1,4 +1,5 @@
 import type { CharacterId } from "./simulation"
+import { BOW_DRAW_SECONDS, BOW_TOTAL_SECONDS, SIGNATURE_ACTION_SECONDS } from "../shared/archery"
 
 export type HeroAction = "idle" | "attack" | "signature"
 
@@ -59,9 +60,12 @@ const MOTION_PROFILES: Record<CharacterId, MotionProfile> = {
 }
 
 export const HERO_ACTION_DURATIONS: Readonly<Record<Exclude<HeroAction, "idle">, number>> = Object.freeze({
-  attack: 0.8,
-  signature: 0.9,
+  attack: BOW_TOTAL_SECONDS,
+  signature: SIGNATURE_ACTION_SECONDS,
 })
+
+/** The authored bow reaches its Draw -> Release seam after a readable 0.6s load. */
+export const HERO_ATTACK_RELEASE_PROGRESS = BOW_DRAW_SECONDS / BOW_TOTAL_SECONDS
 
 const canonicalZero = (value: number): number => value === 0 ? 0 : value
 const rotation = (x = 0, y = 0, z = 0): JointRotation => ({
@@ -89,6 +93,15 @@ export function heroActionEnvelope(progress: number): number {
   if (amount < 0.32) return smoothstep(amount / 0.32)
   if (amount <= 0.68) return 1
   return 1 - smoothstep((amount - 0.68) / 0.32)
+}
+
+/** Keeps the procedural fallback aligned with the authored draw/release seam. */
+export function heroBowActionEnvelope(progress: number): number {
+  const amount = clamp01(progress)
+  if (amount <= HERO_ATTACK_RELEASE_PROGRESS) {
+    return smoothstep(amount / HERO_ATTACK_RELEASE_PROGRESS)
+  }
+  return 1 - smoothstep((amount - HERO_ATTACK_RELEASE_PROGRESS) / (1 - HERO_ATTACK_RELEASE_PROGRESS))
 }
 
 function fallbackActionProgress(elapsed: number, action: HeroAction): number {
@@ -203,7 +216,11 @@ export function sampleHeroAnimation(input: HeroAnimationInput): HeroAnimationSam
   const progress = action === "idle"
     ? 0
     : clamp01(input.actionProgress ?? fallbackActionProgress(input.elapsed, action))
-  const actionAmount = action === "idle" ? 0 : heroActionEnvelope(progress)
+  const actionAmount = action === "idle"
+    ? 0
+    : action === "attack"
+      ? heroBowActionEnvelope(progress)
+      : heroActionEnvelope(progress)
   const walk = input.moving && !input.downed
     ? Math.sin(safeElapsed * profile.cadence) * profile.stride * motionScale
     : 0

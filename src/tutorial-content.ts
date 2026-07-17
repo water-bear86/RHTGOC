@@ -31,10 +31,10 @@ export interface TutorialPlan {
 
 export const FIELDCRAFT_LESSON: TutorialLesson = Object.freeze({
   moduleId: "fieldcraft",
-  revision: 1,
+  revision: 2,
   eyebrow: "FIELDCRAFT · SHARED BY EVERY OUTLAW",
   title: "Map what the band learns—not what the forest hides",
-  body: "Every expedition rearranges Sherwood. Dark sectors are unsearched, not empty. The map records ground your band has explored and marks your band has placed; the real target appears only after somebody finds it.",
+  body: "Every expedition rearranges Sherwood. Dark sectors are unsearched, not empty. Stand still while loading every bow shot; moving before release cancels it without spending an arrow. The map records ground your band has explored and marks your band has placed; the real target appears only after somebody finds it.",
   points: Object.freeze([
     "1 · DANGER warns the band away from a sector.",
     "2 · TARGET marks something worth checking; it is a suggestion, not proof.",

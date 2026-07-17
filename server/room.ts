@@ -193,6 +193,7 @@ export class Room {
       spawnIndex,
       lastInputAt: 0,
       bowCooldown: 0,
+      bowAction: null,
       signatureCooldown: 0,
       invulnerableFor: 0,
       veilFor: 0,
@@ -221,6 +222,7 @@ export class Room {
     player.disconnectedAt = null
     player.productAnalytics = productAnalytics
     player.clientBuildId = clientBuildId
+    this.mission?.cancelPlayerActions(player.id)
     return player
   }
 
@@ -248,6 +250,7 @@ export class Room {
     player.connected = false
     player.disconnectedAt = now
     player.input = { x: 0, z: 0 }
+    this.mission?.cancelPlayerActions(player.id)
     this.broadcastRoomState()
   }
 
@@ -544,8 +547,8 @@ export class Room {
     this.mission?.setInput(playerId, sequence, move)
   }
 
-  action(playerId: string, action: "interact" | "shoot" | "signature" | "revive" | "transfer_loot", targetPlayerId?: string): void {
-    this.mission?.action(playerId, action, targetPlayerId)
+  action(playerId: string, action: "interact" | "shoot" | "signature" | "revive" | "transfer_loot", targetPlayerId?: string): boolean {
+    return this.mission?.action(playerId, action, targetPlayerId) ?? false
   }
 
   ping(playerId: string, kind: "danger" | "target" | "route" | "loot" | "regroup"): void {
@@ -770,6 +773,7 @@ export class Room {
       arrows: player.arrows,
       loot: player.loot,
       downedFor: player.downedFor,
+      bowCooldown: player.bowCooldown,
       signatureCooldown: player.signatureCooldown,
       protectionScore: player.protectionScore,
       crowdControl: player.crowdControl,
@@ -778,6 +782,7 @@ export class Room {
       sabotageCount: player.sabotageCount,
       position: player.position,
       lastInputSequence: player.lastInputSequence,
+      bowAction: player.bowAction ? { ...player.bowAction } : null,
     }
   }
 
@@ -935,7 +940,7 @@ export class Room {
       type: "snapshot",
       tick: this.tick,
       experiments: this.experimentAssignments.map((assignment) => ({ ...assignment, config: { ...assignment.config } })),
-      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount })),
+      players: [...this.players.values()].map(({ id, position, lastInputSequence, health, arrows, loot, downedFor, bowCooldown, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount, bowAction }) => ({ id, position, lastInputSequence, health, arrows, loot, downedFor, bowCooldown, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount, bowAction: bowAction ? { ...bowAction } : null })),
       mission: this.mission.snapshot(),
     })
   }
@@ -968,6 +973,7 @@ export class Room {
     player.captured = false
     player.signatureCooldown = 0
     player.bowCooldown = 0
+    player.bowAction = null
     player.invulnerableFor = 0
     player.veilFor = 0
     player.rescueCount = 0

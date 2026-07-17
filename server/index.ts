@@ -1257,7 +1257,8 @@ sockets.on("connection", (socket) => {
     }
     if (message.type === "input") joinedRoom.setInput(playerId, message.sequence, message.move)
     if (message.type === "action") {
-      joinedRoom.action(playerId, message.action, message.targetPlayerId)
+      const accepted = joinedRoom.action(playerId, message.action, message.targetPlayerId)
+      if (message.requestId !== undefined) send(socket, { type: "action_result", requestId: message.requestId, action: message.action, accepted })
       telemetry.increment(`action_${message.action}_total`)
     }
     if (message.type === "world_ping") joinedRoom.ping(playerId, message.kind)

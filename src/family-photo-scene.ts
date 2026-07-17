@@ -4,7 +4,12 @@ import { regionalizeMissionDefinition, stableSeed } from "../shared/regional-lay
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { composeSherwoodWorld } from "../shared/world-composer"
 import { createCampfireVisuals, type CampfireVisuals } from "./campfire-visuals"
-import { createHeroCharacter, disposeHeroCharacter, poseHeroCharacter } from "./character-visuals"
+import {
+  createCharacterVisual,
+  disposeCharacterVisual,
+  poseCharacterVisual,
+  waitForCharacterVisual,
+} from "./character-assets"
 import { createForestDressing } from "./forest-dressing"
 import { createGuardVisual, poseGuardVisual } from "./guard-visuals"
 import { createProceduralRoads } from "./procedural-roads"
@@ -43,6 +48,7 @@ export interface FamilyPhotoScene {
   heroes: ReadonlyMap<CharacterId, THREE.Group>
   guards: readonly THREE.Group[]
   metadata: FamilyPhotoMetadata
+  ready: Promise<void>
   renderFrame: (elapsed?: number) => void
   dispose: () => void
 }
@@ -264,9 +270,9 @@ export function createFamilyPhotoScene(assets: FamilyPhotoAssets = {}): FamilyPh
   }
   const heroes = new Map<CharacterId, THREE.Group>()
   for (const characterId of FAMILY_PHOTO_CHARACTER_IDS) {
-    const hero = createHeroCharacter(characterId)
+    const hero = createCharacterVisual(characterId)
     hero.name = `FamilyPhotoHero:${characterId}`
-    poseHeroCharacter(hero, {
+    poseCharacterVisual(hero, {
       elapsed: FAMILY_PHOTO_CAPTURE_TIME_SECONDS,
       moving: false,
       action: "idle",
@@ -317,8 +323,16 @@ export function createFamilyPhotoScene(assets: FamilyPhotoAssets = {}): FamilyPh
   })
   scene.userData.familyPhoto = metadata
 
+  const ready = Promise.all([...heroes.values()].map(waitForCharacterVisual)).then(() => undefined)
+
   const renderFrame = (elapsed = FAMILY_PHOTO_CAPTURE_TIME_SECONDS): void => {
     const stableElapsed = Number.isFinite(elapsed) ? elapsed : FAMILY_PHOTO_CAPTURE_TIME_SECONDS
+    heroes.forEach((hero) => poseCharacterVisual(hero, {
+      elapsed: stableElapsed,
+      moving: false,
+      action: "idle",
+      motionScale: 0,
+    }))
     campfire.update(stableElapsed, 1)
     scene.updateMatrixWorld(true)
     camera.updateMatrixWorld(true)
@@ -330,7 +344,7 @@ export function createFamilyPhotoScene(assets: FamilyPhotoAssets = {}): FamilyPh
     if (disposed) return
     disposed = true
     campfire.dispose()
-    heroes.forEach((hero) => disposeHeroCharacter(hero))
+    heroes.forEach((hero) => disposeCharacterVisual(hero))
     guards.forEach((guard) => disposeOwnedResources(guard))
     disposeSettlementWorld(settlements)
     disposeOwnedResources(terrain)
@@ -345,6 +359,7 @@ export function createFamilyPhotoScene(assets: FamilyPhotoAssets = {}): FamilyPh
     heroes,
     guards,
     metadata,
+    ready,
     renderFrame,
     dispose,
   }

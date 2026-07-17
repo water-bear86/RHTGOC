@@ -4,6 +4,8 @@ import { regionalizeMissionDefinition } from "../shared/regional-layout"
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import { createSherwoodLandmarks } from "./world-landmarks"
 import { countVillageDrawCalls } from "./village-assets"
+import { sherwoodHeightAt } from "./sherwood-terrain"
+import { NATURE_VARIANT_NAMES, indexNatureCatalog } from "./nature-assets"
 
 describe("Sherwood landmarks", () => {
   it("builds a windmill farm and a readable wheat field", () => {
@@ -25,6 +27,61 @@ describe("Sherwood landmarks", () => {
     const landmarks = createSherwoodLandmarks(layout)
     expect(Math.hypot(landmarks.farmPosition.x - layout.campfirePosition.x, landmarks.farmPosition.z - layout.campfirePosition.z)).toBeGreaterThan(25)
     expect(Math.hypot(landmarks.farmPosition.x - layout.objectivePosition.x, landmarks.farmPosition.z - layout.objectivePosition.z)).toBeGreaterThan(25)
+  })
+
+  it("drapes farm surfaces and compound props onto their own terrain samples", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 19).layout
+    const landmarks = createSherwoodLandmarks(layout)
+    landmarks.group.updateMatrixWorld(true)
+
+    for (const name of ["WindmillLandmark", "FarmhouseLandmark"]) {
+      const object = landmarks.group.getObjectByName(name)!
+      const world = object.getWorldPosition(new THREE.Vector3())
+      expect(world.y).toBeCloseTo(sherwoodHeightAt(world.x, world.z), 5)
+    }
+
+    const fencePosts: THREE.Object3D[] = []
+    landmarks.group.traverse((object) => {
+      if (object.name === "FencePost") fencePosts.push(object)
+    })
+    expect(fencePosts).toHaveLength(9)
+    for (const post of fencePosts) {
+      const world = post.getWorldPosition(new THREE.Vector3())
+      expect(world.y - 0.575).toBeCloseTo(sherwoodHeightAt(world.x, world.z), 5)
+    }
+
+    const soil = landmarks.group.getObjectByName("FarmFieldSoil") as THREE.Mesh
+    const soilPositions = soil.geometry.getAttribute("position")
+    for (let index = 0; index < soilPositions.count; index += 13) {
+      const world = new THREE.Vector3().fromBufferAttribute(soilPositions, index).applyMatrix4(soil.matrixWorld)
+      expect(world.y).toBeCloseTo(sherwoodHeightAt(world.x, world.z) + 0.018, 5)
+    }
+
+    const wheat = landmarks.group.getObjectByName("WheatInstances") as THREE.InstancedMesh
+    const instanceMatrix = new THREE.Matrix4()
+    for (const index of [0, Math.floor(wheat.count / 2), wheat.count - 1]) {
+      wheat.getMatrixAt(index, instanceMatrix)
+      instanceMatrix.premultiply(wheat.matrixWorld)
+      const world = new THREE.Vector3().setFromMatrixPosition(instanceMatrix)
+      expect(world.y).toBeCloseTo(sherwoodHeightAt(world.x, world.z) + 0.03, 5)
+    }
+  })
+
+  it("uses the authored textured wheat variant when the nature catalogue is available", () => {
+    const source = new THREE.Group()
+    for (const name of NATURE_VARIANT_NAMES) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: new THREE.Texture() }))
+      mesh.name = name
+      source.add(mesh)
+    }
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 19).layout
+    const landmarks = createSherwoodLandmarks(layout, { natureCatalog: indexNatureCatalog(source) })
+    const wheatGroup = landmarks.group.getObjectByName("WheatInstances")!
+    const wheat = wheatGroup.children[0] as THREE.InstancedMesh
+    expect(wheat).toBeInstanceOf(THREE.InstancedMesh)
+    expect(wheat.count).toBe(330)
+    expect((wheat.material as THREE.MeshStandardMaterial).map).toBeTruthy()
+    expect(wheat.userData.sherwoodSharedGeometry).toBe(true)
   })
 
   it("disposes owned landmark geometry and instance buffers exactly once", () => {

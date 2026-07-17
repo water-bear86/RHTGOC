@@ -5,6 +5,7 @@ import { Room } from "./room"
 import { rotationWindowAt } from "../shared/sheriff-rotation"
 import type { PersistentBandRecord } from "./band-store"
 import { SherwoodSeasonService } from "./season-service"
+import { BOW_DRAW_TICKS, BOW_RECOVERY_TICKS } from "../shared/archery"
 
 function fakeSocket(): WebSocket {
   return { readyState: WebSocket.CLOSED, OPEN: WebSocket.OPEN, send: () => undefined, close: () => undefined } as unknown as WebSocket
@@ -535,6 +536,70 @@ describe("Merry Band room", () => {
     expect(room.reconnect(fakeSocket(), player.reconnectToken, 1_000 + RECONNECT_GRACE_MS - 1)?.id).toBe(player.id)
     room.disconnect(player.id, 2_000)
     expect(room.reconnect(fakeSocket(), player.reconnectToken, 2_000 + RECONNECT_GRACE_MS + 1)).toBeNull()
+  })
+
+  it("snapshots bow timing and never resumes a pre-disconnect draw", () => {
+    const leaderSocket = recordingSocket()
+    const memberSocket = recordingSocket()
+    const room = new Room("BOWACT")
+    const leader = room.addPlayer(leaderSocket.socket, "Robin", "robin")
+    const member = room.addPlayer(memberSocket.socket, "Marian", "marian")
+    room.setReady(leader.id, true)
+    room.setReady(member.id, true)
+    leader.position = { ...room.mission!.guards[0].position }
+
+    expect(room.action(leader.id, "shoot")).toBe(true)
+    expect(room.action(leader.id, "shoot")).toBe(false)
+    expect(leader.bowAction).toEqual({ phase: "drawing", startedAtTick: 0, releaseAtTick: 12, endsAtTick: 20 })
+    room.broadcastSnapshot()
+    const snapshot = [...memberSocket.messages].reverse().find((message) => message.type === "snapshot")
+    expect(snapshot).toMatchObject({
+      type: "snapshot",
+      tick: 0,
+      players: expect.arrayContaining([
+        expect.objectContaining({ id: leader.id, bowCooldown: 0, bowAction: { phase: "drawing", startedAtTick: 0, releaseAtTick: 12, endsAtTick: 20 } }),
+      ]),
+    })
+
+    room.disconnect(leader.id, 1_000)
+    expect(leader.bowAction).toBeNull()
+    expect(room.reconnect(leaderSocket.socket, leader.reconnectToken, 1_001)?.bowAction).toBeNull()
+
+    leader.position = { ...room.mission!.guards[0].position }
+    room.action(leader.id, "shoot")
+    expect(leader.bowAction?.phase).toBe("drawing")
+    room.mission!.status = "failed"
+    expect(room.returnToHub(leader.id)).toBe(true)
+    expect(leader.bowAction).toBeNull()
+  })
+
+  it("snapshots cooldown through the post-animation recovery gap", () => {
+    const leaderSocket = recordingSocket()
+    const memberSocket = recordingSocket()
+    const room = new Room("BOWCDN")
+    const leader = room.addPlayer(leaderSocket.socket, "Robin", "robin")
+    const member = room.addPlayer(memberSocket.socket, "Marian", "marian")
+    room.setReady(leader.id, true)
+    room.setReady(member.id, true)
+    leader.position = { ...room.mission!.guards[0].position }
+
+    room.action(leader.id, "shoot")
+    for (let tick = 0; tick < BOW_DRAW_TICKS; tick += 1) room.update(1 / 20)
+    room.broadcastSnapshot()
+    const releaseSnapshot = [...memberSocket.messages].reverse().find((message) => message.type === "snapshot")
+    expect(releaseSnapshot).toMatchObject({
+      players: expect.arrayContaining([
+        expect.objectContaining({ id: leader.id, bowCooldown: 0.7, bowAction: expect.objectContaining({ phase: "recovery" }) }),
+      ]),
+    })
+
+    for (let tick = 0; tick < BOW_RECOVERY_TICKS; tick += 1) room.update(1 / 20)
+    room.broadcastSnapshot()
+    const recoveryEndSnapshot = [...memberSocket.messages].reverse().find((message) => message.type === "snapshot") as { players?: Array<{ id: string; bowCooldown: number; bowAction: unknown }> } | undefined
+    const recoveredLeader = recoveryEndSnapshot?.players?.find((candidate) => candidate.id === leader.id)
+    expect(recoveredLeader?.bowAction).toBeNull()
+    expect(recoveredLeader?.bowCooldown).toBeCloseTo(0.3)
+    expect(room.publicPlayer(leader).bowCooldown).toBeCloseTo(0.3)
   })
 
   it("preserves verified identity across reconnect and rejects a token bound to another user", () => {
