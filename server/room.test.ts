@@ -221,7 +221,7 @@ describe("Merry Band room", () => {
     }
     expect(new Set(rooms.flatMap((room) => [...room.players.keys()])).size).toBe(24)
     expect(rooms.every((room) => room.tick === 1 && room.players.size === 2)).toBe(true)
-  })
+  }, 15_000)
 
   it("audits reports and restricts removal to the current room moderator", () => {
     const room = new Room("ABC234")

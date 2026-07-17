@@ -261,6 +261,8 @@ describe("Sherwood simulation", () => {
     expect(john.player.signatureCooldown).toBe(20)
 
     const robin = createInitialState("robin")
+    john.player.position = { ...john.layout.campfirePosition }
+    robin.player.position = { ...robin.layout.campfirePosition }
     john.player.loot = 300
     robin.player.loot = 300
     updateSimulation(john, { move: { x: 1, z: 0 } }, 1)

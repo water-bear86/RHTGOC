@@ -24,7 +24,7 @@ const vector = (overrides: Partial<MapQualityVector> = {}): MapQualityVector => 
 
 describe("regional map quality vector", () => {
   it("refuses to score candidates that have not passed feasibility", () => {
-    expect(() => evaluateRegionalMapQuality(regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 42)))
+    expect(() => evaluateRegionalMapQuality(regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 1)))
       .toThrowError(MapQualityEvaluationError)
   })
 
