@@ -138,6 +138,40 @@ describe("Robinhood wallet connection", () => {
     }))
   })
 
+  it("accepts authoritative account state when CONNECT_SUCCESS telemetry is missed", async () => {
+    const modal = fakeModal()
+    const provider = fakeProvider()
+    mocks.createAppKit.mockReturnValue(modal)
+    const { connectedRobinhoodWallet } = await loadWalletAuth()
+
+    const connected = connectedRobinhoodWallet()
+    modal.emit({ event: "SELECT_WALLET", properties: {} })
+    modal.connect("0x1010101010101010101010101010101010101010", provider)
+    modal.emit({ event: "MODAL_CLOSE", properties: { connected: true } })
+
+    await expect(connected).resolves.toEqual({
+      address: "0x1010101010101010101010101010101010101010",
+      provider,
+    })
+  })
+
+  it("rechecks account state after subscribing to close the initialization race", async () => {
+    const modal = fakeModal()
+    const provider = fakeProvider()
+    modal.setExisting("0x2020202020202020202020202020202020202020", provider)
+    modal.getIsConnectedState.mockReturnValueOnce(false).mockReturnValue(true)
+    mocks.createAppKit.mockReturnValue(modal)
+    const { connectedRobinhoodWallet } = await loadWalletAuth()
+
+    await expect(connectedRobinhoodWallet()).resolves.toEqual({
+      address: "0x2020202020202020202020202020202020202020",
+      provider,
+    })
+    expect(modal.open).not.toHaveBeenCalled()
+    expect(modal.unsubscribeAccount).toHaveBeenCalledTimes(1)
+    expect(modal.unsubscribeEvents).toHaveBeenCalledTimes(1)
+  })
+
   it("does not mistake WalletConnect's pre-account modal close for cancellation", async () => {
     const modal = fakeModal()
     const provider = fakeProvider()
@@ -175,26 +209,54 @@ describe("Robinhood wallet connection", () => {
     await expect(retry).resolves.toEqual({ address: "0x2222222222222222222222222222222222222222", provider })
   })
 
-  it("keeps a selected wallet request locked after the modal closes", async () => {
+  it("times out a selected wallet request and allows a fresh retry", async () => {
     vi.useFakeTimers()
     vi.stubGlobal("window", { setTimeout, clearTimeout })
     const modal = fakeModal()
+    const provider = fakeProvider()
     mocks.createAppKit.mockReturnValue(modal)
     const { connectedRobinhoodWallet } = await loadWalletAuth()
 
     const pending = connectedRobinhoodWallet()
     modal.emit({ event: "SELECT_WALLET", properties: {} })
     modal.emit({ event: "MODAL_CLOSE", properties: { connected: false } })
+    const timedOut = expect(pending).rejects.toThrow("Wallet connection timed out")
     await vi.advanceTimersByTimeAsync(120_000)
 
-    const retry = connectedRobinhoodWallet()
-    expect(retry).toBe(pending)
-    expect(modal.open).toHaveBeenCalledTimes(1)
-    expect(modal.resetWcConnection).not.toHaveBeenCalled()
+    await timedOut
+    expect(modal.resetWcConnection).toHaveBeenCalledTimes(1)
+    expect(modal.unsubscribeAccount).toHaveBeenCalledTimes(1)
+    expect(modal.unsubscribeEvents).toHaveBeenCalledTimes(1)
 
-    modal.emit({ event: "USER_REJECTED", properties: { message: "Request rejected by wallet" } })
-    await expect(pending).rejects.toThrow("Request rejected by wallet")
-    await expect(retry).rejects.toThrow("Request rejected by wallet")
+    const retry = connectedRobinhoodWallet()
+    expect(retry).not.toBe(pending)
+    expect(modal.open).toHaveBeenCalledTimes(2)
+    modal.connect("0x2121212121212121212121212121212121212121", provider)
+    await expect(retry).resolves.toEqual({
+      address: "0x2121212121212121212121212121212121212121",
+      provider,
+    })
+  })
+
+  it("gives a late wallet selection a full timeout window", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("window", { setTimeout, clearTimeout })
+    const modal = fakeModal()
+    const provider = fakeProvider()
+    mocks.createAppKit.mockReturnValue(modal)
+    const { connectedRobinhoodWallet } = await loadWalletAuth()
+
+    const pending = connectedRobinhoodWallet()
+    await vi.advanceTimersByTimeAsync(119_000)
+    modal.emit({ event: "SELECT_WALLET", properties: {} })
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(modal.resetWcConnection).not.toHaveBeenCalled()
+    modal.connect("0x3131313131313131313131313131313131313131", provider)
+    await expect(pending).resolves.toEqual({
+      address: "0x3131313131313131313131313131313131313131",
+      provider,
+    })
   })
 
   it("surfaces the connector error and clears the pending attempt", async () => {
@@ -239,13 +301,11 @@ describe("Robinhood wallet connection", () => {
 })
 
 describe("Robinhood wallet sign-in", () => {
-  it("issues one signature request for concurrent sign-in callers", async () => {
+  it("issues one signature request for concurrent sign-in callers without requiring CONNECT_SUCCESS telemetry", async () => {
     const modal = fakeModal()
     const provider = fakeProvider()
     const session = { access_token: "session-token" }
-    let appKitConnecting = true
     provider.request.mockImplementation(async ({ method }: { method: string }) => {
-      if (appKitConnecting) throw new Error("Request already pending")
       if (method === "eth_requestAccounts") return ["0x3333333333333333333333333333333333333333"]
       if (method === "eth_chainId") return "0xb626"
       if (method === "personal_sign") return "0xsigned"
@@ -265,11 +325,6 @@ describe("Robinhood wallet sign-in", () => {
     const second = signInWithRobinhoodWallet()
 
     modal.connect("0x3333333333333333333333333333333333333333", provider)
-    await Promise.resolve()
-    expect(signInWithWeb3).not.toHaveBeenCalled()
-
-    appKitConnecting = false
-    modal.emit({ event: "CONNECT_SUCCESS", properties: {} })
 
     await expect(first).resolves.toBe(session)
     await expect(second).resolves.toBe(session)

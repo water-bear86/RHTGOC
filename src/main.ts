@@ -3134,31 +3134,46 @@ async function refreshAccessPanel(): Promise<void> {
 function connectWalletAndRefresh(): Promise<void> {
   if (walletAuthPending) return walletAuthPending
   walletAuthPending = (async () => {
+    let failed = false
     walletSignIn.disabled = true
+    walletSignIn.textContent = "CHECK WALLET…"
+    walletState.textContent = "CONNECTING"
     socialSignIn.disabled = true
     joinPublicHubButton.disabled = true
     accessStatus.textContent = "CHECK ROBINHOOD WALLET TO SIGN"
     socialStatus.textContent = "Check Robinhood Wallet to sign."
+    if (!publicHubEntryPending) entryAccessNote.textContent = "SIGN ROBINHOOD WALLET · THIS DOES NOT AUTHORIZE A TRANSACTION"
     const stalledNotice = window.setTimeout(() => {
+      walletSignIn.textContent = "CHECK WALLET"
+      walletState.textContent = "REQUEST OPEN"
       accessStatus.textContent = "FINISH OR REJECT THE OPEN WALLET REQUEST · RELOAD IF THE WALLET IS STUCK"
       socialStatus.textContent = "Finish or reject the open wallet request. Reload the game if the wallet is stuck."
-      if (publicHubEntryPending) entryAccessNote.textContent = "FINISH OR REJECT THE OPEN WALLET REQUEST · RELOAD IF STUCK"
+      entryAccessNote.textContent = "FINISH OR REJECT THE OPEN WALLET REQUEST · RELOAD IF STUCK"
     }, 30_000)
     try {
-      await signInWithRobinhoodWallet()
+      const session = await signInWithRobinhoodWallet()
       window.clearTimeout(stalledNotice)
+      const address = walletAddress(session)
+      walletState.textContent = address ? shortWalletAddress(address) : "SIGNED IN"
+      walletSignIn.classList.add("hidden")
+      walletSignOut.classList.remove("hidden")
       accessStatus.textContent = "WALLET SIGNED · LOADING SHERWOOD IDENTITY"
       socialStatus.textContent = "Robinhood Wallet signed. Loading identity…"
       await Promise.all([refreshAccessPanel(), refreshSocialPanel()])
     } catch (error) {
+      failed = true
       const message = error instanceof Error ? error.message : "Unable to connect Robinhood Wallet"
+      walletState.textContent = "NOT SIGNED IN"
       accessStatus.textContent = message
       socialStatus.textContent = message
+      entryAccessNote.textContent = message.toUpperCase()
+      showToast(message)
       throw error
     } finally {
       window.clearTimeout(stalledNotice)
       walletAuthPending = null
       walletSignIn.disabled = false
+      walletSignIn.textContent = failed ? "TRY AGAIN" : "SIGN IN"
       socialSignIn.disabled = false
       refreshPublicEntryAvailability()
     }

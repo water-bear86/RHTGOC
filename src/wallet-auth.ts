@@ -60,10 +60,11 @@ async function connectedProvider(modal: ReturnType<typeof createAppKit>): Promis
   return await new Promise<ConnectedWallet>((resolve, reject) => {
     let settled = false
     let connectorStarted = false
-    let connectionSucceeded = false
     let connectedWallet: ConnectedWallet | null = null
+    let completionQueued = false
     let unsubscribeAccount: () => void = () => {}
     let unsubscribeEvents: () => void = () => {}
+    let timeout = 0
 
     const cleanup = (): void => {
       window.clearTimeout(timeout)
@@ -85,18 +86,41 @@ async function connectedProvider(modal: ReturnType<typeof createAppKit>): Promis
     }
 
     const finishConnection = (): void => {
-      if (settled || !connectionSucceeded || !connectedWallet) return
-      settled = true
-      cleanup()
-      const result = connectedWallet
-      void modal.close().catch(() => undefined).then(() => resolve(result))
+      if (settled || completionQueued || !connectedWallet) return
+      completionQueued = true
+      // Let AppKit finish publishing the provider before Supabase asks it for a signature.
+      queueMicrotask(() => {
+        completionQueued = false
+        if (settled || !connectedWallet) return
+        const provider = modal.getWalletProvider()
+        const address = modal.getAddress("eip155")
+        if (!modal.getIsConnectedState() || !address || !isEthereumWalletProvider(provider)) {
+          connectedWallet = null
+          return
+        }
+        connectedWallet = { address, provider }
+        settled = true
+        cleanup()
+        const result = connectedWallet
+        void modal.close().catch(() => undefined).then(() => resolve(result))
+      })
     }
 
-    const timeout = window.setTimeout(() => {
-      // Closing AppKit does not cancel an injected provider RPC. Keep the lock until the wallet reports a terminal result.
-      if (connectorStarted) return
-      fail(new Error("Wallet connection timed out. Finish or cancel any open wallet request, then try again."))
-    }, 120_000)
+    const captureConnectedWallet = (): void => {
+      const provider = modal.getWalletProvider()
+      const address = modal.getAddress("eip155")
+      if (!modal.getIsConnectedState() || !address || !isEthereumWalletProvider(provider)) return
+      connectorStarted = true
+      connectedWallet = { address, provider }
+      finishConnection()
+    }
+
+    const armTimeout = (): void => {
+      window.clearTimeout(timeout)
+      timeout = window.setTimeout(() => {
+        fail(new Error("Wallet connection timed out. Finish or cancel any open wallet request, then try again."))
+      }, 120_000)
+    }
 
     unsubscribeAccount = modal.subscribeAccount(({ address, isConnected }) => {
       const provider = modal.getWalletProvider()
@@ -109,12 +133,12 @@ async function connectedProvider(modal: ReturnType<typeof createAppKit>): Promis
     unsubscribeEvents = modal.subscribeEvents(({ data }) => {
       if (data.event === "SELECT_WALLET") {
         connectorStarted = true
+        armTimeout()
         return
       }
       if (data.event === "CONNECT_SUCCESS") {
         connectorStarted = true
-        connectionSucceeded = true
-        finishConnection()
+        captureConnectedWallet()
         return
       }
       if (data.event === "CONNECT_ERROR") {
@@ -125,16 +149,26 @@ async function connectedProvider(modal: ReturnType<typeof createAppKit>): Promis
         fail(new Error(data.properties.message || "Wallet connection was declined"))
         return
       }
-      if (data.event === "MODAL_CLOSE" && !data.properties.connected && !connectorStarted && !connectionSucceeded && !connectedWallet) {
+      if (data.event === "MODAL_CLOSE" && data.properties.connected) {
+        captureConnectedWallet()
+        return
+      }
+      if (data.event === "MODAL_CLOSE" && !connectorStarted && !connectedWallet) {
         queueMicrotask(() => {
-          if (!connectorStarted && !connectionSucceeded && !connectedWallet) fail(new Error("Wallet connection cancelled"))
+          captureConnectedWallet()
+          if (!connectorStarted && !connectedWallet) fail(new Error("Wallet connection cancelled"))
         })
       }
     })
 
-    void modal.open({ view: "Connect" }).catch((error: unknown) => {
-      fail(error instanceof Error ? error : new Error("Wallet connection failed"))
-    })
+    // Close the gap between the initial state read and installing both subscriptions.
+    armTimeout()
+    captureConnectedWallet()
+    if (!connectedWallet) {
+      void modal.open({ view: "Connect" }).catch((error: unknown) => {
+        fail(error instanceof Error ? error : new Error("Wallet connection failed"))
+      })
+    }
   })
 }
 
