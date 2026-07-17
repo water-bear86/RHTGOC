@@ -1,11 +1,7 @@
 import * as THREE from "three"
-import {
-  SHERWOOD_RIVER_CENTER_X,
-  SHERWOOD_RIVER_SLOPE,
-} from "../shared/regional-layout"
 import type { ComposedBuilding, ComposedWorld, SettlementKind } from "../shared/world-composer"
 import { SHERWOOD_RIDGE_ROCK_LAYOUT } from "../shared/world-layout"
-import { SHERWOOD_RIVER_HALF_WIDTH, selectSherwoodRidgeRockObstaclesForRoads } from "../shared/world-obstacles"
+import { selectSherwoodRidgeRockObstaclesForRoads } from "../shared/world-obstacles"
 import {
   createStylizedBuildingBatch,
   type StylizedBuildingDescriptor,
@@ -40,11 +36,7 @@ const settlementGreenShape = new THREE.Shape([
 const settlementGreenGeometry = new THREE.ShapeGeometry(settlementGreenShape)
 settlementGreenGeometry.rotateX(-Math.PI / 2)
 const ridgeGeometry = new THREE.DodecahedronGeometry(1, 0)
-const hedgeGeometry = new THREE.IcosahedronGeometry(1, 1)
 const sharedSettlementMaterial = createToonMaterial({ color: 0xffffff })
-const riverNormalLength = Math.hypot(1, -SHERWOOD_RIVER_SLOPE)
-const riverNormalRotation = -Math.atan2(-SHERWOOD_RIVER_SLOPE, 1)
-const settlementGreenRiverMargin = 0.4
 
 function paletteFor(settlementKind: SettlementKind): StylizedBuildingPalette {
   if (settlementKind === "sheriff-post") return "sheriff"
@@ -124,32 +116,30 @@ function instanced(
 }
 
 function createSettlementSquares(world: ComposedWorld): THREE.InstancedMesh {
-  const matrices = world.settlements.map((settlement, index) => {
-    const riverDistance = Math.abs(
-      settlement.center.x - SHERWOOD_RIVER_CENTER_X - SHERWOOD_RIVER_SLOPE * settlement.center.z,
-    ) / riverNormalLength
-    const normalRadius = Math.min(
-      4.9,
-      Math.max(2.8, riverDistance - SHERWOOD_RIVER_HALF_WIDTH - settlementGreenRiverMargin),
-    )
-    const rotation = riverNormalRotation + (index % 2) * Math.PI
-    return new THREE.Matrix4().compose(
+  const matrices = world.settlements.map((settlement, index) => (
+    new THREE.Matrix4().compose(
       new THREE.Vector3(
         settlement.center.x,
-        sherwoodFootprintGroundY(settlement.center.x, settlement.center.z, normalRadius, 5, rotation) + 0.035,
+        sherwoodFootprintGroundY(
+          settlement.center.x,
+          settlement.center.z,
+          3.6,
+          2.65,
+          settlement.streetHeading,
+        ) + 0.035,
         settlement.center.z,
       ),
       new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(0, 1, 0),
-        rotation,
+        settlement.streetHeading,
       ),
-      new THREE.Vector3(normalRadius, 1, 5 + (index % 3) * 0.18),
+      new THREE.Vector3(3.6 + (index % 2) * 0.2, 1, 2.65),
     )
-  })
+  ))
   const colors = world.settlements.map((settlement) => (
-    settlement.kind === "sheriff-post" ? 0x765d46
-      : settlement.kind === "outlaw-hamlet" ? 0x796546
-        : 0x8d744d
+    settlement.kind === "sheriff-post" ? 0x6d5942
+      : settlement.kind === "outlaw-hamlet" ? 0x4c5b38
+        : 0x586a40
   ))
   return instanced("SettlementGreenInstances", settlementGreenGeometry, matrices, colors, false)
 }
@@ -165,22 +155,7 @@ function createBlindSpots(world: ComposedWorld, castShadow: boolean): THREE.Grou
     new THREE.Vector3(rock.scale.x, rock.scale.y, rock.scale.z),
   ))
   const ridgeColors = visibleRocks.map((rock) => rock.color)
-  const hedgeMatrices: THREE.Matrix4[] = []
-  const hedgeColors: number[] = []
-  for (let index = 0; index < 18; index += 1) {
-    const x = -48 + index * 5.5
-    const z = 20 + Math.sin(index * 0.85) * 7
-    hedgeMatrices.push(new THREE.Matrix4().compose(
-      new THREE.Vector3(x, sherwoodHeightAt(x, z) + 1.05, z),
-      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.25 + Math.sin(index) * 0.2),
-      new THREE.Vector3(2.1, 1.4, 0.9),
-    ))
-    hedgeColors.push(index % 4 === 0 ? 0x315a36 : 0x274e2e)
-  }
-  group.add(
-    instanced("RidgeRockInstances", ridgeGeometry, ridgeMatrices, ridgeColors, castShadow),
-    instanced("HedgerowInstances", hedgeGeometry, hedgeMatrices, hedgeColors, castShadow),
-  )
+  group.add(instanced("RidgeRockInstances", ridgeGeometry, ridgeMatrices, ridgeColors, castShadow))
   return group
 }
 

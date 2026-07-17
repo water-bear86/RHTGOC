@@ -55,17 +55,17 @@ describe("shared Sherwood world collision contract", () => {
 
   it("makes every rendered procedural tree trunk authoritative and solid", () => {
     expect(SHERWOOD_TREE_COLLIDERS.length).toBeGreaterThan(20)
-    const tree = SHERWOOD_TREE_COLLIDERS.find(({ center }) => Math.abs(center.x) < 18 && Math.abs(center.z) < 18)!
+    const tree = SHERWOOD_TREE_COLLIDERS[0]
     expect(isSherwoodPlayerPositionBlocked(tree.center)).toBe(true)
 
     const start = { x: tree.center.x - 2, z: tree.center.z }
-    const resolved = resolveSherwoodPlayerMovement(start, { x: 4, z: 0 }, 24)
+    const resolved = resolveSherwoodPlayerMovement(start, { x: 4, z: 0 }, 64)
     expect(resolved.x).toBeLessThan(tree.center.x)
     expect(isSherwoodPlayerPositionBlocked(resolved)).toBe(false)
   })
 
   it("makes every large rendered ridge boulder authoritative and solid", () => {
-    expect(SHERWOOD_RIDGE_ROCK_COLLIDERS).toHaveLength(22)
+    expect(SHERWOOD_RIDGE_ROCK_COLLIDERS).toHaveLength(18)
     for (const rock of SHERWOOD_RIDGE_ROCK_COLLIDERS) {
       expect(isSherwoodPlayerPositionBlocked(rock.center)).toBe(true)
     }

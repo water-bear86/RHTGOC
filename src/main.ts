@@ -75,7 +75,7 @@ import { createCharacterVisual, disposeCharacterVisual, poseCharacterVisual } fr
 import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, normalizedHeroActionProgress } from "./character-animation"
 import { blocksCameraSightline, cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
-import { regionCellIndexAt, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionCellIndexAt, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } from "./region-map"
 import { createAuthoredForestDressing, createForestDressing } from "./forest-dressing"
 import { indexNatureCatalog, type NatureCatalog } from "./nature-assets"
@@ -869,10 +869,9 @@ function createWorld(): void {
   positionMissionCampfire(state.layout.campfirePosition)
   scene.add(missionCampfireView)
 
-  rebuildForestDressing(state.layout)
-
-  rebuildLandmarks(state.layout)
   rebuildComposedWorld(state.layout)
+  rebuildLandmarks(state.layout)
+  rebuildForestDressing(state.layout)
 }
 
 function disposeForestDressing(view: THREE.Object3D): void {
@@ -891,11 +890,23 @@ function disposeForestDressing(view: THREE.Object3D): void {
 }
 
 function rebuildForestDressing(layout: RegionalMissionLayout): void {
-  const exclusions = sherwoodRegionCells().map((cell) => ({ x: cell.center.x, z: cell.center.z, radius: 8.5 }))
+  const world = composeSherwoodWorld(layout)
+  const exclusions = [
+    { x: layout.campfirePosition.x, z: layout.campfirePosition.z, radius: 10 },
+    { x: layout.objectivePosition.x, z: layout.objectivePosition.z, radius: 10 },
+    ...layout.crossingPositions.map((position) => ({ ...position, radius: 6 })),
+    ...world.settlements.map((settlement) => ({ ...settlement.center, radius: 12.5 })),
+    ...world.settlements.flatMap((settlement) => settlement.buildings.map((building) => ({
+      ...building.position,
+      radius: Math.hypot(building.halfExtents.x, building.halfExtents.z) + 1.8,
+    }))),
+    ...(landmarkViews ? [{ ...landmarkViews.farmPosition, radius: 17 }] : []),
+  ]
   const options = {
     seed: layout.seed,
     degraded: renderProfile.tier === "degraded",
     exclusions,
+    roads: world.roads,
   }
   const next = natureCatalogSource
     ? createAuthoredForestDressing(natureCatalogSource, options)
@@ -1117,8 +1128,8 @@ function loadNatureCatalog(): Promise<NatureCatalog> {
 function attachNatureDressing(): void {
   void loadNatureCatalog().then((catalog) => {
     natureCatalogSource = catalog
-    rebuildForestDressing(state.layout)
     rebuildLandmarks(state.layout)
+    rebuildForestDressing(state.layout)
   }).catch(() => showToast("Textured forest dressing could not be loaded; using the lightweight fallback"))
 }
 
@@ -1723,9 +1734,9 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
   disguiseRackView.position.set(layout.disguisePosition.x, sherwoodHeightAt(layout.disguisePosition.x, layout.disguisePosition.z), layout.disguisePosition.z)
   rebuildCrossingInfrastructure(layout)
   rebuildBowCaches(layout)
-  rebuildForestDressing(state.layout)
-  rebuildLandmarks(layout)
   rebuildComposedWorld(layout)
+  rebuildLandmarks(layout)
+  rebuildForestDressing(state.layout)
   positionVillageUpgrades(layout.campfirePosition)
 }
 

@@ -64,19 +64,17 @@ describe("settlement renderer", () => {
     }
   })
 
-  it("batches rich fallback buildings, greens, rocks, and hedges into five submissions", () => {
+  it("batches rich fallback buildings, compact commons, and ridge rocks into four submissions", () => {
     const rendered = createSettlementWorld(composed)
     const details = rendered.getObjectByName("StylizedBuildingDetails") as THREE.InstancedMesh
     const ridges = rendered.getObjectByName("RidgeRockInstances") as THREE.InstancedMesh
-    const hedges = rendered.getObjectByName("HedgerowInstances") as THREE.InstancedMesh
     const greens = rendered.getObjectByName("SettlementGreenInstances") as THREE.InstancedMesh
 
-    expect(countVillageDrawCalls(rendered)).toBe(5)
-    expect(rendered.userData.sherwoodSettlementDrawCalls).toBe(5)
+    expect(countVillageDrawCalls(rendered)).toBe(4)
+    expect(rendered.userData.sherwoodSettlementDrawCalls).toBe(4)
     expect(rendered.userData.sherwoodSettlementBuildingCount).toBe(composed.buildingCount)
     expect(details.count).toBeGreaterThan(composed.buildingCount * 20)
     expect(ridges.count).toBe(selectSherwoodRidgeRockObstaclesForRoads(composed.roads).length)
-    expect(hedges.count).toBe(18)
     expect(greens.count).toBe(3)
   })
 
@@ -110,6 +108,7 @@ describe("settlement renderer", () => {
         id: `test-settlement-${site.id}`,
         kind: index % 2 === 0 ? "forest-village" as const : "outlaw-hamlet" as const,
         center: { ...site.center },
+        streetHeading: 0,
         buildings: [],
       })),
       roads: [],
