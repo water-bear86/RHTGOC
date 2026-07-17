@@ -50,12 +50,12 @@ interface CharacterVisualRuntime {
   ready: Promise<void>
 }
 
-// Attack is exported as an 0.8s clip: the final 0.12s of Bow Draw followed by
-// Bow Release. KayKit's release hand separates during the first 2/40 of the
-// release clip, so keep the string/hand contact locked to the same seam.
+// Attack uses the complete 0.6s draw before its release. Robin's existing
+// signature keeps its shorter 0.12s draw, so the two bow clips need separate
+// seams. KayKit's release hand separates during the first 2/40 of the release
+// clip; keep the string/hand contact locked to each clip's authored seam.
 const BOW_RELEASE_SEPARATION_FRACTION = 2 / 40
-const BOW_ATTACK_RELEASE_END = HERO_ATTACK_RELEASE_PROGRESS
-  + (1 - HERO_ATTACK_RELEASE_PROGRESS) * BOW_RELEASE_SEPARATION_FRACTION
+const ROBIN_SIGNATURE_RELEASE_PROGRESS = 0.15
 
 export interface CharacterVisualOptions {
   loadAuthoredAssets?: boolean
@@ -218,21 +218,27 @@ function normalizedActionProgress(pose: CharacterPose): number {
     : 0
 }
 
-function bowDrawAtAttackProgress(progress: number): number {
-  if (progress <= HERO_ATTACK_RELEASE_PROGRESS) {
-    return progress / HERO_ATTACK_RELEASE_PROGRESS
+function bowDrawAtActionProgress(progress: number, releaseProgress: number): number {
+  if (progress <= releaseProgress) {
+    return progress / releaseProgress
   }
-  if (progress < BOW_ATTACK_RELEASE_END) {
-    return 1 - (progress - HERO_ATTACK_RELEASE_PROGRESS)
-      / (BOW_ATTACK_RELEASE_END - HERO_ATTACK_RELEASE_PROGRESS)
+  const releaseEnd = releaseProgress
+    + (1 - releaseProgress) * BOW_RELEASE_SEPARATION_FRACTION
+  if (progress < releaseEnd) {
+    return 1 - (progress - releaseProgress)
+      / (releaseEnd - releaseProgress)
   }
   return 0
 }
 
 function bowDrawForPose(runtime: AuthoredHeroRuntime, pose: CharacterPose): number {
-  const usesBowString = pose.action === "attack"
-    || (pose.action === "signature" && runtime.bowSignature)
-  return usesBowString ? bowDrawAtAttackProgress(normalizedActionProgress(pose)) : 0
+  if (pose.action === "attack") {
+    return bowDrawAtActionProgress(normalizedActionProgress(pose), HERO_ATTACK_RELEASE_PROGRESS)
+  }
+  if (pose.action === "signature" && runtime.bowSignature) {
+    return bowDrawAtActionProgress(normalizedActionProgress(pose), ROBIN_SIGNATURE_RELEASE_PROGRESS)
+  }
+  return 0
 }
 
 function sampleOneShot(runtime: AuthoredHeroRuntime, pose: CharacterPose): void {

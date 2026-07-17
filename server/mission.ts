@@ -1,4 +1,4 @@
-import type { BandContribution, CharacterId, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionKind, MissionLootCache, MissionPreparation, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { BandContribution, BowActionSnapshot, CharacterId, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionKind, MissionLootCache, MissionPreparation, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
@@ -11,7 +11,9 @@ import {
 } from "../shared/guard-rules"
 import { missionObjectivePosition } from "../shared/mission-objective"
 import { resolveSherwoodCombinedMovement } from "../shared/world-collisions"
-import { regionCellIndexAt, regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionCellIndexAt, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionalizeFeasibleMissionDefinition } from "../shared/regional-map-generator"
+import { BOW_COOLDOWN_SECONDS, BOW_RANGE, SIGNATURE_ACTION_TICKS, bowActionAtTick, createBowAction, hasBowMovement } from "../shared/archery"
 
 export interface MissionOptions {
   rotation?: SheriffRotation | null
@@ -33,6 +35,7 @@ export interface MissionPlayer {
   lastInputSequence: number
   lastInputAt: number
   bowCooldown: number
+  bowAction: BowActionSnapshot | null
   signatureCooldown: number
   invulnerableFor: number
   veilFor: number
@@ -141,6 +144,8 @@ export class Mission {
   private wagonPathIndex = 1
   private reinforcementClock = 0
   private readonly lockContributors = new Set<string>()
+  private readonly bowTargets = new Map<string, number>()
+  private readonly signatureActionEndsAtTick = new Map<string, number>()
   private cleanRelease = false
 
   constructor(
@@ -150,7 +155,7 @@ export class Mission {
     options: MissionOptions = {},
   ) {
     this.seed = missionSeed(options.seedToken ?? roomCode)
-    const regional = regionalizeMissionDefinition(baseDefinition, this.seed)
+    const regional = regionalizeFeasibleMissionDefinition(baseDefinition, this.seed)
     this.definition = regional.definition
     this.layout = regional.layout
     this.exploredCellIndices.add(this.layout.campfireCell.index)
@@ -229,11 +234,13 @@ export class Mission {
   setInput(playerId: string, sequence: number, move: { x: number; z: number }, now = Date.now()): boolean {
     const player = this.players.get(playerId)
     if (!player || this.status !== "active" || !player.connected || player.health <= 0 || player.downedFor > 0 || player.captured) return false
-    if (sequence <= player.lastInputSequence || now - player.lastInputAt < 20) return false
+    const stopsMovement = hasBowMovement(player.input) && !hasBowMovement(move)
+    if (sequence <= player.lastInputSequence || (now - player.lastInputAt < 20 && !stopsMovement)) return false
     const length = Math.hypot(move.x, move.z)
     player.input = length > 1 ? { x: move.x / length, z: move.z / length } : { ...move }
     player.lastInputSequence = sequence
     player.lastInputAt = now
+    if (player.bowAction?.phase === "drawing" && hasBowMovement(player.input)) this.cancelBowAction(player.id)
     return true
   }
 
@@ -241,8 +248,16 @@ export class Mission {
     const player = this.players.get(playerId)
     if (!player || this.status !== "active" || !player.connected || player.health <= 0 || player.downedFor > 0 || player.captured) return false
     if (action === "interact") return this.interact(player)
-    if (action === "shoot") return this.shoot(player)
-    if (action === "signature") return this.signature(player)
+    if (action === "shoot") {
+      if ((this.signatureActionEndsAtTick.get(player.id) ?? 0) > this.tick) return false
+      return this.beginBowDraw(player)
+    }
+    if (action === "signature") {
+      if (player.bowAction) return false
+      const accepted = this.signature(player)
+      if (accepted) this.signatureActionEndsAtTick.set(player.id, this.tick + SIGNATURE_ACTION_TICKS)
+      return accepted
+    }
     if (!targetPlayerId) return false
     const target = this.players.get(targetPlayerId)
     if (!target || target.id === player.id || distance(player.position, target.position) > 2.4) return false
@@ -278,9 +293,13 @@ export class Mission {
   }
 
   update(dt: number): void {
-    if (this.status === "failed") return
+    if (this.status === "failed") {
+      this.cancelAllActions()
+      return
+    }
     this.tick += 1
     if (this.status === "succeeded") {
+      this.cancelAllActions()
       if (this.vote && !this.vote.resolved && this.tick >= this.vote.deadlineTick) this.resolveVote()
       return
     }
@@ -324,7 +343,11 @@ export class Mission {
           this.record("player_captured", player.id)
         }
       }
-      if (!player.connected || player.health <= 0 || player.captured) continue
+      if (!player.connected || player.health <= 0 || player.captured) {
+        this.cancelPlayerActions(player.id)
+        continue
+      }
+      if (player.bowAction?.phase === "drawing" && hasBowMovement(player.input)) this.cancelBowAction(player.id)
       const moveLength = Math.hypot(player.input.x, player.input.z)
       let displacement = { x: 0, z: 0 }
       if (moveLength > 0.001) {
@@ -361,10 +384,10 @@ export class Mission {
     this.peakHeat = Math.max(this.peakHeat, this.heat)
     if (this.heat > 50) this.alertedSeconds += dt
     for (const guard of this.guards) this.updateGuard(guard, activePlayers, dt)
-
     if (this.players.size > 0 && [...this.players.values()].every((player) => player.captured)) this.failMission("captured")
     if (this.definition.scenario?.kind === "prison-wagon" && this.elapsedSeconds >= this.definition.scenario.failureSeconds) this.failMission("timeout")
     if (this.definition.scenario?.kind === "storehouse" && this.elapsedSeconds >= this.definition.scenario.failureSeconds) this.failMission("timeout")
+    for (const player of this.players.values()) this.updateBowAction(player)
   }
 
   snapshot(): MissionSnapshot {
@@ -440,6 +463,17 @@ export class Mission {
     return this.damageTaken === 0 && !this.capturedOccurred
   }
 
+  cancelBowAction(playerId: string): void {
+    const player = this.players.get(playerId)
+    if (player) player.bowAction = null
+    this.bowTargets.delete(playerId)
+  }
+
+  cancelPlayerActions(playerId: string): void {
+    this.cancelBowAction(playerId)
+    this.signatureActionEndsAtTick.delete(playerId)
+  }
+
   private interact(player: MissionPlayer): boolean {
     if (this.interactPreparation(player)) return true
     const bowCache = this.layout.bowCachePositions.find((position) => distance(position, player.position) < 2.8)
@@ -483,17 +517,7 @@ export class Mission {
     this.heat = Math.max(0, this.heat - 45)
     this.record("loot_delivered", player.id, delivered)
     if (this.delivered >= this.deliveryTarget && this.status === "active") {
-      this.status = "succeeded"
-      this.result = this.calculateResult()
-      this.vote = {
-        deadlineTick: this.tick + 300,
-        counts: { granary: 0, infirmary: 0, watchtower: 0 },
-        votes: {},
-        resolved: false,
-        winner: null,
-        allocatedCoin: this.delivered,
-      }
-      this.record("mission_succeeded", player.id, this.delivered)
+      this.succeedMission(player.id)
     } else {
       this.cycle += 1
       this.entryRoute = null
@@ -722,6 +746,7 @@ export class Mission {
 
   private succeedMission(playerId?: string): void {
     if (this.status !== "active") return
+    this.cancelAllActions()
     this.status = "succeeded"
     this.setPhase("extraction", playerId)
     this.result = this.calculateResult()
@@ -738,6 +763,7 @@ export class Mission {
 
   private failMission(reason: NonNullable<MissionSnapshot["failureReason"]>): void {
     if (this.status !== "active") return
+    this.cancelAllActions()
     this.status = "failed"
     this.wagonMoving = false
     this.failureReason = reason
@@ -768,19 +794,51 @@ export class Mission {
     ]
   }
 
-  private shoot(player: MissionPlayer): boolean {
-    if (player.arrows <= 0 || player.bowCooldown > 0) return false
+  private beginBowDraw(player: MissionPlayer): boolean {
+    if (player.arrows <= 0 || player.bowCooldown > 0 || player.bowAction || hasBowMovement(player.input)) return false
+    const target = this.guards
+      .filter((guard) => guard.stunnedFor <= 0 && distance(guard.position, player.position) <= BOW_RANGE)
+      .sort((a, b) => distance(a.position, player.position) - distance(b.position, player.position))[0]
+    if (!target) return false
+    player.bowAction = createBowAction(this.tick)
+    this.bowTargets.set(player.id, target.id)
+    return true
+  }
+
+  private updateBowAction(player: MissionPlayer): void {
+    const action = player.bowAction
+    if (!action) return
+    if (!player.connected || player.health <= 0 || player.downedFor > 0 || player.captured || this.status !== "active") {
+      this.cancelBowAction(player.id)
+      return
+    }
+    if (action.phase === "drawing") {
+      if (hasBowMovement(player.input)) {
+        this.cancelBowAction(player.id)
+        return
+      }
+      if (this.tick >= action.releaseAtTick) {
+        this.releaseBowShot(player)
+        player.bowAction = bowActionAtTick({ ...action, phase: "recovery" }, this.tick)
+        return
+      }
+    }
+    player.bowAction = bowActionAtTick(action, this.tick)
+    if (!player.bowAction) this.bowTargets.delete(player.id)
+  }
+
+  private releaseBowShot(player: MissionPlayer): void {
+    const targetId = this.bowTargets.get(player.id)
+    this.bowTargets.delete(player.id)
     this.shotsFired += 1
-    player.arrows -= 1
-    player.bowCooldown = 0.7
+    player.arrows = Math.max(0, player.arrows - 1)
+    player.bowCooldown = BOW_COOLDOWN_SECONDS
     if (this.missionKind === "storehouse") {
       const alarm = this.alarms.find((candidate) => candidate.status === "active")
       this.triggerAlarm(alarm, player.id, "bow-shot")
     }
-    const target = this.guards
-      .filter((guard) => guard.stunnedFor <= 0 && distance(guard.position, player.position) < 9)
-      .sort((a, b) => distance(a.position, player.position) - distance(b.position, player.position))[0]
-    if (!target) return false
+    const target = this.guards.find((guard) => guard.id === targetId && guard.stunnedFor <= 0 && distance(guard.position, player.position) <= BOW_RANGE)
+    if (!target) return
     target.stunnedFor = 3.2
     this.shotsHit += 1
     this.record("guard_stunned", player.id, target.id)
@@ -788,7 +846,12 @@ export class Mission {
       this.ambushStuns += 1
       if (this.ambushStuns >= this.ambushTarget) this.setPhase("robbery", player.id)
     }
-    return true
+  }
+
+  private cancelAllActions(): void {
+    for (const player of this.players.values()) player.bowAction = null
+    this.bowTargets.clear()
+    this.signatureActionEndsAtTick.clear()
   }
 
   private signature(player: MissionPlayer): boolean {

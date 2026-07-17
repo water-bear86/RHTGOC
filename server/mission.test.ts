@@ -8,6 +8,7 @@ import { PRISON_WAGON_MISSION, ROYAL_STOREHOUSE_MISSION } from "../shared/missio
 import { SHERWOOD_ESCORT_BLOCK_RADIUS, SHERWOOD_GUARD_SEPARATION, initialGuardPatrolAngle, stepGuardPatrol } from "../shared/guard-rules"
 import { SHERWOOD_PLAYER_RADIUS, VILLAGE_COTTAGE_COLLIDER, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
 import { createInitialState, updateSimulation } from "../src/simulation"
+import { BOW_DRAW_TICKS, BOW_RECOVERY_TICKS, BOW_TOTAL_TICKS, SIGNATURE_ACTION_TICKS } from "../shared/archery"
 
 function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer {
   return {
@@ -23,6 +24,7 @@ function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer
     lastInputSequence: 0,
     lastInputAt: 0,
     bowCooldown: 0,
+    bowAction: null,
     signatureCooldown: 0,
     invulnerableFor: 0,
     veilFor: 0,
@@ -44,6 +46,10 @@ function stunImmediateEscort(mission: Mission, objective = mission.cartPosition)
   for (const guard of mission.guards) {
     if (Math.hypot(guard.position.x - objective.x, guard.position.z - objective.z) <= SHERWOOD_ESCORT_BLOCK_RADIUS) guard.stunnedFor = 30
   }
+}
+
+function advanceMissionTicks(mission: Mission, count: number, dt = 1 / 20): void {
+  for (let tick = 0; tick < count; tick += 1) mission.update(dt)
 }
 
 describe("authoritative mission", () => {
@@ -109,20 +115,151 @@ describe("authoritative mission", () => {
     expect(mission.setInput(robin.id, 1, { x: 1, z: 0 }, 100)).toBe(true)
     expect(mission.setInput(robin.id, 1, { x: -1, z: 0 }, 200)).toBe(false)
     expect(mission.setInput(robin.id, 2, { x: -1, z: 0 }, 110)).toBe(false)
+    expect(mission.setInput(robin.id, 2, { x: 0, z: 0 }, 110)).toBe(true)
     mission.status = "succeeded"
     expect(mission.setInput(robin.id, 3, { x: 1, z: 0 }, 300)).toBe(false)
   })
 
-  it("validates action range and cooldown on the server", () => {
+  it("starts a stationary draw only with an available in-range target and releases at the exact tick", () => {
     const robin = player()
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]))
     expect(mission.action(robin.id, "interact")).toBe(false)
     expect(mission.action(robin.id, "shoot")).toBe(false)
     robin.position = { ...mission.guards[0].position }
-    mission.update(0.7)
+    robin.input = { x: 1, z: 0 }
+    expect(mission.action(robin.id, "shoot")).toBe(false)
+    robin.input = { x: 0, z: 0 }
+    const stockedArrows = robin.arrows
+    robin.arrows = 0
+    expect(mission.action(robin.id, "shoot")).toBe(false)
+    robin.arrows = stockedArrows
+    robin.bowCooldown = 0.1
+    expect(mission.action(robin.id, "shoot")).toBe(false)
+    robin.bowCooldown = 0
+    const arrowsBefore = robin.arrows
     expect(mission.action(robin.id, "shoot")).toBe(true)
     expect(mission.action(robin.id, "shoot")).toBe(false)
-    expect(robin.arrows).toBe(4)
+    expect(robin.bowAction).toEqual({ phase: "drawing", startedAtTick: 0, releaseAtTick: 12, endsAtTick: 20 })
+    advanceMissionTicks(mission, BOW_DRAW_TICKS - 1)
+    expect(robin.arrows).toBe(arrowsBefore)
+    expect(mission.shotsFired).toBe(0)
+    expect(robin.bowAction?.phase).toBe("drawing")
+    mission.update(1 / 20)
+    expect(robin.arrows).toBe(arrowsBefore - 1)
+    expect(mission.shotsFired).toBe(1)
+    expect(mission.shotsHit).toBe(1)
+    expect(robin.bowCooldown).toBe(0.7)
+    expect(robin.bowAction?.phase).toBe("recovery")
+    expect(mission.action(robin.id, "shoot")).toBe(false)
+    expect(mission.setInput(robin.id, 1, { x: 1, z: 0 }, 100)).toBe(true)
+    mission.update(1 / 20)
+    expect(robin.bowAction?.phase).toBe("recovery")
+  })
+
+  it("cancels a drawing shot on accepted movement without spending or alerting", () => {
+    const robin = player()
+    const mission = new Mission("CANCEL", new Map([[robin.id, robin]]), ROYAL_STOREHOUSE_MISSION)
+    mission.phase = "ambush"
+    robin.position = { ...mission.guards[0].position }
+    const arrowsBefore = robin.arrows
+
+    expect(mission.action(robin.id, "shoot")).toBe(true)
+    expect(mission.setInput(robin.id, 1, { x: 0.25, z: 0 }, 100)).toBe(true)
+    expect(robin.bowAction).toBeNull()
+    advanceMissionTicks(mission, BOW_DRAW_TICKS + 1)
+
+    expect(robin.arrows).toBe(arrowsBefore)
+    expect(robin.bowCooldown).toBe(0)
+    expect(mission.shotsFired).toBe(0)
+    expect(mission.alarmLevel).toBe(0)
+    expect(mission.events.some((event) => event.type === "alarm_triggered")).toBe(false)
+  })
+
+  it("consumes and alerts on a released miss when the acquired guard escapes", () => {
+    const robin = player()
+    const mission = new Mission("ESCAPE", new Map([[robin.id, robin]]), ROYAL_STOREHOUSE_MISSION)
+    mission.phase = "ambush"
+    const target = mission.guards[0]
+    robin.position = { ...target.position }
+    const arrowsBefore = robin.arrows
+
+    expect(mission.action(robin.id, "shoot")).toBe(true)
+    target.position = { x: 100, z: 100 }
+    advanceMissionTicks(mission, BOW_DRAW_TICKS - 1)
+    expect(mission.alarmLevel).toBe(0)
+    expect(robin.arrows).toBe(arrowsBefore)
+    mission.update(1 / 20)
+
+    expect(robin.arrows).toBe(arrowsBefore - 1)
+    expect(mission.shotsFired).toBe(1)
+    expect(mission.shotsHit).toBe(0)
+    expect(mission.alarmLevel).toBe(1)
+    expect(mission.events).toContainEqual(expect.objectContaining({ type: "alarm_triggered", playerId: robin.id, detail: "bow-shot" }))
+  })
+
+  it("crosses release and recovery in one delayed tick without firing twice", () => {
+    const robin = player()
+    const mission = new Mission("LAGGED", new Map([[robin.id, robin]]))
+    robin.position = { ...mission.guards[0].position }
+    const arrowsBefore = robin.arrows
+    expect(mission.action(robin.id, "shoot")).toBe(true)
+
+    mission.tick = BOW_TOTAL_TICKS + 5
+    mission.update(1.5)
+    expect(robin.bowAction).toBeNull()
+    expect(robin.arrows).toBe(arrowsBefore - 1)
+    expect(mission.shotsFired).toBe(1)
+    mission.update(1.5)
+    expect(robin.arrows).toBe(arrowsBefore - 1)
+    expect(mission.shotsFired).toBe(1)
+  })
+
+  it("cancels an unfinished draw when the outlaw is downed or the mission ends", () => {
+    const robin = player()
+    const mission = new Mission("DOWNED", new Map([[robin.id, robin]]))
+    robin.position = { ...mission.guards[0].position }
+    expect(mission.action(robin.id, "shoot")).toBe(true)
+    robin.downedFor = 5
+    mission.update(1 / 20)
+    expect(robin.bowAction).toBeNull()
+    expect(mission.shotsFired).toBe(0)
+
+    robin.downedFor = 0
+    robin.health = 3
+    robin.captured = false
+    expect(mission.action(robin.id, "shoot")).toBe(true)
+    mission.status = "succeeded"
+    mission.update(1 / 20)
+    expect(robin.bowAction).toBeNull()
+    expect(mission.shotsFired).toBe(0)
+  })
+
+  it("blocks signatures throughout bow draw and recovery", () => {
+    const marian = player("marian", "marian")
+    const mission = new Mission("BOWSIG", new Map([[marian.id, marian]]))
+    marian.position = { ...mission.guards[0].position }
+
+    expect(mission.action(marian.id, "shoot")).toBe(true)
+    expect(mission.action(marian.id, "signature")).toBe(false)
+    advanceMissionTicks(mission, BOW_DRAW_TICKS)
+    expect(marian.bowAction?.phase).toBe("recovery")
+    expect(mission.action(marian.id, "signature")).toBe(false)
+    advanceMissionTicks(mission, BOW_RECOVERY_TICKS)
+    expect(marian.bowAction).toBeNull()
+    expect(mission.action(marian.id, "signature")).toBe(true)
+  })
+
+  it("blocks bow draws until the exact signature action boundary", () => {
+    const marian = player("marian", "marian")
+    const mission = new Mission("SIGBOW", new Map([[marian.id, marian]]))
+    marian.position = { ...mission.guards[0].position }
+
+    expect(mission.action(marian.id, "signature")).toBe(true)
+    expect(mission.action(marian.id, "shoot")).toBe(false)
+    advanceMissionTicks(mission, SIGNATURE_ACTION_TICKS - 1, 0)
+    expect(mission.action(marian.id, "shoot")).toBe(false)
+    advanceMissionTicks(mission, 1, 0)
+    expect(mission.action(marian.id, "shoot")).toBe(true)
   })
 
   it("refills an empty quiver only at an authoritative bow cache", () => {
@@ -432,7 +569,9 @@ describe("authoritative mission", () => {
     robin.position = { ...mission.guards[0].position }
     expect(mission.action(robin.id, "signature")).toBe(true)
     mission.update(18)
+    advanceMissionTicks(mission, SIGNATURE_ACTION_TICKS - 1, 0)
     expect(mission.action(robin.id, "shoot")).toBe(true)
+    advanceMissionTicks(mission, BOW_DRAW_TICKS)
     expect(mission.phase).toBe("robbery")
     robin.position = { ...mission.definition.spawns.cart }
     expect(mission.action(robin.id, "interact")).toBe(false)
@@ -689,8 +828,10 @@ describe("authoritative mission", () => {
     expect(mission.action(robin.id, "signature")).toBe(true)
     if (mission.snapshot().phase !== "robbery") {
       mission.update(18)
+      advanceMissionTicks(mission, SIGNATURE_ACTION_TICKS - 1, 0)
       robin.position = { ...mission.guards.find((guard) => guard.stunnedFor <= 0)!.position }
       expect(mission.action(robin.id, "shoot")).toBe(true)
+      advanceMissionTicks(mission, BOW_DRAW_TICKS)
     }
     expect(mission.phase).toBe("robbery")
     expect(mission.alarmLevel).toBeGreaterThanOrEqual(1)

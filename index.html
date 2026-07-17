@@ -91,42 +91,58 @@
       </form>
       <small class="chat-rules">Plain text only · 160 characters · mute, block, and fixed-reason reports are available on each message.</small>
     </aside>
-    <div class="intro" id="intro">
-      <div class="intro-card">
-        <span class="eyebrow">RHTGOC · A 3D OUTLAW ADVENTURE</span>
-        <h1>Robin Hood.<br /><em>The Game (On Chain).</em></h1>
-        <p>Take from the crown. Return it to the people. Ambush the Sheriff's tax cart and carry the coin home before they catch you.</p>
-        <span class="eyebrow">CHOOSE YOUR OUTLAW</span>
-        <div class="character-select solo-character-select" aria-label="Choose your outlaw">
-          <button class="character-option selected" data-character="robin" aria-pressed="true"><b>ROBIN HOOD</b><span>Marksman</span><small>Six arrows · Q: Twin Shot</small></button>
-          <button class="character-option" data-character="marian" aria-pressed="false"><b>MAID MARIAN</b><span>Scout</span><small>Faster · Q: Veil</small></button>
-          <button class="character-option" data-character="little-john" aria-pressed="false"><b>LITTLE JOHN</b><span>Vanguard</span><small>Heavy carry · Q: Oak Sweep</small></button>
-          <button class="character-option" data-character="much" aria-pressed="false"><b>MUCH</b><span>Saboteur</span><small>Cut signals · Q: Road Snare</small></button>
+    <div class="intro" id="intro" role="dialog" aria-modal="true" aria-labelledby="intro-title" aria-describedby="intro-copy">
+      <div class="intro-card" tabindex="-1">
+        <span class="eyebrow" id="intro-eyebrow">RHTGOC · A 3D OUTLAW ADVENTURE</span>
+        <h1 id="intro-title">Robin Hood.<br /><em>The Game (On Chain).</em></h1>
+        <p id="intro-copy">Take from the crown. Return it to the people. Ambush the Sheriff's tax cart and carry the coin home before they catch you.</p>
+
+        <div class="entry-actions" aria-label="Choose how to enter Sherwood">
+          <button class="entry-primary" id="start-button" disabled>PLAY SOLO <span>→</span></button>
+          <button class="entry-public" id="join-public-hub" disabled>SIGN IN &amp; FIND A PUBLIC BAND</button>
+          <button class="entry-rejoin hidden" id="rejoin-room" disabled>REJOIN LAST BAND</button>
+          <details class="entry-disclosure" id="friends-disclosure">
+            <summary id="friends-summary">PLAY WITH FRIENDS</summary>
+            <div class="entry-disclosure-body">
+              <p>Create a private Merry Band or enter an invite code. Wallet sign-in is optional for private play.</p>
+              <div class="band-setup">
+                <input id="player-name" maxlength="20" value="Greenhood" aria-label="Outlaw name" />
+                <button id="create-room" disabled>FORM A MERRY BAND</button>
+                <input id="room-code" maxlength="6" placeholder="ROOM CODE" aria-label="Room code" />
+                <button id="join-room" disabled>JOIN BAND</button>
+              </div>
+              <div class="room-lobby hidden" id="room-lobby">
+                <span class="eyebrow">MERRY BAND <b id="lobby-code">------</b></span>
+                <ul id="party-list"></ul>
+                <p id="lobby-status" role="status" aria-live="polite">Waiting for outlaws…</p>
+                <button id="ready-button" disabled>READY UP</button>
+              </div>
+            </div>
+          </details>
+          <button class="entry-help" id="intro-help" type="button">HOW TO PLAY</button>
         </div>
-        <section class="access-card" id="access-card" aria-label="Sherwood access">
-          <div><span>SHERWOOD ACCESS</span><b>WALLET OPTIONAL</b></div>
-          <p id="access-copy">Connect Robinhood Wallet to keep your outlaw identity across Sherwood.</p>
+
+        <p class="entry-access-note" id="entry-access-note" role="status" aria-live="polite">CHECKING SHERWOOD ACCESS…</p>
+
+        <details class="outlaw-disclosure" id="outlaw-disclosure">
+          <summary><span>PLAYING AS</span><b id="selected-outlaw-summary">ROBIN HOOD · MARKSMAN</b><i>CHANGE</i></summary>
+          <div class="character-select solo-character-select" id="intro-character-select" aria-label="Choose your outlaw">
+            <button class="character-option selected" data-character="robin" aria-pressed="true"><b>ROBIN HOOD</b><span>Marksman</span><small>Six arrows · Q: Twin Shot</small></button>
+            <button class="character-option" data-character="marian" aria-pressed="false"><b>MAID MARIAN</b><span>Scout</span><small>Faster · Q: Veil</small></button>
+            <button class="character-option" data-character="little-john" aria-pressed="false"><b>LITTLE JOHN</b><span>Vanguard</span><small>Heavy carry · Q: Oak Sweep</small></button>
+            <button class="character-option" data-character="much" aria-pressed="false"><b>MUCH</b><span>Saboteur</span><small>Cut signals · Q: Road Snare</small></button>
+          </div>
+        </details>
+
+        <section class="access-card hidden" id="access-card" aria-label="Sherwood access">
+          <div><span>SHERWOOD ACCESS</span><b>WALLET REQUIRED</b></div>
+          <p id="access-copy">Checking access to Sherwood.</p>
           <div class="access-actions">
             <button class="hidden" id="token-pass-purchase">BUY 30-DAY TOKEN PASS · ≈ $6</button>
           </div>
           <small id="access-status" role="status" aria-live="polite"></small>
         </section>
-        <div class="band-setup">
-          <input id="player-name" maxlength="20" value="Greenhood" aria-label="Outlaw name" />
-          <button id="create-room">FORM A MERRY BAND</button>
-          <input id="room-code" maxlength="6" placeholder="ROOM CODE" aria-label="Room code" />
-          <button id="join-room">JOIN BAND</button>
-        </div>
-        <div class="room-lobby hidden" id="room-lobby">
-          <span class="eyebrow">MERRY BAND <b id="lobby-code">------</b></span>
-          <ul id="party-list"></ul>
-          <p id="lobby-status">Waiting for outlaws…</p>
-          <button id="ready-button">READY UP</button>
-        </div>
-        <button class="hidden" id="rejoin-room">REJOIN LAST BAND</button>
-        <button id="join-public-hub">OPT INTO PUBLIC CAMPFIRE</button>
-        <button id="start-button">ENTER THE CAMPFIRE <span>→</span></button>
-        <small id="intro-controls">WASD / CLICK TO MOVE · E TO INTERACT · SPACE TO FIRE · Q SIGNATURE</small>
+        <small id="intro-controls">MOVE WITH WASD OR CLICK · STAND STILL + SPACE TO FIRE · FULL CONTROLS IN ?</small>
       </div>
     </div>
     <div class="panel role-choice-panel hidden" id="role-choice-panel" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="role-choice-title">
@@ -148,7 +164,7 @@
       <dl>
         <dt>Move</dt><dd id="help-move">WASD, arrow keys, controller stick, or click the ground</dd>
         <dt>Steal / give</dt><dd id="help-interact">Press E near the cart or village fire</dd>
-        <dt>Loose arrow</dt><dd id="help-fire">Space stuns the nearest guard in range</dd>
+        <dt>Loose arrow</dt><dd id="help-fire">Press once while still; moving before release cancels the draw</dd>
         <dt>Signature</dt><dd id="help-signature">Q uses Robin's Twin Shot or Marian's Veil</dd>
         <dt>Signal</dt><dd id="help-signals">1–5 place danger, target, route, loot, and regroup pings</dd>
         <dt>Rescue / share</dt><dd id="help-support">R revives a nearby outlaw · T transfers up to 60 coin</dd>
@@ -290,6 +306,19 @@
         <label><input type="checkbox" id="setting-readable-text" /> Larger readable text</label>
         <label><input type="checkbox" id="setting-mobile-spectator" /> Lightweight mobile spectator</label>
       </fieldset>
+      <fieldset class="audio-options">
+        <legend>Audio mix</legend>
+        <label class="audio-level"><span>Master <output data-audio-output="master">85%</output></span><input type="range" min="0" max="100" step="1" value="85" data-audio-bus="master" /></label>
+        <label class="audio-level"><span>Music <output data-audio-output="music">72%</output></span><input type="range" min="0" max="100" step="1" value="72" data-audio-bus="music" /></label>
+        <label class="audio-level"><span>Ambience <output data-audio-output="ambience">78%</output></span><input type="range" min="0" max="100" step="1" value="78" data-audio-bus="ambience" /></label>
+        <label class="audio-level"><span>Sound effects <output data-audio-output="sfx">90%</output></span><input type="range" min="0" max="100" step="1" value="90" data-audio-bus="sfx" /></label>
+        <label class="audio-level"><span>Interface <output data-audio-output="ui">72%</output></span><input type="range" min="0" max="100" step="1" value="72" data-audio-bus="ui" /></label>
+        <label class="audio-level"><span>Voices and barks <output data-audio-output="voice">85%</output></span><input type="range" min="0" max="100" step="1" value="85" data-audio-bus="voice" /></label>
+        <label class="audio-select"><span>Dynamic range</span><select id="setting-dynamic-range"><option value="headphones">Headphones</option><option value="tv">TV / laptop</option><option value="night">Night</option></select></label>
+        <label><input type="checkbox" id="setting-mono-audio" /> Mono output</label>
+        <button class="audio-preview" id="audio-preview" type="button">TEST MIX</button>
+        <p class="settings-note">The preview verifies browser audio permission and the Interface bus. Music and environmental assets load only when their mission needs them.</p>
+      </fieldset>
       <fieldset class="analytics-preference">
         <legend>Privacy</legend>
         <label><input type="checkbox" id="setting-gameplay-analytics" /> Share anonymous play diagnostics</label>
@@ -312,9 +341,10 @@
       <p class="settings-note" id="settings-status" role="status" aria-live="polite">Changes save on this device.</p>
     </div>
     <pre class="mission-debug hidden" id="mission-debug" role="status" aria-live="polite"></pre>
-    <section class="hub-panel hidden" id="hub-panel" aria-label="Campfire mission board">
+    <section class="hub-panel hidden" id="hub-panel" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="hub-title" tabindex="-1">
+      <button class="hub-close" id="hub-close" type="button" aria-label="Close mission board">×</button>
       <span class="eyebrow">SHERWOOD CAMPFIRE</span>
-      <div class="hub-heading"><h2>Mission board</h2><b id="hub-room-code">SOLO</b></div>
+      <div class="hub-heading"><h2 id="hub-title" tabindex="-1">Mission board</h2><b id="hub-room-code">SOLO</b></div>
       <p id="hub-recent">Choose the band's next target.</p>
       <section class="hub-band hidden" id="hub-band">
         <div><span>YOUR MERRY BAND</span><b id="hub-band-name">OAKHEART BAND</b></div>
@@ -334,15 +364,17 @@
         <div class="season-projects" id="hub-season-projects"></div>
         <small id="hub-season-finale">Complete every village project to unlock the finale.</small>
       </section>
-      <span class="hub-label">TODAY'S SHERIFF TARGETS</span>
-      <div class="hub-rotations" id="hub-rotations"></div>
-      <small id="hub-rotation-state">Daily targets are server-owned and expire at midnight UTC.</small>
+      <div class="hub-online-only" id="hub-rotation-wrap">
+        <span class="hub-label">TODAY'S SHERIFF TARGETS</span>
+        <div class="hub-rotations" id="hub-rotations"></div>
+        <small id="hub-rotation-state">Daily targets are server-owned and expire at midnight UTC.</small>
+      </div>
       <section class="hub-rescue hidden" id="hub-rescue">
         <span class="hub-label">BOUNDED RESCUE OFFER</span>
         <p id="hub-rescue-copy">A follow-up rescue is available.</p>
         <div><button id="hub-accept-rescue">ACCEPT RESCUE</button><button id="hub-abandon-rescue">LET IT EXPIRE</button></div>
       </section>
-      <section class="hub-contributions" id="hub-contributions">
+      <section class="hub-contributions hub-online-only" id="hub-contributions">
         <span class="hub-label">SAFE-HOUSE PREPARATION</span>
         <p>Leave one bounded resource for the band. The leader may lock up to three into the next mission; unused field resources return after the run.</p>
         <div class="contribution-deposits" aria-label="Contribute mission preparation">
@@ -354,7 +386,7 @@
         <ul id="hub-contribution-list"></ul>
         <small id="hub-contribution-state">Form a band to share preparation.</small>
       </section>
-      <span class="hub-label">TRUSTED MISSIONS</span>
+      <span class="hub-label" id="hub-mission-label">TRUSTED MISSIONS</span>
       <div class="hub-missions" id="hub-missions"></div>
       <span class="hub-label">YOUR ROLE</span>
       <div class="hub-roles" id="hub-roles">

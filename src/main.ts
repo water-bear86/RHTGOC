@@ -3,19 +3,20 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js"
 import "./style.css"
 import {
+  acquireBowTarget,
   activateSignature,
+  beginSoloBowDraw,
   calculateMastery,
   DELIVERY_TARGET,
   createInitialState,
   getContextPrompt,
   interact,
-  shoot,
   updateSimulation,
   type CharacterId,
   type Vec2,
 } from "./simulation"
 import { loadLeaderboard, loadLeaderboardSeasons, submitLeaderboardEntry, subscribeToLeaderboard, type LeaderboardKind } from "./leaderboard"
-import { MultiplayerClient } from "./multiplayer"
+import { classifyBowPredictionSnapshot, MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
 import {
@@ -41,6 +42,20 @@ import {
   type InputSettings,
   type PointerAction,
 } from "./input-settings"
+import { AudioDirector } from "./audio-director"
+import {
+  AUDIO_BUS_IDS,
+  DEFAULT_AUDIO_SETTINGS,
+  copyAudioSettings,
+  loadAudioSettings,
+  saveAudioSettings,
+  type AudioBusId,
+  type AudioSettings,
+  type DynamicRangePreset,
+} from "./audio-settings"
+import { PresentationEventBus, type PresentationEventInput } from "./presentation-events"
+import { cueForPing, presentationForMissionEvent } from "./gameplay-presentation"
+import { MUSIC_TRACKS, musicStateForSituation, type MusicState } from "./music-state"
 import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, updateSocialPresence, type SocialState } from "./social"
 import { currentWalletSession, disconnectRobinhoodWallet, shortWalletAddress, signInWithRobinhoodWallet, walletAddress } from "./wallet-auth"
 import { loadAccessState, purchaseTokenPass, type AccessState } from "./token-access"
@@ -58,7 +73,7 @@ import { createArcheryEquipment } from "./archery-equipment"
 import type { HeroAction } from "./character-visuals"
 import { createCharacterVisual, disposeCharacterVisual, poseCharacterVisual } from "./character-assets"
 import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, normalizedHeroActionProgress } from "./character-animation"
-import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
+import { blocksCameraSightline, cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
 import { regionCellIndexAt, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } from "./region-map"
@@ -92,10 +107,23 @@ import { buildTutorialPlan, type TutorialLesson, type TutorialPlan } from "./tut
 import { completeTutorialPlan, loadTutorialProgress, saveTutorialProgress } from "./tutorial-progress"
 import type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "../shared/chat"
 import { ChatState, truncateChatInput } from "./chat-state"
+import { BOW_TOTAL_SECONDS, BOW_TOTAL_TICKS, hasBowMovement, type BowActionSnapshot } from "../shared/archery"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
+const hud = document.querySelector<HTMLElement>("#hud")!
+const walletDock = document.querySelector<HTMLElement>(".wallet-dock")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
+const introCard = document.querySelector<HTMLElement>(".intro-card")!
+const introEyebrow = document.querySelector<HTMLElement>("#intro-eyebrow")!
+const introTitle = document.querySelector<HTMLElement>("#intro-title")!
+const introCopy = document.querySelector<HTMLElement>("#intro-copy")!
 const startButton = document.querySelector<HTMLButtonElement>("#start-button")!
+const friendsDisclosure = document.querySelector<HTMLDetailsElement>("#friends-disclosure")!
+const friendsSummary = document.querySelector<HTMLElement>("#friends-summary")!
+const introHelpButton = document.querySelector<HTMLButtonElement>("#intro-help")!
+const entryAccessNote = document.querySelector<HTMLElement>("#entry-access-note")!
+const outlawDisclosure = document.querySelector<HTMLDetailsElement>("#outlaw-disclosure")!
+const selectedOutlawSummary = document.querySelector<HTMLElement>("#selected-outlaw-summary")!
 const promptElement = document.querySelector<HTMLDivElement>("#prompt")!
 const toastElement = document.querySelector<HTMLDivElement>("#toast")!
 const objectivePointer = document.querySelector<HTMLElement>("#objective-pointer")!
@@ -194,6 +222,7 @@ const socialFriendList = document.querySelector<HTMLUListElement>("#social-frien
 const socialRecentList = document.querySelector<HTMLUListElement>("#social-recent-list")!
 const socialStatus = document.querySelector<HTMLElement>("#social-status")!
 const walletState = document.querySelector<HTMLElement>("#wallet-state")!
+const accessCard = document.querySelector<HTMLElement>("#access-card")!
 const accessCopy = document.querySelector<HTMLElement>("#access-copy")!
 const accessStatus = document.querySelector<HTMLElement>("#access-status")!
 const walletSignIn = document.querySelector<HTMLButtonElement>("#wallet-sign-in")!
@@ -221,12 +250,19 @@ const captionsSetting = document.querySelector<HTMLInputElement>("#setting-capti
 const readableTextSetting = document.querySelector<HTMLInputElement>("#setting-readable-text")!
 const mobileSpectatorSetting = document.querySelector<HTMLInputElement>("#setting-mobile-spectator")!
 const gameplayAnalyticsSetting = document.querySelector<HTMLInputElement>("#setting-gameplay-analytics")!
+const audioLevelSettings = [...document.querySelectorAll<HTMLInputElement>("[data-audio-bus]")]
+const audioLevelOutputs = [...document.querySelectorAll<HTMLOutputElement>("[data-audio-output]")]
+const dynamicRangeSetting = document.querySelector<HTMLSelectElement>("#setting-dynamic-range")!
+const monoAudioSetting = document.querySelector<HTMLInputElement>("#setting-mono-audio")!
+const audioPreview = document.querySelector<HTMLButtonElement>("#audio-preview")!
 const missionDebugButton = document.querySelector<HTMLButtonElement>("#mission-debug-button")!
 const graphicsRestoreButton = document.querySelector<HTMLButtonElement>("#graphics-restore-button")!
 const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
 const rejoinRoomButton = document.querySelector<HTMLButtonElement>("#rejoin-room")!
 const joinPublicHubButton = document.querySelector<HTMLButtonElement>("#join-public-hub")!
 const hubPanel = document.querySelector<HTMLElement>("#hub-panel")!
+const hubClose = document.querySelector<HTMLButtonElement>("#hub-close")!
+const hubTitle = document.querySelector<HTMLElement>("#hub-title")!
 const hubRoomCode = document.querySelector<HTMLElement>("#hub-room-code")!
 const hubRecent = document.querySelector<HTMLElement>("#hub-recent")!
 const hubBand = document.querySelector<HTMLElement>("#hub-band")!
@@ -255,6 +291,7 @@ const contributionDepositButtons = [...document.querySelectorAll<HTMLButtonEleme
 const hubContributionList = document.querySelector<HTMLUListElement>("#hub-contribution-list")!
 const hubContributionState = document.querySelector<HTMLElement>("#hub-contribution-state")!
 const hubMissions = document.querySelector<HTMLDivElement>("#hub-missions")!
+const hubMissionLabel = document.querySelector<HTMLElement>("#hub-mission-label")!
 const hubRoles = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-character]")]
 const hubLoadout = document.querySelector<HTMLSelectElement>("#hub-loadout")!
 const hubCopyCode = document.querySelector<HTMLButtonElement>("#hub-copy-code")!
@@ -288,11 +325,19 @@ const quickChatInput = document.querySelector<HTMLInputElement>("#quick-chat-inp
 const quickChatChannel = document.querySelector<HTMLElement>("#quick-chat-channel")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
 const invitedRoom = new URLSearchParams(location.search).get("room")?.trim().toUpperCase()
-if (invitedRoom?.match(/^[A-Z2-9]{6}$/)) roomCodeInput.value = invitedRoom
+if (invitedRoom?.match(/^[A-Z2-9]{6}$/)) {
+  roomCodeInput.value = invitedRoom
+  friendsDisclosure.open = true
+  friendsSummary.textContent = `JOIN BAND ${invitedRoom}`
+}
 const lastRoomCode = localStorage.getItem("sherwood:last-room-code")
 if (lastRoomCode?.match(/^[A-Z2-9]{6}$/)) rejoinRoomButton.classList.remove("hidden")
 
 let inputSettings: InputSettings = loadInputSettings(localStorage)
+let audioSettings: AudioSettings = loadAudioSettings(localStorage)
+const audioDirector = new AudioDirector(audioSettings)
+const presentationEvents = new PresentationEventBus()
+let requestedMusicState: MusicState | null = null
 let diagnosticReporter: ClientDiagnosticReporter | null = null
 let lastDiagnosticSnapshotAt = 0
 
@@ -336,6 +381,15 @@ const clickPoint = new THREE.Vector3()
 let clickTarget: Vec2 | null = null
 let running = false
 let toastTimer = 0
+const unsubscribePresentationEvents = presentationEvents.subscribe((event) => {
+  toastElement.textContent = event.message
+  toastElement.dataset.channel = event.channel
+  toastElement.dataset.priority = event.priority
+  toastElement.setAttribute("aria-live", event.priority === "critical" ? "assertive" : "polite")
+  toastElement.classList.add("show")
+  toastTimer = event.lifetimeSeconds ?? (event.priority === "critical" ? 4 : event.priority === "important" ? 3 : 2.4)
+  if (event.cue) audioDirector.playCue(event.cue)
+})
 let ended = false
 let lastPlayerPosition = { ...state.player.position }
 let resultSubmitted = false
@@ -378,6 +432,7 @@ let publicHubParticipantId: string | null = null
 let publicHubPlayers: PublicHubPlayer[] = []
 let publicHubIsLooking = false
 let publicHubCapacity = 12
+let publicHubEntryPending = false
 let localRoleConfirmed = false
 let cameraQuarterTurns = 0
 let currentExperimentAssignments: RoomExperimentAssignment[] = []
@@ -431,7 +486,6 @@ interface RemoteView {
   action: HeroAction
   actionStartedAt: number
   actionUntil: number
-  lastArrows: number
   lastSignatureCooldown: number
 }
 
@@ -494,7 +548,15 @@ let heroAttackUntil = 0
 let heroSignatureUntil = 0
 let heroAttackStartedAt = 0
 let heroSignatureStartedAt = 0
-let pendingLocalShot: { releaseAt: number; multiplayer: boolean } | null = null
+let pendingLocalShot: {
+  releaseAt: number
+  requestId: number | null
+  accepted: boolean
+  cancelled: boolean
+  releaseCuePlayed: boolean
+} | null = null
+let localServerBowActionSeen = false
+let localBowActionSuppressed = false
 
 function beginLocalHeroAction(action: Exclude<HeroAction, "idle">): void {
   const now = clock.elapsedTime
@@ -520,6 +582,70 @@ function beginRemoteHeroAction(
   remote.actionUntil = startedAt + HERO_ACTION_DURATIONS[action]
 }
 
+function bowActionProgress(action: BowActionSnapshot, tick: number): number {
+  return THREE.MathUtils.clamp((tick - action.startedAtTick) / BOW_TOTAL_TICKS, 0, 1)
+}
+
+function reconcileRemoteBowAction(remote: RemoteView, action: BowActionSnapshot | null, tick: number): void {
+  if (!action) {
+    if (remote.action === "attack") {
+      remote.action = "idle"
+      remote.actionStartedAt = 0
+      remote.actionUntil = 0
+    }
+    return
+  }
+  const progress = bowActionProgress(action, tick)
+  const now = clock.elapsedTime
+  const startedAt = now - HERO_ACTION_DURATIONS.attack * progress
+  if (remote.action !== "attack" || Math.abs(remote.actionStartedAt - startedAt) > 0.08) {
+    remote.action = "attack"
+    remote.actionStartedAt = startedAt
+  }
+  remote.actionUntil = startedAt + HERO_ACTION_DURATIONS.attack
+}
+
+function reconcileLocalBowAction(action: BowActionSnapshot | null, tick: number): void {
+  const decision = classifyBowPredictionSnapshot(action?.phase ?? null, {
+    accepted: pendingLocalShot?.accepted === true,
+    awaitingAck: pendingLocalShot !== null && pendingLocalShot.requestId !== null && !pendingLocalShot.accepted,
+    serverActionSeen: localServerBowActionSeen,
+    suppressed: localBowActionSuppressed,
+  })
+  if (!action) {
+    if (decision === "wait") return
+    localServerBowActionSeen = false
+    localBowActionSuppressed = false
+    heroAttackStartedAt = 0
+    heroAttackUntil = 0
+    pendingLocalShot = null
+    return
+  }
+
+  if (decision === "suppress-draw") {
+    localServerBowActionSeen = true
+    if (pendingLocalShot) pendingLocalShot.accepted = true
+    return
+  }
+
+  localBowActionSuppressed = false
+  localServerBowActionSeen = true
+  const progress = bowActionProgress(action, tick)
+  heroAttackStartedAt = clock.elapsedTime - HERO_ACTION_DURATIONS.attack * progress
+  heroAttackUntil = heroAttackStartedAt + HERO_ACTION_DURATIONS.attack
+  if (action.phase === "drawing") {
+    pendingLocalShot = {
+      releaseAt: heroAttackStartedAt + HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS,
+      requestId: pendingLocalShot?.requestId ?? null,
+      accepted: true,
+      cancelled: false,
+      releaseCuePlayed: pendingLocalShot?.releaseCuePlayed ?? false,
+    }
+  } else {
+    pendingLocalShot = null
+  }
+}
+
 function ensureRemoteHeroAction(
   remote: RemoteView,
   action: Exclude<HeroAction, "idle">,
@@ -535,6 +661,9 @@ function resetLocalHeroActions(): void {
   heroSignatureStartedAt = 0
   heroSignatureUntil = 0
   pendingLocalShot = null
+  localServerBowActionSeen = false
+  localBowActionSuppressed = false
+  state.bowAction = null
 }
 
 function resetMissionRuntimeState(): void {
@@ -573,8 +702,61 @@ const characterNames: Record<CharacterId, string> = {
   much: "Much",
 }
 
+const characterRoles: Record<CharacterId, string> = {
+  robin: "Marksman",
+  marian: "Scout",
+  "little-john": "Vanguard",
+  much: "Saboteur",
+}
+
 function characterName(characterId: CharacterId): string {
   return characterNames[characterId]
+}
+
+function refreshEntryModeCopy(): void {
+  if (intro.classList.contains("ending")) return
+  const spectator = isMobileSpectator()
+  startButton.innerHTML = `${spectator ? "WATCH SHERWOOD" : "PLAY SOLO"} <span>→</span>`
+  startButton.setAttribute("aria-label", spectator ? "Enter Sherwood as a mobile spectator" : `Play solo as ${characterName(selectedCharacter)}`)
+  introControls.textContent = spectator
+    ? "MOBILE SPECTATOR · VIEW THE FIELD · FULL CONTROLS AVAILABLE ON DESKTOP"
+    : "MOVE WITH WASD OR CLICK · STAND STILL + SPACE TO FIRE · FULL CONTROLS IN ?"
+  renderPublicEntryAuthState(accessState.authenticated)
+  refreshPublicEntryAvailability()
+  if (!publicHubEntryPending && !accessState.gateEnabled) renderOpenPlayEntryNote(accessState.authenticated)
+}
+
+function refreshSelectedOutlawSummary(): void {
+  selectedOutlawSummary.textContent = `${characterName(selectedCharacter).toUpperCase()} · ${characterRoles[selectedCharacter].toUpperCase()}`
+  refreshEntryModeCopy()
+}
+
+function setIntroVisible(visible: boolean): void {
+  intro.classList.toggle("closed", !visible)
+  intro.setAttribute("aria-hidden", String(!visible))
+  intro.setAttribute("aria-modal", "false")
+  document.body.classList.toggle("intro-open", visible)
+  for (const child of document.body.children) {
+    if (!(child instanceof HTMLElement)) continue
+    const overlay = child === intro || child.matches("[role='dialog']") || child.tagName === "SCRIPT"
+    const requiredWallet = child === walletDock
+    child.toggleAttribute("inert", visible && !overlay && !requiredWallet)
+  }
+}
+
+function setHubBoardOpen(open: boolean, focus = false): void {
+  hubPanel.classList.toggle("hidden", !open)
+  hubPanel.setAttribute("aria-hidden", String(!open))
+  document.body.classList.toggle("hub-board-open", open)
+  container.toggleAttribute("inert", open)
+  hud.toggleAttribute("inert", open)
+  walletDock.toggleAttribute("inert", open)
+  keys.clear()
+  if (inHub) promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} ${open ? "closes" : "opens"} the mission board`
+  if (open) {
+    hubPanel.scrollTop = 0
+    if (focus) queueMicrotask(() => hubTitle.focus({ preventScroll: true }))
+  } else if (focus) queueMicrotask(() => renderer.domElement.focus())
 }
 
 function material(color: number): THREE.MeshToonMaterial {
@@ -1270,10 +1452,11 @@ const multiplayer = new MultiplayerClient({
     if (localPlayer) {
       if (localPlayer.characterId !== selectedCharacter) selectLocalCharacter(localPlayer.characterId, false)
       state.player.health = localPlayer.health
+      state.bowCooldown = localPlayer.bowCooldown
       if (phase === "lobby") state.player.position = { ...localPlayer.position }
     }
     readyButton.textContent = localReady ? "NOT READY" : "READY UP"
-    readyButton.disabled = !localRoleConfirmed
+    readyButton.disabled = !roomConnected || !localRoleConfirmed
     hubReady.textContent = localReady ? "NOT READY" : "READY UP"
     hubReady.disabled = roomConnected && !localRoleConfirmed
     hubLoadout.value = localPlayer?.loadoutId ?? "balanced"
@@ -1292,8 +1475,8 @@ const multiplayer = new MultiplayerClient({
       inHub = false
       running = true
       intro.scrollTop = 0
-      intro.classList.add("closed")
-      hubPanel.classList.add("hidden")
+      setIntroVisible(false)
+      setHubBoardOpen(false)
       setMissionWorldVisible(true)
       lobbyStatus.textContent = "Mission started"
       ensureRemotePlayers(players)
@@ -1302,7 +1485,7 @@ const multiplayer = new MultiplayerClient({
       if (enteringMission) queueMicrotask(() => renderer.domElement.focus())
     }
   },
-  onSnapshot: (_tick, players, mission) => {
+  onSnapshot: (tick, players, mission) => {
     const receivedAt = performance.now()
     if (lastDiagnosticSnapshotAt > 0 && receivedAt - lastDiagnosticSnapshotAt >= 1_500) void diagnosticReporter?.report("snapshot_desync")
     lastDiagnosticSnapshotAt = receivedAt
@@ -1313,16 +1496,17 @@ const multiplayer = new MultiplayerClient({
         state.player.health = player.health
         state.player.arrows = player.arrows
         state.player.loot = player.loot
+        state.bowCooldown = player.bowCooldown
         state.player.signatureCooldown = player.signatureCooldown
         localDownedFor = player.downedFor
+        reconcileLocalBowAction(player.bowAction, tick)
       } else {
         const remote = remoteViews.get(player.id)
         remote?.snapshots.push(player.position, receivedAt)
         if (remote) {
           remote.downedFor = player.downedFor
-          if (player.arrows < remote.lastArrows) beginRemoteHeroAction(remote, "attack", HERO_ATTACK_RELEASE_PROGRESS)
-          if (player.signatureCooldown > remote.lastSignatureCooldown + 0.25) beginRemoteHeroAction(remote, "signature")
-          remote.lastArrows = player.arrows
+          reconcileRemoteBowAction(remote, player.bowAction, tick)
+          if (!player.bowAction && player.signatureCooldown > remote.lastSignatureCooldown + 0.25) beginRemoteHeroAction(remote, "signature")
           remote.lastSignatureCooldown = player.signatureCooldown
         }
       }
@@ -1335,7 +1519,29 @@ const multiplayer = new MultiplayerClient({
     renderSafetyPanel(currentRoomPlayers)
     applyMissionSnapshot(mission)
   },
+  onActionResult: (requestId, action, accepted) => {
+    if (action !== "shoot" || pendingLocalShot?.requestId !== requestId) return
+    if (accepted) {
+      pendingLocalShot.accepted = true
+      return
+    }
+    const wasCancelled = pendingLocalShot.cancelled
+    pendingLocalShot = null
+    localServerBowActionSeen = false
+    localBowActionSuppressed = false
+    heroAttackStartedAt = 0
+    heroAttackUntil = 0
+    if (!wasCancelled) showToast("Bow not ready")
+  },
   onError: (message) => {
+    if (publicHubEntryPending) {
+      publicHubEntryPending = false
+      multiplayer.leavePublicHub()
+      refreshPublicEntryAvailability()
+      renderPublicEntryAuthState(accessState.authenticated)
+      entryAccessNote.textContent = message.toUpperCase()
+      void refreshAccessPanel()
+    }
     if (pendingRoomSelection) {
       pendingRoomSelection = false
       if (inHub) renderHub()
@@ -1346,6 +1552,15 @@ const multiplayer = new MultiplayerClient({
   },
   onConnection: (connected) => {
     roomConnected = connected
+    if (!connected && publicHubEntryPending) {
+      publicHubEntryPending = false
+      multiplayer.leavePublicHub()
+      refreshPublicEntryAvailability()
+      renderPublicEntryAuthState(accessState.authenticated)
+      entryAccessNote.textContent = "PUBLIC CAMP CONNECTION LOST · TRY AGAIN"
+    }
+    readyButton.disabled = !connected || !localRoleConfirmed
+    if (!connected && multiplayerActive) resetLocalHeroActions()
     lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
     if (inHub) renderHub()
     if (!connected) closeQuickChat(false)
@@ -1353,6 +1568,9 @@ const multiplayer = new MultiplayerClient({
     if (!connected) void syncPresence("available", null)
   },
   onHubWelcome: (_instanceId, participantId, capacity) => {
+    publicHubEntryPending = false
+    refreshPublicEntryAvailability()
+    renderPublicEntryAuthState(true)
     blockedPlayerIds.clear()
     mutedPlayerIds.clear()
     chatState.reset()
@@ -1365,8 +1583,8 @@ const multiplayer = new MultiplayerClient({
     publicHubParticipantId = participantId
     publicHubCapacity = capacity
     running = true
-    intro.classList.add("closed")
-    hubPanel.classList.add("hidden")
+    setIntroVisible(false)
+    setHubBoardOpen(false)
     publicHubPanel.classList.remove("hidden")
     partyHud.classList.add("hidden")
     resetMissionRuntimeState()
@@ -1408,14 +1626,15 @@ function hubPlayerAsRoomPlayer(player: PublicHubPlayer): RoomPlayer {
     id: player.id, displayName: player.displayName, characterId: player.characterId, loadoutId: "balanced", ready: player.looking, connected: true,
     roleConfirmed: true,
     bandRole: null, bandInvitePending: false,
-    health: 3, arrows: 0, loot: 0, downedFor: 0, signatureCooldown: 0, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0, trapHits: 0, sabotageCount: 0,
-    position: { ...player.position }, lastInputSequence: 0,
+    health: 3, arrows: 0, loot: 0, downedFor: 0, bowCooldown: 0, signatureCooldown: 0, protectionScore: 0, crowdControl: 0, heavyCarryPeak: 0, trapHits: 0, sabotageCount: 0,
+    position: { ...player.position }, lastInputSequence: 0, bowAction: null,
   }
 }
 
 function renderRoleChoice(players: RoomPlayer[]): void {
   const shouldOpen = roomConnected && !localRoleConfirmed
   const opening = shouldOpen && roleChoicePanel.classList.contains("hidden")
+  const closing = !shouldOpen && !roleChoicePanel.classList.contains("hidden")
   roleChoicePanel.classList.toggle("hidden", !shouldOpen)
   roleChoicePanel.setAttribute("aria-hidden", String(!shouldOpen))
   for (const button of roleChoiceButtons) {
@@ -1429,6 +1648,7 @@ function renderRoleChoice(players: RoomPlayer[]): void {
   }
   roleChoiceStatus.textContent = "Choose an outlaw before readying up."
   if (opening) roleChoiceButtons.find((button) => !button.disabled)?.focus()
+  else if (closing && inHub && !hubPanel.classList.contains("hidden")) queueMicrotask(() => hubTitle.focus({ preventScroll: true }))
 }
 
 function setMissionWorldVisible(visible: boolean): void {
@@ -1475,45 +1695,48 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
 
 function renderHub(): void {
   const online = roomSessionActive
+  const spectator = !online && isMobileSpectator()
   const isLeader = !online || currentRoomPlayers[0]?.id === multiplayer.playerId
+  hubPanel.classList.toggle("solo", !online)
+  hubMissionLabel.textContent = online ? "TRUSTED MISSIONS" : spectator ? "SPECTATOR HEIST" : "YOUR FIRST HEIST"
   missionTitle.textContent = getMissionDefinition(currentMissionSlug).name.toUpperCase()
   hubRotations.replaceChildren()
-  for (const rotation of currentRotations) {
-    const mission = getMissionDefinition(rotation.missionSlug)
-    const button = document.createElement("button")
-    button.classList.toggle("selected", rotation.id === selectedRotationId)
-    button.disabled = !online || !roomConnected || !isLeader || rotationsPaused
-    const name = document.createElement("b")
-    const detail = document.createElement("small")
-    name.textContent = `${rotation.partySize}P · ${mission.name}`
-    detail.textContent = `${rotation.region.replaceAll("-", " ")} · ${rotation.modifierIds.map((id) => id.replaceAll("-", " ")).join(" + ")} · ${rotation.rewardLabel}`
-    button.append(name, detail)
-    button.addEventListener("click", () => multiplayer.selectRotation(rotation.id))
-    hubRotations.append(button)
-  }
-  if (currentRotations.length === 0 && !rotationsPaused) {
-    const empty = document.createElement("small")
-    empty.textContent = online ? "The Sheriff has posted no valid target." : "Form a band to load today's server-owned targets."
-    hubRotations.append(empty)
+  if (online) {
+    for (const rotation of currentRotations) {
+      const mission = getMissionDefinition(rotation.missionSlug)
+      const button = document.createElement("button")
+      button.classList.toggle("selected", rotation.id === selectedRotationId)
+      button.disabled = !roomConnected || !isLeader || rotationsPaused
+      const name = document.createElement("b")
+      const detail = document.createElement("small")
+      name.textContent = `${rotation.partySize}P · ${mission.name}`
+      detail.textContent = `${rotation.region.replaceAll("-", " ")} · ${rotation.modifierIds.map((id) => id.replaceAll("-", " ")).join(" + ")} · ${rotation.rewardLabel}`
+      button.append(name, detail)
+      button.addEventListener("click", () => multiplayer.selectRotation(rotation.id))
+      hubRotations.append(button)
+    }
+    if (currentRotations.length === 0 && !rotationsPaused) {
+      const empty = document.createElement("small")
+      empty.textContent = "The Sheriff has posted no valid target."
+      hubRotations.append(empty)
+    }
   }
   renderRotationCountdown()
   renderRescueOffer()
   renderContributions()
   renderSeason()
   hubMissions.replaceChildren()
-  for (const mission of MISSION_CATALOG.values()) {
-    const missionKind = mission.scenario?.kind ?? "tax-cart"
-    const bandOnly = !online && missionKind !== "tax-cart"
+  const availableMissions = [...MISSION_CATALOG.values()].filter((mission) => online || (mission.scenario?.kind ?? "tax-cart") === "tax-cart")
+  for (const mission of availableMissions) {
     const button = document.createElement("button")
     button.classList.toggle("selected", mission.slug === currentMissionSlug)
-    button.disabled = (online && (!roomConnected || !isLeader || pendingRoomSelection)) || bandOnly
+    button.disabled = online && (!roomConnected || !isLeader || pendingRoomSelection)
     const name = document.createElement("b")
     const detail = document.createElement("small")
     name.textContent = mission.name
-    detail.textContent = bandOnly
-      ? `BAND REQUIRED · ${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par`
-      : `${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par · v${mission.missionVersion}`
-    if (bandOnly) button.title = "This mission currently requires a multiplayer Merry Band"
+    detail.textContent = online
+      ? `${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par · v${mission.missionVersion}`
+      : "Ambush the tax cart · recover the coin · return to the village"
     button.append(name, detail)
     button.addEventListener("click", () => {
       if (online) {
@@ -1535,7 +1758,12 @@ function renderHub(): void {
   hubLoadout.disabled = online && !roomConnected
   hubRoomCode.textContent = online ? multiplayer.roomCode ?? "------" : "SOLO"
   hubCopyCode.disabled = !online || !roomConnected
-  hubReady.textContent = online ? (localReady ? "NOT READY" : "READY UP") : "START MISSION"
+  hubCopyCode.classList.toggle("hidden", !online)
+  hubReady.textContent = online
+    ? (localReady ? "NOT READY" : "READY UP")
+    : spectator
+      ? `WATCH ${getMissionDefinition(currentMissionSlug).name.toUpperCase()}`
+      : `START ${getMissionDefinition(currentMissionSlug).name.toUpperCase()} AS ${characterName(selectedCharacter).toUpperCase()}`
   hubReady.disabled = online && (!roomConnected || !localRoleConfirmed || pendingRoomSelection)
   hubBand.classList.toggle("hidden", !currentBand)
   if (currentBand) {
@@ -1547,14 +1775,20 @@ function renderHub(): void {
     if (document.activeElement !== hubBandNameInput) hubBandNameInput.value = currentBand.name
     hubBandBanner.value = currentBand.bannerId
   }
-  hubRecent.textContent = currentLastResult
-    ? `Last heist: ${currentLastResult.status === "succeeded" ? currentLastResult.grade : "PARTIAL"} · ${currentLastResult.score.toLocaleString()} renown${currentLastResult.totalCaptives > 0 ? ` · ${currentLastResult.rescuedCaptives}/${currentLastResult.totalCaptives} rescued` : ""}. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
-    : `Village works: granary ${currentVillage.granary}, infirmary ${currentVillage.infirmary}, watchtower ${currentVillage.watchtower}.`
+  hubRecent.textContent = online
+    ? currentLastResult
+      ? `Last heist: ${currentLastResult.status === "succeeded" ? currentLastResult.grade : "PARTIAL"} · ${currentLastResult.score.toLocaleString()} renown${currentLastResult.totalCaptives > 0 ? ` · ${currentLastResult.rescuedCaptives}/${currentLastResult.totalCaptives} rescued` : ""}. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
+      : `Village works: granary ${currentVillage.granary}, infirmary ${currentVillage.infirmary}, watchtower ${currentVillage.watchtower}.`
+    : spectator
+      ? "The People's Purse is ready. Enter spectator view to follow the heist."
+      : "The People's Purse is ready. Choose your outlaw, keep the balanced kit, and begin."
   hubState.textContent = online
     ? roomConnected
       ? `${isLeader ? "Band leader chooses the target." : "The band leader chooses the target."} Ready together when roles and kits are set.`
       : "Connection lost · returning to this camp before any readiness can change."
-    : "Start the People's Purse solo, or form a Merry Band for the prison wagon and storehouse."
+    : spectator
+      ? "Watch Sherwood without desktop controls."
+      : "One mission. One outlaw. Take back the people's coin."
 }
 
 function renderPublicHub(): void {
@@ -1779,21 +2013,23 @@ function enterHub(online: boolean): void {
   state.won = false
   state.lost = false
   intro.scrollTop = 0
-  intro.classList.add("closed")
+  intro.classList.remove("ending")
+  setIntroVisible(false)
   resultsPanel.classList.add("hidden")
   resultsPanel.setAttribute("aria-hidden", "true")
-  hubPanel.classList.remove("hidden")
   partyHud.classList.toggle("hidden", !online)
   setMissionWorldVisible(false)
   positionMissionCampfire(HUB_CAMPFIRE_POSITION)
   positionVillageUpgrades(HUB_CAMPFIRE_POSITION)
-  objectiveElement.textContent = "Choose the band's next target"
-  missionModifiers.textContent = `${MISSION_CATALOG.size} TRUSTED MISSION${MISSION_CATALOG.size === 1 ? "" : "S"} ON THE BOARD`
+  objectiveElement.textContent = online ? "Choose the band's next target" : "Prepare your first heist"
+  missionModifiers.textContent = online
+    ? `${MISSION_CATALOG.size} TRUSTED MISSION${MISSION_CATALOG.size === 1 ? "" : "S"} ON THE BOARD`
+    : "1 MISSION READY"
   if (!online) state.player.position = { ...PEOPLES_PURSE_MISSION.spawns.players[0] }
   lastPlayerPosition = { ...state.player.position }
   renderHub()
+  setHubBoardOpen(true, enteringHub && roleChoicePanel.classList.contains("hidden"))
   clock.getDelta()
-  if (enteringHub && roleChoicePanel.classList.contains("hidden")) queueMicrotask(() => hubReady.focus())
 }
 
 function startSoloMission(): void {
@@ -1805,7 +2041,7 @@ function startSoloMission(): void {
   }
   inHub = false
   multiplayerActive = false
-  hubPanel.classList.add("hidden")
+  setHubBoardOpen(false)
   setMissionWorldVisible(true)
   soloRunSequence += 1
   state = createInitialState(selectedCharacter, stableSeed(`solo:${Date.now()}:${soloRunSequence}`))
@@ -1818,6 +2054,7 @@ function startSoloMission(): void {
   objectiveElement.textContent = "Search Sherwood for the Sheriff's shipment"
   missionModifiers.textContent = ""
   clock.getDelta()
+  showToast(isMobileSpectator() ? "SPECTATOR VIEW · FOLLOW THE HEIST" : "MOVE WITH WASD OR CLICK · STAND STILL + SPACE TO FIRE")
   queueMicrotask(() => renderer.domElement.focus())
 }
 
@@ -1963,24 +2200,7 @@ function finishTutorial(): void {
   continuation?.()
 }
 
-function runCampfireTutorialGate(action: () => void, trigger: HTMLElement, completionLabel: string): void {
-  const fullPlan = buildTutorialPlan(selectedCharacter, missionKindForSlug(currentMissionSlug), tutorialProgress.completed)
-  const lessons = fullPlan?.lessons.filter((lesson) => lesson.moduleId === "fieldcraft" || lesson.moduleId === `character:${selectedCharacter}`) ?? []
-  if (!fullPlan || lessons.length === 0) {
-    action()
-    return
-  }
-  const plan: TutorialPlan = { ...fullPlan, lessons, moduleIds: lessons.map((lesson) => lesson.moduleId) }
-  openTutorial(plan, {
-    continuation: () => runCampfireTutorialGate(action, trigger, completionLabel),
-    completionLabel,
-    recordProgress: true,
-    showTacticalTip: false,
-    trigger,
-  })
-}
-
-function requestMissionReady(trigger: HTMLElement): void {
+function requestMissionReady(): void {
   if (roomSessionActive && !roomConnected) {
     showToast("RETURNING TO YOUR BAND · READY AGAIN WHEN RECONNECTED")
     renderHub()
@@ -2003,22 +2223,11 @@ function requestMissionReady(trigger: HTMLElement): void {
     multiplayer.setReady(false)
     return
   }
-  const plan = buildTutorialPlan(selectedCharacter, missionKindForSlug(currentMissionSlug), tutorialProgress.completed)
-  if (plan) {
-    openTutorial(plan, {
-      continuation: () => requestMissionReady(trigger),
-      completionLabel: roomSessionActive ? "READY UP" : "START MISSION",
-      recordProgress: true,
-      showTacticalTip: true,
-      trigger,
-    })
-    return
-  }
   if (roomSessionActive) multiplayer.setReady(true, { missionSlug: currentMissionSlug, characterId: selectedCharacter })
   else startSoloMission()
 }
 
-function replayCurrentTutorial(): void {
+function replayCurrentTutorial(trigger: HTMLElement = helpButton): void {
   const missionKind = latestMissionSnapshot?.missionKind ?? missionKindForSlug(currentMissionSlug)
   const plan = buildTutorialPlan(selectedCharacter, missionKind, {})
   if (!plan) return
@@ -2026,7 +2235,7 @@ function replayCurrentTutorial(): void {
     completionLabel: "CLOSE NOTES",
     recordProgress: false,
     showTacticalTip: true,
-    trigger: helpButton,
+    trigger,
   })
 }
 
@@ -2038,7 +2247,7 @@ function refreshControlCopy(): void {
   const key = inputSettings.keyboard
   helpMove.textContent = `${keyLabel(key.moveUp)} / ${keyLabel(key.moveLeft)} / ${keyLabel(key.moveDown)} / ${keyLabel(key.moveRight)} moves by perspective · ${keyLabel(key.cameraLeft)} / ${keyLabel(key.cameraRight)} rotates the camera 90°`
   helpInteract.textContent = `${keyLabel(key.interact)} near the cart or village fire`
-  helpFire.textContent = `${keyLabel(key.fire)} stuns the nearest guard in range`
+  helpFire.textContent = `Press ${keyLabel(key.fire)} once while standing still · moving during the draw cancels`
   helpSignature.textContent = `${keyLabel(key.signature)} uses Twin Shot, Marian's Veil, Oak Sweep, or Much's Road Snare`
   signatureKeyElement.textContent = keyLabel(key.signature)
   helpSignals.textContent = `${keyLabel(key.pingDanger)} / ${keyLabel(key.pingTarget)} / ${keyLabel(key.pingRoute)} / ${keyLabel(key.pingLoot)} / ${keyLabel(key.pingRegroup)} place symbol-coded signals`
@@ -2047,7 +2256,7 @@ function refreshControlCopy(): void {
     const action = label.dataset.signalKey as "pingDanger" | "pingTarget" | "pingRoute" | "pingLoot" | "pingRegroup"
     label.textContent = keyLabel(key[action])
   }
-  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} FIRE · ${keyLabel(key.signature)} SIGNATURE · ENTER CHAT`
+  refreshEntryModeCopy()
   missionPrompt = missionPromptForPhase(currentMissionPhase)
 }
 
@@ -2069,11 +2278,34 @@ function applyInputSettings(): void {
   mobileSpectatorSetting.checked = inputSettings.mobileSpectator
   gameplayAnalyticsSetting.checked = getProductAnalyticsConsent()
   refreshControlCopy()
+  if (inHub) renderHub()
 }
 
 function persistInputSettings(message = "Changes saved on this device."): void {
   saveInputSettings(localStorage, inputSettings)
   applyInputSettings()
+  settingsStatus.textContent = message
+}
+
+function applyAudioSettings(): void {
+  audioDirector.updateSettings(audioSettings)
+  for (const input of audioLevelSettings) {
+    const bus = input.dataset.audioBus as AudioBusId
+    if (!AUDIO_BUS_IDS.includes(bus)) continue
+    input.value = String(Math.round(audioSettings.levels[bus] * 100))
+  }
+  for (const output of audioLevelOutputs) {
+    const bus = output.dataset.audioOutput as AudioBusId
+    if (!AUDIO_BUS_IDS.includes(bus)) continue
+    output.textContent = `${Math.round(audioSettings.levels[bus] * 100)}%`
+  }
+  dynamicRangeSetting.value = audioSettings.dynamicRange
+  monoAudioSetting.checked = audioSettings.mono
+}
+
+function persistAudioSettings(message = "Audio mix saved on this device."): void {
+  saveAudioSettings(localStorage, audioSettings)
+  applyAudioSettings()
   settingsStatus.textContent = message
 }
 
@@ -2196,7 +2428,10 @@ function performMappedAction(action: GameAction | PointerAction): void {
     pingRegroup: "regroup",
   }
   const ping = pings[action as GameAction]
-  if (ping && multiplayerActive) multiplayer.sendPing(ping)
+  if (ping && multiplayerActive) {
+    multiplayer.sendPing(ping)
+    audioDirector.playCue(cueForPing(ping))
+  }
 }
 
 function pollControllerActions(): void {
@@ -2421,7 +2656,12 @@ function showMissionEvent(event: MissionEvent): void {
     : event.type === "reinforcement_arrived" && event.detail === "search-pressure"
       ? `SEARCH DELAY — THE SHERIFF FORTIFIES THE TARGET (${event.value}/3)`
     : messages[event.type]
-  if (message) showToast(message)
+  if (message) {
+    showToast(message, {
+      ...presentationForMissionEvent(event.type),
+      dedupeKey: `mission:${event.sequence}`,
+    })
+  }
 }
 
 function syncPingViews(pings: WorldPing[]): void {
@@ -2433,6 +2673,7 @@ function syncPingViews(pings: WorldPing[]): void {
       view = createPingView(ping)
       pingViews.set(ping.id, view)
       scene.add(view)
+      if (ping.playerId !== multiplayer.playerId) audioDirector.playCue(cueForPing(ping.kind))
     }
     view.position.set(ping.position.x, 0.08, ping.position.z)
   }
@@ -2764,10 +3005,14 @@ async function refreshSocialPanel(): Promise<void> {
         roomSessionActive = false
         multiplayerActive = false
         running = false
-        hubPanel.classList.add("hidden")
+        setHubBoardOpen(false)
         roomCodeInput.value = code
-        intro.classList.remove("closed")
-        closePanel(socialPanel)
+        friendsDisclosure.open = true
+        friendsSummary.textContent = `JOIN BAND ${code}`
+        intro.classList.remove("ending")
+        setIntroVisible(true)
+        closePanel(socialPanel, false)
+        queueMicrotask(() => joinRoomButton.focus())
         showToast("INVITE READY · JOIN THE ROOM TO CHOOSE YOUR HERO")
       })
       addSocialAction(actions, "DECLINE", async () => { await respondDirectInvite(invite.id, false); await refreshSocialPanel() })
@@ -2790,6 +3035,33 @@ function canEnterSherwood(): boolean {
   return !accessState.gateEnabled || accessState.entitled
 }
 
+function renderPublicEntryAuthState(authenticated: boolean): void {
+  if (publicHubEntryPending) return
+  if (isMobileSpectator()) {
+    joinPublicHubButton.textContent = "PUBLIC BANDS REQUIRE DESKTOP"
+    joinPublicHubButton.setAttribute("aria-label", "Public Merry Bands require desktop controls")
+    return
+  }
+  joinPublicHubButton.textContent = authenticated ? "FIND A PUBLIC BAND" : "SIGN IN & FIND A PUBLIC BAND"
+  joinPublicHubButton.setAttribute("aria-label", authenticated
+    ? "Find a public Merry Band"
+    : "Sign in with Robinhood Wallet and find a public Merry Band")
+}
+
+function refreshPublicEntryAvailability(): void {
+  joinPublicHubButton.disabled = publicHubEntryPending || !canEnterSherwood() || isMobileSpectator()
+}
+
+function renderOpenPlayEntryNote(authenticated: boolean): void {
+  if (isMobileSpectator()) {
+    entryAccessNote.textContent = "MOBILE SPECTATOR OPEN · PUBLIC BANDS REQUIRE DESKTOP CONTROLS"
+    return
+  }
+  entryAccessNote.textContent = authenticated
+    ? "WALLET CONNECTED · SOLO, PRIVATE & PUBLIC PLAY OPEN"
+    : "SOLO + PRIVATE OPEN · PUBLIC BANDS NEED WALLET SIGN-IN · NO PAYMENT"
+}
+
 async function refreshAccessPanel(): Promise<void> {
   try {
     const [session, nextAccess] = await Promise.all([currentWalletSession(), loadAccessState()])
@@ -2799,31 +3071,54 @@ async function refreshAccessPanel(): Promise<void> {
     walletSignIn.classList.toggle("hidden", nextAccess.authenticated)
     walletSignOut.classList.toggle("hidden", !nextAccess.authenticated)
     tokenPassPurchase.classList.toggle("hidden", !nextAccess.gateEnabled || !nextAccess.authenticated || nextAccess.entitled || !nextAccess.payment)
-    startButton.disabled = !canEnterSherwood()
-    createRoomButton.disabled = !canEnterSherwood()
-    joinRoomButton.disabled = !canEnterSherwood()
-    joinPublicHubButton.disabled = !canEnterSherwood()
+    const entryLocked = !canEnterSherwood()
+    startButton.disabled = entryLocked
+    rejoinRoomButton.disabled = entryLocked
+    createRoomButton.disabled = entryLocked
+    joinRoomButton.disabled = entryLocked
+    refreshPublicEntryAvailability()
+    const publicIdentityReady = Boolean(session && nextAccess.authenticated)
+    renderPublicEntryAuthState(publicIdentityReady)
+    accessCard.classList.toggle("hidden", !nextAccess.gateEnabled)
     if (!nextAccess.gateEnabled) {
-      accessCopy.textContent = "The token-pass gate is switched off. Wallet sign-in is optional while Sherwood remains open."
+      if (!publicHubEntryPending) renderOpenPlayEntryNote(publicIdentityReady)
+      accessCopy.textContent = "Solo and private bands are open. Public matchmaking uses wallet sign-in for identity only; no token or payment is required."
       accessStatus.textContent = "ACCESS SWITCH OFF · OPEN PLAY"
     } else if (!nextAccess.authenticated) {
+      if (!publicHubEntryPending) entryAccessNote.textContent = "WALLET SIGN-IN REQUIRED FOR THIS REALM"
       accessCopy.textContent = `Sign in with Robinhood Wallet, then buy a 30-day pass with the Sherwood token (approximately $${nextAccess.referencePriceUsd}).`
       accessStatus.textContent = "WALLET SIGNATURE REQUIRED"
     } else if (nextAccess.entitled) {
       const expiry = nextAccess.accessExpiresAt ? new Date(nextAccess.accessExpiresAt).toLocaleDateString() : ""
+      if (!publicHubEntryPending) entryAccessNote.textContent = "SHERWOOD ACCESS ACTIVE"
       accessCopy.textContent = "Your on-chain Sherwood pass is active. The authoritative realm is unlocked."
       accessStatus.textContent = expiry ? `PASS ACTIVE THROUGH ${expiry.toUpperCase()}` : "PASS ACTIVE"
     } else if (!nextAccess.payment) {
+      if (!publicHubEntryPending) entryAccessNote.textContent = "SHERWOOD ACCESS LOCKED"
       accessCopy.textContent = "Token payments are not configured on this realm. Access remains locked while the gate is on."
       accessStatus.textContent = "TOKEN PAYMENT UNAVAILABLE"
     } else {
       const payment = nextAccess.payment
+      if (!publicHubEntryPending) entryAccessNote.textContent = "TOKEN PASS REQUIRED"
       tokenPassPurchase.textContent = `PAY ${payment.amountDisplay} ${payment.tokenSymbol} · ${payment.passDays} DAYS`
       accessCopy.textContent = `Transfer ${payment.amountDisplay} ${payment.tokenSymbol} on ${payment.chainName} for ${payment.passDays} days of access (approximately $${nextAccess.referencePriceUsd}).`
       accessStatus.textContent = "PASS NOT ACTIVE"
     }
+    if (!intro.classList.contains("closed")) {
+      setIntroVisible(true)
+      const focusTarget = invitedRoom ? joinRoomButton : startButton
+      if (document.activeElement === document.body || document.activeElement === introCard) queueMicrotask(() => focusTarget.focus({ preventScroll: true }))
+    }
   } catch (error) {
-    accessStatus.textContent = error instanceof Error ? error.message : "Unable to check Sherwood access"
+    const message = error instanceof Error ? error.message : "Unable to check Sherwood access"
+    if (!publicHubEntryPending) entryAccessNote.textContent = "SHERWOOD ACCESS CHECK FAILED · RELOAD TO RETRY"
+    accessStatus.textContent = message
+    accessCard.classList.remove("hidden")
+    startButton.disabled = true
+    rejoinRoomButton.disabled = true
+    createRoomButton.disabled = true
+    joinRoomButton.disabled = true
+    joinPublicHubButton.disabled = true
   }
 }
 
@@ -3152,11 +3447,9 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
         existing.fallback = createCharacter(player.characterId)
         existing.characterId = player.characterId
         existing.view.add(existing.fallback)
-        existing.lastArrows = player.arrows
         existing.lastSignatureCooldown = player.signatureCooldown
       }
       if (!multiplayerActive) {
-        existing.lastArrows = player.arrows
         existing.lastSignatureCooldown = player.signatureCooldown
       }
       continue
@@ -3176,7 +3469,6 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
       action: "idle",
       actionStartedAt: 0,
       actionUntil: 0,
-      lastArrows: player.arrows,
       lastSignatureCooldown: player.signatureCooldown,
     }
     remote.snapshots.push(player.position, performance.now())
@@ -3223,10 +3515,47 @@ function getMoveInput(): Vec2 {
   return { x: 0, z: 0 }
 }
 
-function showToast(message: string): void {
-  toastElement.textContent = message
-  toastElement.classList.add("show")
-  toastTimer = 2.4
+function showToast(
+  message: string,
+  options: Partial<Omit<PresentationEventInput, "message">> = {},
+): void {
+  presentationEvents.publish({
+    channel: options.channel ?? "system",
+    priority: options.priority ?? "routine",
+    message,
+    cue: options.cue,
+    dedupeKey: options.dedupeKey,
+    lifetimeSeconds: options.lifetimeSeconds,
+  })
+}
+
+function syncAdaptiveMusic(): void {
+  if (!running || audioDirector.state !== "running") return
+  const player = state.player.position
+  const nearestActiveGuard = state.guards.reduce((nearest, guard) => {
+    if (guard.stunnedFor > 0) return nearest
+    return Math.min(nearest, Math.hypot(guard.position.x - player.x, guard.position.z - player.z))
+  }, Number.POSITIVE_INFINITY)
+  const searchPressure = latestMissionSnapshot?.searchPressure ?? state.searchPressure
+  const threatLevel = nearestActiveGuard < 6
+    ? 3
+    : nearestActiveGuard < 12 || searchPressure >= 2
+      ? 2
+      : searchPressure >= 1
+        ? 1
+        : 0
+  const outcome = latestMissionSnapshot?.status
+    ?? (state.won ? "succeeded" : state.lost ? "failed" : "active")
+  const next = musicStateForSituation({
+    running,
+    inHub: inHub || inPublicHub,
+    outcome,
+    phase: latestMissionSnapshot?.phase ?? currentMissionPhase,
+    threatLevel,
+  })
+  if (next === requestedMusicState) return
+  requestedMusicState = next
+  void audioDirector.playMusic(next, MUSIC_TRACKS[next])
 }
 
 function contextualChatChannel(): ChatChannel {
@@ -3537,9 +3866,9 @@ function sendChatInput(input: HTMLInputElement, channel: ChatChannel): boolean {
 
 function handleInteraction(): void {
   if (inHub) {
-    hubPanel.classList.remove("hidden")
-    hubReady.focus()
-    showToast("MISSION BOARD OPEN")
+    const opening = hubPanel.classList.contains("hidden")
+    setHubBoardOpen(opening, true)
+    showToast(opening ? "MISSION BOARD OPEN" : "MISSION BOARD CLOSED")
     return
   }
   if (multiplayerActive) {
@@ -3559,8 +3888,14 @@ function handleInteraction(): void {
     "bow-cache": "QUIVER REFILLED — CHEST OPENED",
     "quiver-full": "Your quiver is already full",
   }
+  const resultCues: Partial<Record<keyof typeof messages, Parameters<AudioDirector["playCue"]>[0]>> = {
+    "robbed-cart": "world.cart-robbed",
+    delivered: "world.coin-delivered",
+    won: "world.victory",
+    "bow-cache": "world.cache-open",
+  }
   if (result === "bow-cache") openNearbyBowCache()
-  if (messages[result]) showToast(messages[result])
+  if (messages[result]) showToast(messages[result], { cue: resultCues[result] })
 }
 
 function fireArrow(): void {
@@ -3568,18 +3903,64 @@ function fireArrow(): void {
     showToast("Weapons stay lowered at the campfire")
     return
   }
+  clickTarget = null
+  destinationMarker.visible = false
+  if (multiplayerActive && !roomConnected) {
+    showToast("RECONNECTING — BOW LOWERED")
+    return
+  }
+  if (clock.elapsedTime < heroSignatureUntil) {
+    showToast("Finish your signature first")
+    return
+  }
   if (clock.elapsedTime < heroAttackUntil || pendingLocalShot) return
   if (state.player.arrows <= 0) {
     showToast("Your quiver is empty")
     return
   }
+  if (state.bowCooldown > 0) {
+    showToast(`Bow ready in ${Math.max(1, Math.ceil(state.bowCooldown))}s`)
+    return
+  }
   if (state.won || state.lost || localDownedFor > 0) return
+  const move = getMoveInput()
+  if (hasBowMovement(move)) {
+    showToast("STAND STILL TO DRAW")
+    return
+  }
+  if (acquireBowTarget(state) === null) {
+    showToast("No guard in range")
+    return
+  }
 
   beginLocalHeroAction("attack")
-  pendingLocalShot = {
-    releaseAt: heroAttackStartedAt + HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS,
-    multiplayer: multiplayerActive,
+  if (multiplayerActive) {
+    localBowActionSuppressed = false
+    const requestId = multiplayer.sendAction("shoot")
+    if (requestId === null) {
+      heroAttackStartedAt = 0
+      heroAttackUntil = 0
+      showToast("Connection lost — bow not fired")
+      return
+    }
+    pendingLocalShot = {
+      releaseAt: heroAttackStartedAt + HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS,
+      requestId,
+      accepted: false,
+      cancelled: false,
+      releaseCuePlayed: false,
+    }
+    audioDirector.playCue("action.bow-draw")
+    return
   }
+  const result = beginSoloBowDraw(state, move)
+  if (result !== "started") {
+    heroAttackStartedAt = 0
+    heroAttackUntil = 0
+    showToast(result === "moving" ? "STAND STILL TO DRAW" : result === "no-target" ? "No guard in range" : "Bow not ready")
+    return
+  }
+  audioDirector.playCue("action.bow-draw")
 }
 
 function createArrowEffect(guardId: number): void {
@@ -3593,23 +3974,30 @@ function createArrowEffect(guardId: number): void {
   arrowEffects.push({ line, age: 0 })
 }
 
-function commitPendingLocalShot(elapsed: number): void {
+function updatePendingMultiplayerShot(elapsed: number, move: Vec2): void {
   const pending = pendingLocalShot
-  if (!pending || elapsed < pending.releaseAt) return
-  pendingLocalShot = null
-  if (localDownedFor > 0 || state.won || state.lost) return
-  if (pending.multiplayer) {
-    multiplayer.sendAction("shoot")
+  if (!pending) return
+  if (localDownedFor > 0 || state.won || state.lost) {
+    pendingLocalShot = null
+    localBowActionSuppressed = false
+    heroAttackStartedAt = 0
+    heroAttackUntil = 0
     return
   }
-
-  const guardId = shoot(state)
-  if (guardId === null) {
-    showToast(state.player.arrows === 0 ? "Your quiver is empty" : "No guard in range")
+  if (pending.cancelled) return
+  if (elapsed >= pending.releaseAt) {
+    if (!pending.releaseCuePlayed) {
+      pending.releaseCuePlayed = true
+      audioDirector.playCue("action.bow-release")
+    }
     return
   }
-  createArrowEffect(guardId)
-  showToast("Guard stunned")
+  if (!hasBowMovement(move)) return
+  pending.cancelled = true
+  localBowActionSuppressed = true
+  heroAttackStartedAt = 0
+  heroAttackUntil = 0
+  showToast("STAND STILL TO DRAW")
 }
 
 function showVanguardImpact(playerId?: string): void {
@@ -3630,6 +4018,10 @@ function showVanguardImpact(playerId?: string): void {
 function useSignature(): void {
   if (inHub) {
     showToast("Save your signature for the heist")
+    return
+  }
+  if (state.bowAction || pendingLocalShot || clock.elapsedTime < heroAttackUntil) {
+    showToast("Finish drawing the bow first")
     return
   }
   if (multiplayerActive) {
@@ -3659,7 +4051,9 @@ function useSignature(): void {
 }
 
 function isModalOpen(): boolean {
-  return !roleChoicePanel.classList.contains("hidden") || panelElements.some((panel) => !panel.classList.contains("hidden"))
+  return !roleChoicePanel.classList.contains("hidden")
+    || (inHub && !hubPanel.classList.contains("hidden"))
+    || panelElements.some((panel) => !panel.classList.contains("hidden"))
 }
 
 async function openLeaderboard(): Promise<void> {
@@ -3765,7 +4159,7 @@ function updateUI(): void {
     renderRescueOffer()
     objectiveElement.textContent = "Prepare at the campfire mission board"
     progressElement.style.width = "0%"
-    promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} opens the board · move with your mapped controls`
+    promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} ${hubPanel.classList.contains("hidden") ? "opens" : "closes"} the mission board`
     return
   }
   const signalPosition = latestMissionSnapshot?.layout.reinforcementSignalPosition ?? state.layout.reinforcementSignalPosition
@@ -3884,19 +4278,16 @@ function renderRegionMap(): void {
 function showEnding(won: boolean): void {
   if (ended) return
   ended = true
-  const title = intro.querySelector("h1")!
-  const copy = intro.querySelector("p")!
-  const eyebrow = intro.querySelector<HTMLElement>(".eyebrow")!
-  const small = intro.querySelector("small")!
   const mastery = calculateMastery(state)
-  eyebrow.textContent = won ? "THE FIRST SPARK" : "CAPTURED BY THE SHERIFF"
-  title.innerHTML = won ? "Sherwood<br /><em>rises.</em>" : "The rebellion<br /><em>needs another try.</em>"
-  copy.textContent = won
+  introEyebrow.textContent = won ? "THE FIRST SPARK" : "CAPTURED BY THE SHERIFF"
+  introTitle.innerHTML = won ? "Sherwood<br /><em>rises.</em>" : "The rebellion<br /><em>needs another try.</em>"
+  introCopy.textContent = won
     ? `${state.delivered} crown coin reached the people. Mastery grade ${mastery.grade} · ${mastery.score.toLocaleString()} points · ${Math.round(state.stats.elapsedSeconds)} seconds.`
     : `The guards caught ${characterName(state.player.characterId)}. Grade ${mastery.grade} · ${mastery.score.toLocaleString()} points. Change your route and time your signature.`
   startButton.innerHTML = "PLAY AGAIN <span>→</span>"
-  small.textContent = "RESTART THE 3D PROTOTYPE"
-  intro.classList.remove("closed")
+  introControls.textContent = "RETURN TO SHERWOOD AND TRY A NEW ROUTE"
+  intro.classList.add("ending")
+  setIntroVisible(true)
   roleChoicePanel.classList.add("hidden")
   roleChoicePanel.setAttribute("aria-hidden", "true")
   if (won && !resultSubmitted) {
@@ -3987,38 +4378,32 @@ function syncViews(elapsed: number, dt: number): void {
   const propDistance = renderProfile.tier === "degraded" ? 34 : 48
   for (const prop of medievalPropViews) prop.visible = Math.hypot(prop.position.x - player.x, prop.position.z - player.z) <= propDistance
   syncVillageLods(player)
-  const cameraToPlayer = { x: player.x - camera.position.x, z: player.z - camera.position.z }
-  const cameraToPlayerLengthSquared = cameraToPlayer.x ** 2 + cameraToPlayer.z ** 2
+  const cameraPosition = { x: camera.position.x, z: camera.position.z }
   for (const occluder of cameraOccluders) {
     const cameraToOccluder = { x: occluder.view.position.x - camera.position.x, z: occluder.view.position.z - camera.position.z }
     const cameraDistance = Math.hypot(cameraToOccluder.x, cameraToOccluder.z)
-    const segmentPosition = cameraToPlayerLengthSquared > 0
-      ? Math.max(0, Math.min(1, (cameraToOccluder.x * cameraToPlayer.x + cameraToOccluder.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
-      : 0
-    const sightline = {
-      x: camera.position.x + cameraToPlayer.x * segmentPosition,
-      z: camera.position.z + cameraToPlayer.z * segmentPosition,
-    }
+    const blocksCamera = blocksCameraSightline({
+      camera: cameraPosition,
+      focus: player,
+      occluder: occluder.view.position,
+      radius: occluder.radius,
+    })
     occluder.view.visible = occluder.view.userData.lodVisible !== false
       && cameraDistance > occluder.radius * 2.35
       && (occluder.maxDistance === undefined || Math.hypot(occluder.view.position.x - player.x, occluder.view.position.z - player.z) <= occluder.maxDistance)
-      && !(segmentPosition > 0.05 && segmentPosition < 0.95
-      && Math.hypot(occluder.view.position.x - sightline.x, occluder.view.position.z - sightline.z) < occluder.radius)
+      && !blocksCamera
   }
   const dirtyTreeBatches = new Set<THREE.InstancedMesh>()
   for (const tree of authoredTreeInstances) {
     const playerDistance = Math.hypot(tree.x - player.x, tree.z - player.z)
     const cameraToTree = { x: tree.x - camera.position.x, z: tree.z - camera.position.z }
     const cameraDistance = Math.hypot(cameraToTree.x, cameraToTree.z)
-    const segmentPosition = cameraToPlayerLengthSquared > 0
-      ? Math.max(0, Math.min(1, (cameraToTree.x * cameraToPlayer.x + cameraToTree.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
-      : 0
-    const sightline = {
-      x: camera.position.x + cameraToPlayer.x * segmentPosition,
-      z: camera.position.z + cameraToPlayer.z * segmentPosition,
-    }
-    const blocksCamera = segmentPosition > 0.05 && segmentPosition < 0.95
-      && Math.hypot(tree.x - sightline.x, tree.z - sightline.z) < tree.radius
+    const blocksCamera = blocksCameraSightline({
+      camera: cameraPosition,
+      focus: player,
+      occluder: tree,
+      radius: tree.radius,
+    })
     const hidden = playerDistance > treeDistance || cameraDistance <= tree.radius * 2.35 || blocksCamera
     if (hidden === tree.hidden) continue
     tree.hidden = hidden
@@ -4040,10 +4425,13 @@ function syncViews(elapsed: number, dt: number): void {
   const playerMoving = Math.hypot(dx, dz) > 0.001
   if (playerMoving) playerView.rotation.y = Math.atan2(dx, dz)
   lastPlayerPosition = { ...player }
-  const playerAction: HeroAction = elapsed < heroSignatureUntil
-    ? "signature"
-    : elapsed < heroAttackUntil
-      ? "attack"
+  const soloBowActionProgress = !multiplayerActive && state.bowAction
+    ? THREE.MathUtils.clamp(state.bowAction.elapsedSeconds / BOW_TOTAL_SECONDS, 0, 1)
+    : null
+  const playerAction: HeroAction = soloBowActionProgress !== null || elapsed < heroAttackUntil
+    ? "attack"
+    : elapsed < heroSignatureUntil
+      ? "signature"
       : "idle"
   const playerActionStartedAt = playerAction === "signature"
     ? heroSignatureStartedAt
@@ -4054,7 +4442,9 @@ function syncViews(elapsed: number, dt: number): void {
     elapsed,
     moving: playerMoving,
     action: playerAction,
-    actionProgress: normalizedHeroActionProgress(elapsed, playerActionStartedAt, playerAction),
+    actionProgress: playerAction === "attack" && soloBowActionProgress !== null
+      ? soloBowActionProgress
+      : normalizedHeroActionProgress(elapsed, playerActionStartedAt, playerAction),
     downed: localDownedFor > 0,
     motionScale: renderProfile.motionScale,
   })
@@ -4177,7 +4567,6 @@ function animate(): void {
   const dt = Math.min(clock.getDelta(), 0.05)
   const elapsed = clock.elapsedTime
   pollControllerActions()
-  if (running) commitPendingLocalShot(elapsed)
   if (running && isModalOpen()) {
     syncViews(elapsed, dt)
     renderer.render(scene, camera)
@@ -4185,6 +4574,7 @@ function animate(): void {
   }
   if (running) {
     const move = getMoveInput()
+    if (multiplayerActive) updatePendingMultiplayerShot(elapsed, move)
     let events: string[] = []
     if (inPublicHub) {
       multiplayer.sendHubMove(move)
@@ -4207,14 +4597,44 @@ function animate(): void {
       multiplayer.sendInput(move)
       predictMultiplayerMovement(move, dt)
       state.stats.elapsedSeconds += dt
+      state.bowCooldown = Math.max(0, state.bowCooldown - dt)
     } else {
       events = updateSimulation(state, { move }, dt)
     }
     for (const event of events) {
-      if (event === "player-hit") showToast("The Sheriff strikes!")
-      if (event === "cart-ready") showToast("A new tax cart has entered Sherwood")
-      if (event === "objective-found") showToast("THE SHERIFF'S SHIPMENT — FOUND")
-      if (event === "search-reinforced") showToast(`SEARCH DELAY — SHERIFF PRESSURE ${state.searchPressure}/3`)
+      if (event === "bow-cancelled") {
+        heroAttackStartedAt = 0
+        heroAttackUntil = 0
+        showToast("STAND STILL TO DRAW")
+      }
+      if (event === "bow-missed") {
+        audioDirector.playCue("action.bow-release")
+        showToast("SHOT MISSED — ARROW SPENT")
+      }
+      if (event.startsWith("bow-hit:")) {
+        const guardId = Number(event.slice("bow-hit:".length))
+        if (Number.isInteger(guardId)) createArrowEffect(guardId)
+        audioDirector.playCue("action.bow-release")
+        audioDirector.playCue("action.arrow-impact")
+        showToast("Guard stunned")
+      }
+      if (event === "player-hit") {
+        showToast("The Sheriff strikes!", { channel: "threat", priority: "important", cue: "action.player-hit" })
+      }
+      if (event === "cart-ready") {
+        showToast("A new tax cart has entered Sherwood", { channel: "objective", priority: "important", cue: "ui.notice" })
+      }
+      if (event === "objective-found") {
+        showToast("THE SHERIFF'S SHIPMENT — FOUND", { channel: "objective", priority: "important", cue: "ui.confirm" })
+      }
+      if (event === "search-reinforced") {
+        showToast(`SEARCH DELAY — SHERIFF PRESSURE ${state.searchPressure}/3`, {
+          channel: "threat",
+          priority: "critical",
+          cue: "world.reinforcement",
+          lifetimeSeconds: 4,
+        })
+      }
     }
     updateUI()
     if (toastTimer > 0) {
@@ -4223,6 +4643,7 @@ function animate(): void {
     }
     if ((state.won || state.lost) && !multiplayerActive) showEnding(state.won)
   }
+  syncAdaptiveMusic()
   syncViews(elapsed, dt)
   renderer.render(scene, camera)
 }
@@ -4268,33 +4689,63 @@ function sendSupportAction(action: "revive" | "transfer_loot"): void {
 }
 
 startButton.addEventListener("click", () => {
+  if (ended) return
   if (!canEnterSherwood()) {
     accessStatus.textContent = "Buy a 30-day token pass before entering Sherwood."
     return
   }
-  runCampfireTutorialGate(() => enterHub(false), startButton, "ENTER CAMPFIRE")
+  enterHub(false)
 })
 
 rejoinRoomButton.addEventListener("click", () => {
   const code = localStorage.getItem("sherwood:last-room-code")
   const displayName = playerNameInput.value.trim().slice(0, 20)
   if (!code || !displayName) return
-  runCampfireTutorialGate(() => multiplayer.joinRoom(code, displayName, selectedCharacter), rejoinRoomButton, "REJOIN BAND")
+  friendsDisclosure.open = true
+  friendsSummary.textContent = `REJOIN BAND ${code}`
+  roomCodeInput.value = code
+  roomLobby.classList.remove("hidden")
+  lobbyStatus.textContent = `Rejoining band ${code}…`
+  readyButton.disabled = true
+  queueMicrotask(() => lobbyStatus.scrollIntoView({ block: "nearest" }))
+  localStorage.setItem("sherwood-rebellion:player-name", displayName)
+  multiplayer.joinRoom(code, displayName, selectedCharacter)
 })
 
 joinPublicHubButton.addEventListener("click", () => void (async () => {
-  const social = await loadSocialState().catch(() => null)
-  if (!social?.session) {
-    openPanel(socialPanel, joinPublicHubButton)
-    socialStatus.textContent = "Sign in with Robinhood Wallet before opting into the public camp."
-    await refreshSocialPanel()
-    return
+  if (publicHubEntryPending || isMobileSpectator()) return
+  publicHubEntryPending = true
+  joinPublicHubButton.disabled = true
+  joinPublicHubButton.textContent = "CHECKING WALLET…"
+  entryAccessNote.textContent = "CHECKING PUBLIC-CAMP IDENTITY…"
+  try {
+    let session = await currentWalletSession()
+    if (!session || !accessState.authenticated) {
+      entryAccessNote.textContent = "SIGN ROBINHOOD WALLET · THIS DOES NOT AUTHORIZE A TRANSACTION"
+      await connectWalletAndRefresh()
+      session = await currentWalletSession()
+    }
+    if (!session || !accessState.authenticated) throw new Error("Wallet sign-in did not create a current Sherwood session")
+
+    void loadSocialState().then((social) => { currentSocial = social }).catch(() => {
+      socialStatus.textContent = "Public matchmaking is available. Friends and saved identity are temporarily offline."
+    })
+
+    const displayName = playerNameInput.value.trim().slice(0, 20)
+    if (!displayName) throw new Error("Choose an outlaw name before entering the public camp")
+    localStorage.setItem("sherwood-rebellion:player-name", displayName)
+    joinPublicHubButton.textContent = "ENTERING PUBLIC CAMP…"
+    entryAccessNote.textContent = "ENTERING THE PUBLIC CAMP…"
+    multiplayer.joinPublicHub(displayName, selectedCharacter)
+  } catch (error) {
+    publicHubEntryPending = false
+    const message = error instanceof Error ? error.message : "Unable to enter the public camp"
+    entryAccessNote.textContent = message.toUpperCase()
+    showToast(message)
+    const session = await currentWalletSession().catch(() => null)
+    refreshPublicEntryAvailability()
+    renderPublicEntryAuthState(Boolean(session && accessState.authenticated))
   }
-  currentSocial = social
-  const displayName = playerNameInput.value.trim().slice(0, 20)
-  if (!displayName) return
-  localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  runCampfireTutorialGate(() => multiplayer.joinPublicHub(displayName, selectedCharacter), joinPublicHubButton, "ENTER CAMPFIRE")
 })())
 
 createRoomButton.addEventListener("click", () => {
@@ -4304,7 +4755,7 @@ createRoomButton.addEventListener("click", () => {
     return
   }
   localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  runCampfireTutorialGate(() => multiplayer.createRoom(displayName, selectedCharacter), createRoomButton, "FORM BAND")
+  multiplayer.createRoom(displayName, selectedCharacter)
 })
 
 joinRoomButton.addEventListener("click", () => {
@@ -4316,11 +4767,12 @@ joinRoomButton.addEventListener("click", () => {
     return
   }
   localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  runCampfireTutorialGate(() => multiplayer.joinRoom(code, displayName, selectedCharacter), joinRoomButton, "JOIN BAND")
+  multiplayer.joinRoom(code, displayName, selectedCharacter)
 })
 
-readyButton.addEventListener("click", () => requestMissionReady(readyButton))
-hubReady.addEventListener("click", () => requestMissionReady(hubReady))
+readyButton.addEventListener("click", requestMissionReady)
+hubReady.addEventListener("click", requestMissionReady)
+hubClose.addEventListener("click", () => setHubBoardOpen(false, true))
 hubRoles.forEach((button) => button.addEventListener("click", () => {
   const characterId = button.dataset.hubCharacter
   if (characterId !== "robin" && characterId !== "marian" && characterId !== "little-john" && characterId !== "much") return
@@ -4438,7 +4890,8 @@ publicHubLeave.addEventListener("click", () => {
   closeChatDrawer(false)
   renderChatChrome()
   publicHubPanel.classList.add("hidden")
-  intro.classList.remove("closed")
+  intro.classList.remove("ending")
+  setIntroVisible(true)
   running = false
   ensureRemotePlayers([])
   void syncPresence("available", null)
@@ -4467,6 +4920,8 @@ roleChoiceButtons.forEach((button) => button.addEventListener("click", () => {
 
 function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): void {
   if (selectedCharacter === characterId) {
+    refreshSelectedOutlawSummary()
+    if (!running) outlawDisclosure.open = false
     if (notifyServer && multiplayer.playerId) multiplayer.selectCharacter(characterId)
     return
   }
@@ -4483,12 +4938,15 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   playerView = createCharacter(selectedCharacter)
   scene.add(playerView)
   if (notifyServer && multiplayer.playerId) multiplayer.selectCharacter(selectedCharacter)
+  refreshSelectedOutlawSummary()
+  if (!running) outlawDisclosure.open = false
   updateUI()
 }
 
 helpButton.addEventListener("click", () => openPanel(helpPanel, helpButton))
 closeHelp.addEventListener("click", () => closePanel(helpPanel))
-replayTutorialButton.addEventListener("click", replayCurrentTutorial)
+introHelpButton.addEventListener("click", () => replayCurrentTutorial(introHelpButton))
+replayTutorialButton.addEventListener("click", () => replayCurrentTutorial(helpButton))
 closeTutorial.addEventListener("click", () => closePanel(tutorialPanel))
 tutorialBack.addEventListener("click", () => {
   if (!activeTutorialPlan || activeTutorialLessonIndex === 0) return
@@ -4573,6 +5031,7 @@ socialPresence.addEventListener("change", () => void updateSocialPresence(social
 }).catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to update presence" }))
 settingsButton.addEventListener("click", () => {
   renderBindingControls()
+  applyAudioSettings()
   openPanel(settingsPanel, settingsButton)
 })
 closeSettings.addEventListener("click", () => closePanel(settingsPanel))
@@ -4589,6 +5048,29 @@ gameplayAnalyticsSetting.addEventListener("change", () => {
     ? "Anonymous play diagnostics enabled on this device."
     : "Anonymous play diagnostics disabled on this device."
 })
+for (const input of audioLevelSettings) {
+  input.addEventListener("input", () => {
+    const bus = input.dataset.audioBus as AudioBusId
+    if (!AUDIO_BUS_IDS.includes(bus)) return
+    audioSettings.levels[bus] = Number(input.value) / 100
+    applyAudioSettings()
+  })
+  input.addEventListener("change", () => persistAudioSettings())
+}
+dynamicRangeSetting.addEventListener("change", () => {
+  audioSettings.dynamicRange = dynamicRangeSetting.value as DynamicRangePreset
+  persistAudioSettings()
+})
+monoAudioSetting.addEventListener("change", () => {
+  audioSettings.mono = monoAudioSetting.checked
+  persistAudioSettings()
+})
+audioPreview.addEventListener("click", () => {
+  audioPreview.disabled = true
+  void audioDirector.preview().then((played) => {
+    settingsStatus.textContent = played ? "Interface mix preview played." : "Browser audio is still blocked."
+  }).finally(() => { audioPreview.disabled = false })
+})
 resetSettings.addEventListener("click", () => {
   inputSettings = {
     ...DEFAULT_INPUT_SETTINGS,
@@ -4596,8 +5078,11 @@ resetSettings.addEventListener("click", () => {
     controller: { ...DEFAULT_INPUT_SETTINGS.controller },
     pointer: { ...DEFAULT_INPUT_SETTINGS.pointer },
   }
+  audioSettings = copyAudioSettings(DEFAULT_AUDIO_SETTINGS)
   capturingAction = null
-  persistInputSettings("Default controls restored.")
+  saveAudioSettings(localStorage, audioSettings)
+  applyAudioSettings()
+  persistInputSettings("Default controls and audio mix restored.")
   renderBindingControls()
 })
 
@@ -4641,9 +5126,14 @@ window.addEventListener("keydown", (event) => {
   const activePanel = !roleChoicePanel.classList.contains("hidden")
     ? roleChoicePanel
     : panelElements.find((panel) => !panel.classList.contains("hidden"))
+      ?? (inHub && !hubPanel.classList.contains("hidden") ? hubPanel : undefined)
+      ?? (!accessState.gateEnabled && !intro.classList.contains("closed") ? intro : undefined)
   if (event.code === "Tab" && activePanel) {
     const focusable = [...activePanel.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex='-1'])")]
-      .filter((element) => element.offsetParent !== null)
+      .filter((element) => {
+        const closedDisclosure = element.closest<HTMLDetailsElement>("details:not([open])")
+        return element.offsetParent !== null && (!closedDisclosure || closedDisclosure.firstElementChild === element)
+      })
     if (focusable.length > 0) {
       event.preventDefault()
       const current = focusable.indexOf(document.activeElement as HTMLElement)
@@ -4657,6 +5147,10 @@ window.addEventListener("keydown", (event) => {
   if (event.code === "Escape") {
     event.preventDefault()
     if (!roleChoicePanel.classList.contains("hidden")) return
+    if (inHub && !hubPanel.classList.contains("hidden")) {
+      setHubBoardOpen(false, true)
+      return
+    }
     if (!closeActivePanel() && running) openPanel(helpPanel, helpButton)
     return
   }
@@ -4665,7 +5159,10 @@ window.addEventListener("keydown", (event) => {
   const action = GAME_ACTIONS.find((candidate) => inputSettings.keyboard[candidate] === event.code)
   if (action && running) event.preventDefault()
   if (!running || event.repeat) return
-  if (isModalOpen()) return
+  if (isModalOpen()) {
+    if (inHub && !hubPanel.classList.contains("hidden") && action === "interact") handleInteraction()
+    return
+  }
   keys.add(event.code)
   if (action) performMappedAction(action)
 })
@@ -4706,8 +5203,26 @@ window.addEventListener("resize", () => {
 })
 
 window.addEventListener("blur", () => keys.clear())
-document.addEventListener("visibilitychange", () => diagnosticReporter?.resetFrameClock())
-window.addEventListener("beforeunload", () => unsubscribeLeaderboard?.())
+window.addEventListener("pointerdown", () => {
+  void audioDirector.unlock().then((unlocked) => {
+    if (unlocked) syncAdaptiveMusic()
+  })
+}, { once: true, passive: true })
+window.addEventListener("keydown", () => {
+  void audioDirector.unlock().then((unlocked) => {
+    if (unlocked) syncAdaptiveMusic()
+  })
+}, { once: true })
+document.addEventListener("visibilitychange", () => {
+  diagnosticReporter?.resetFrameClock()
+  if (document.hidden) void audioDirector.suspend()
+  else void audioDirector.resume()
+})
+window.addEventListener("beforeunload", () => {
+  unsubscribeLeaderboard?.()
+  unsubscribePresentationEvents()
+  void audioDirector.destroy()
+})
 renderer.domElement.addEventListener("webglcontextlost", (event) => {
   event.preventDefault()
   void diagnosticReporter?.report("webgl_context_lost")
@@ -4717,6 +5232,9 @@ renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sh
 
 renderBindingControls()
 applyInputSettings()
+applyAudioSettings()
+refreshSelectedOutlawSummary()
+setIntroVisible(true)
 updateMissionDebug()
 renderChatChrome()
 void refreshAccessPanel()

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, heroActionEnvelope, normalizedHeroActionProgress, sampleHeroAnimation } from "./character-animation"
+import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, heroActionEnvelope, heroBowActionEnvelope, normalizedHeroActionProgress, sampleHeroAnimation } from "./character-animation"
 
 const heroes = ["robin", "marian", "little-john", "much"] as const
 
@@ -11,7 +11,13 @@ describe("procedural hero animation sampler", () => {
     expect(heroActionEnvelope(0)).toBe(0)
     expect(heroActionEnvelope(0.5)).toBe(1)
     expect(heroActionEnvelope(1)).toBe(0)
-    expect(HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS).toBeCloseTo(0.12)
+    expect(HERO_ACTION_DURATIONS.attack).toBe(1)
+    expect(HERO_ACTION_DURATIONS.attack * HERO_ATTACK_RELEASE_PROGRESS).toBeCloseTo(0.6)
+    expect(heroBowActionEnvelope(0)).toBe(0)
+    expect(heroBowActionEnvelope(0.3)).toBeCloseTo(0.5)
+    expect(heroBowActionEnvelope(0.6)).toBe(1)
+    expect(heroBowActionEnvelope(0.8)).toBeCloseTo(0.5)
+    expect(heroBowActionEnvelope(1)).toBe(0)
   })
 
   it("gives every outlaw a signature distinct from their normal attack", () => {
@@ -24,7 +30,7 @@ describe("procedural hero animation sampler", () => {
 
   it("keeps semantic actions readable when reduced motion disables ambient oscillation", () => {
     const idle = sampleHeroAnimation({ characterId: "robin", elapsed: 0.4, moving: true, motionScale: 0 })
-    const attack = sampleHeroAnimation({ characterId: "robin", elapsed: 0.4, moving: true, action: "attack", actionProgress: 0.5, motionScale: 0 })
+    const attack = sampleHeroAnimation({ characterId: "robin", elapsed: 0.4, moving: true, action: "attack", actionProgress: 0.6, motionScale: 0 })
     expect(idle.leftLeg.x).toBe(0)
     expect(attack.bowDraw).toBe(1)
     expect(Math.abs(attack.leftArm.x)).toBeGreaterThan(1)

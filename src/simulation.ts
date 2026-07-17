@@ -7,7 +7,17 @@ import {
   stepGuardPatrol,
 } from "../shared/guard-rules"
 import { resolveSherwoodCombinedMovement } from "../shared/world-collisions"
-import { regionCellIndexAt, regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionCellIndexAt, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionalizeFeasibleMissionDefinition } from "../shared/regional-map-generator"
+import {
+  BOW_COOLDOWN_SECONDS,
+  BOW_DRAW_SECONDS,
+  BOW_RANGE,
+  BOW_TOTAL_SECONDS,
+  SIGNATURE_ACTION_SECONDS,
+  hasBowMovement,
+  type BowActionPhase,
+} from "../shared/archery"
 
 export interface Vec2 { x: number; z: number }
 
@@ -54,16 +64,26 @@ export interface GameState {
   cartCoin: number
   cartRefill: number
   bowCooldown: number
+  bowAction: SoloBowAction | null
+  signatureActionRemaining: number
   stats: MissionStats
   won: boolean
   lost: boolean
 }
 
+export interface SoloBowAction {
+  phase: BowActionPhase
+  elapsedSeconds: number
+  targetGuardId: number
+}
+
+export type SoloBowStartResult = "started" | "moving" | "unavailable" | "no-target"
+
 export interface InputState {
   move: Vec2
 }
 
-const DEFAULT_SOLO_MISSION = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, stableSeed("solo-default"))
+const DEFAULT_SOLO_MISSION = regionalizeFeasibleMissionDefinition(PEOPLES_PURSE_MISSION, stableSeed("solo-default"))
 export const CART_POSITION: Vec2 = { ...DEFAULT_SOLO_MISSION.layout.objectivePosition }
 export const VILLAGE_POSITION: Vec2 = { ...DEFAULT_SOLO_MISSION.layout.campfirePosition }
 export const DELIVERY_TARGET = PEOPLES_PURSE_MISSION.rewards.deliveryTarget
@@ -75,7 +95,7 @@ export function getMaxArrows(characterId: CharacterId): number {
 }
 
 export function createInitialState(characterId: CharacterId = "robin", seed = stableSeed("solo-default")): GameState {
-  const regional = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed)
+  const regional = regionalizeFeasibleMissionDefinition(PEOPLES_PURSE_MISSION, seed)
   return {
     layout: regional.layout,
     exploredCellIndices: [regional.layout.campfireCell.index],
@@ -98,6 +118,8 @@ export function createInitialState(characterId: CharacterId = "robin", seed = st
     cartCoin: 120,
     cartRefill: 0,
     bowCooldown: 0,
+    bowAction: null,
+    signatureActionRemaining: 0,
     stats: {
       elapsedSeconds: 0,
       distanceTravelled: 0,
@@ -125,7 +147,11 @@ function moveToward(position: Vec2, target: Vec2, speed: number, dt: number): vo
 }
 
 export function updateSimulation(state: GameState, input: InputState, dt: number): string[] {
-  if (state.won || state.lost) return []
+  if (state.won || state.lost) {
+    state.bowAction = null
+    state.signatureActionRemaining = 0
+    return []
+  }
   const events: string[] = []
   const player = state.player
   state.stats.elapsedSeconds += dt
@@ -153,7 +179,10 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
     }
   }
 
-  const moveLength = Math.hypot(input.move.x, input.move.z)
+  const cancelsBowDraw = state.bowAction?.phase === "drawing" && hasBowMovement(input.move)
+  if (cancelsBowDraw) events.push(...stepSoloBowAction(state, input.move, 0))
+  const movementInput = cancelsBowDraw ? { x: 0, z: 0 } : input.move
+  const moveLength = Math.hypot(movementInput.x, movementInput.z)
   let playerDisplacement: Vec2 = { x: 0, z: 0 }
   if (moveLength > 0.001) {
     const speed = player.characterId === "marian" ? 6.75 : player.characterId === "little-john" ? 5.9 : 6.2
@@ -162,8 +191,8 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       : Math.max(0.68, 1 - player.loot / 600)
     const movement = speed * lootPenalty * dt
     playerDisplacement = {
-      x: (input.move.x / moveLength) * movement,
-      z: (input.move.z / moveLength) * movement,
+      x: (movementInput.x / moveLength) * movement,
+      z: (movementInput.z / moveLength) * movement,
     }
     state.stats.distanceTravelled += movement
   }
@@ -179,6 +208,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
 
   player.invulnerableFor = Math.max(0, player.invulnerableFor - dt)
   player.signatureCooldown = Math.max(0, player.signatureCooldown - dt)
+  state.signatureActionRemaining = Math.max(0, state.signatureActionRemaining - dt)
   player.veilFor = Math.max(0, player.veilFor - dt)
   state.bowCooldown = Math.max(0, state.bowCooldown - dt)
   state.cartRefill = Math.max(0, state.cartRefill - dt)
@@ -251,10 +281,13 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       events.push("player-hit")
       if (player.health <= 0) {
         state.lost = true
+        state.bowAction = null
+        state.signatureActionRemaining = 0
         events.push("lost")
       }
     }
   }
+  if (!cancelsBowDraw) events.push(...stepSoloBowAction(state, input.move, dt))
   return events
 }
 
@@ -293,6 +326,8 @@ export function interact(state: GameState): string {
     state.player.arrows = getMaxArrows(state.player.characterId)
     if (state.delivered >= DELIVERY_TARGET) {
       state.won = true
+      state.bowAction = null
+      state.signatureActionRemaining = 0
       return "won"
     }
     return "delivered"
@@ -300,30 +335,75 @@ export function interact(state: GameState): string {
   return "none"
 }
 
-export function shoot(state: GameState): number | null {
-  if (state.won || state.lost || state.bowCooldown > 0 || state.player.arrows <= 0) return null
-  const candidates = state.guards
+function nearestBowTarget(state: GameState): number | null {
+  return state.guards
     .map((guard) => ({ guard, range: distance(guard.position, state.player.position) }))
-    .filter(({ range }) => range < 9)
-    .sort((a, b) => a.range - b.range)
-  if (!candidates[0]) return null
-  candidates[0].guard.stunnedFor = 3.2
+    .filter(({ guard, range }) => guard.stunnedFor <= 0 && range <= BOW_RANGE)
+    .sort((a, b) => a.range - b.range)[0]?.guard.id ?? null
+}
+
+export function acquireBowTarget(state: GameState): number | null {
+  if (state.won || state.lost || state.bowCooldown > 0 || state.player.arrows <= 0) return null
+  return nearestBowTarget(state)
+}
+
+export function beginSoloBowDraw(state: GameState, move: Vec2): SoloBowStartResult {
+  if (hasBowMovement(move)) return "moving"
+  if (state.won || state.lost || state.bowCooldown > 0 || state.player.arrows <= 0 || state.bowAction || state.signatureActionRemaining > 0) return "unavailable"
+  const targetGuardId = acquireBowTarget(state)
+  if (targetGuardId === null) return "no-target"
+  state.bowAction = { phase: "drawing", elapsedSeconds: 0, targetGuardId }
+  return "started"
+}
+
+export function stepSoloBowAction(state: GameState, move: Vec2, dt: number): string[] {
+  const action = state.bowAction
+  if (!action) return []
+  if (state.won || state.lost) {
+    state.bowAction = null
+    return []
+  }
+  if (action.phase === "drawing" && hasBowMovement(move)) {
+    state.bowAction = null
+    return ["bow-cancelled"]
+  }
+
+  const previousElapsed = action.elapsedSeconds
+  action.elapsedSeconds = Math.min(BOW_TOTAL_SECONDS, previousElapsed + Math.max(0, Number.isFinite(dt) ? dt : 0))
+  const events: string[] = []
+  if (action.phase === "drawing" && previousElapsed < BOW_DRAW_SECONDS && action.elapsedSeconds >= BOW_DRAW_SECONDS) {
+    action.phase = "recovery"
+    const guardId = releaseSoloBowShot(state, action.targetGuardId)
+    events.push(guardId === null ? "bow-missed" : `bow-hit:${guardId}`)
+  }
+  if (action.elapsedSeconds >= BOW_TOTAL_SECONDS) state.bowAction = null
+  return events
+}
+
+function releaseSoloBowShot(state: GameState, lockedTargetId: number): number | null {
+  if (state.won || state.lost || state.bowCooldown > 0 || state.player.arrows <= 0) return null
   state.player.arrows -= 1
-  state.bowCooldown = 0.7
+  state.bowCooldown = BOW_COOLDOWN_SECONDS
   state.stats.shotsFired += 1
+  const target = state.guards.find((guard) => guard.id === lockedTargetId
+    && guard.stunnedFor <= 0
+    && distance(guard.position, state.player.position) <= BOW_RANGE)
+  if (!target) return null
+  target.stunnedFor = 3.2
   state.stats.shotsHit += 1
-  return candidates[0].guard.id
+  return target.id
 }
 
 export function activateSignature(state: GameState): { event: string; guardIds: number[] } {
   const player = state.player
-  if (state.won || state.lost || player.signatureCooldown > 0) return { event: "signature-unavailable", guardIds: [] }
+  if (state.won || state.lost || state.bowAction || state.signatureActionRemaining > 0 || player.signatureCooldown > 0) return { event: "signature-unavailable", guardIds: [] }
   player.signatureCooldown = player.characterId === "marian" ? 14 : 11
   state.stats.signatureUses += 1
 
   if (player.characterId === "marian") {
     player.veilFor = 6
     state.heat = Math.max(0, state.heat - 28)
+    state.signatureActionRemaining = SIGNATURE_ACTION_SECONDS
     return { event: "marian-veil", guardIds: [] }
   }
 
@@ -338,6 +418,7 @@ export function activateSignature(state: GameState): { event: string; guardIds: 
     }
     for (const { guard } of targets) guard.stunnedFor = 5
     player.signatureCooldown = 20
+    state.signatureActionRemaining = SIGNATURE_ACTION_SECONDS
     return { event: "little-john-sweep", guardIds: targets.map(({ guard }) => guard.id) }
   }
 
@@ -354,6 +435,7 @@ export function activateSignature(state: GameState): { event: string; guardIds: 
     }
     state.traps.push({ id: state.stats.signatureUses, position: { ...player.position }, remaining: 30 })
     player.signatureCooldown = 18
+    state.signatureActionRemaining = SIGNATURE_ACTION_SECONDS
     return { event: "much-snare", guardIds: [] }
   }
 
@@ -363,6 +445,7 @@ export function activateSignature(state: GameState): { event: string; guardIds: 
     .sort((a, b) => a.range - b.range)
     .slice(0, 2)
   for (const { guard } of targets) guard.stunnedFor = Math.max(guard.stunnedFor, 2.4)
+  if (targets.length > 0) state.signatureActionRemaining = SIGNATURE_ACTION_SECONDS
   return { event: targets.length > 0 ? "robin-volley" : "volley-missed", guardIds: targets.map(({ guard }) => guard.id) }
 }
 

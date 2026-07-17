@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest"
-import { PROTOCOL_VERSION, parseClientMessage } from "./protocol"
+import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "./protocol"
 
 const handshake = { version: PROTOCOL_VERSION, buildId: "test-build", productAnalytics: true } as const
 
 describe("Merry Band protocol", () => {
+  it("requires the authoritative bow-action snapshot protocol", () => {
+    expect(PROTOCOL_VERSION).toBe(15)
+  })
+
+  it("carries authoritative bow cooldown seconds in mission snapshots", () => {
+    type SnapshotPlayer = Extract<ServerMessage, { type: "snapshot" }>["players"][number]
+    const bowCooldown: SnapshotPlayer["bowCooldown"] = 0.3
+    expect(bowCooldown).toBe(0.3)
+  })
+
   it("accepts a versioned create-room message", () => {
     expect(parseClientMessage({ type: "create_room", ...handshake, displayName: "Oakheart", characterId: "marian" })).toEqual({
       type: "create_room",
@@ -68,6 +78,16 @@ describe("Merry Band protocol", () => {
     expect(parseClientMessage({ type: "redistribution_vote", choice: "personal_wallet" })).toBeNull()
     expect(parseClientMessage({ type: "moderation", action: "report", targetPlayerId: "f7870cde-771f-4d25-aa85-85c20c862a49", reason: "griefing" })).not.toBeNull()
     expect(parseClientMessage({ type: "moderation", action: "report", targetPlayerId: "f7870cde-771f-4d25-aa85-85c20c862a49", reason: "free-text" })).toBeNull()
+  })
+
+  it("accepts a bounded action request id for authoritative shot acknowledgement", () => {
+    expect(parseClientMessage({ type: "action", action: "shoot", requestId: 42 })).toEqual({
+      type: "action",
+      action: "shoot",
+      requestId: 42,
+    })
+    expect(parseClientMessage({ type: "action", action: "shoot", requestId: -1 })).toBeNull()
+    expect(parseClientMessage({ type: "action", action: "shoot", requestId: 2_147_483_648 })).toBeNull()
   })
 
   it("normalizes bounded chat sends and accepts message-id reports with fixed reasons", () => {

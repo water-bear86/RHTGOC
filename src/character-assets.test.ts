@@ -27,7 +27,7 @@ function createAuthoredAsset(): GLTF {
   const clipDurations = {
     Idle: 2,
     Walk: 1.2,
-    Attack: 0.8,
+    Attack: 1,
     Signature: 1.6,
   } as const
   return {
@@ -104,19 +104,19 @@ describe("authored character visuals", () => {
       const actions = authoredRuntime(visual).actions
 
       poseCharacterVisual(visual, { elapsed: 10, moving: false, action: "attack", actionProgress: 0.25 })
-      expect(actions.attack.time).toBeCloseTo(0.2, 8)
+      expect(actions.attack.time).toBeCloseTo(0.25, 8)
       expect(actions.attack.paused).toBe(true)
 
       // Wall-clock time cannot advance a one-shot while actionProgress is fixed.
       poseCharacterVisual(visual, { elapsed: 999, moving: false, action: "attack", actionProgress: 0.25 })
-      expect(actions.attack.time).toBeCloseTo(0.2, 8)
+      expect(actions.attack.time).toBeCloseTo(0.25, 8)
       poseCharacterVisual(visual, { elapsed: 1_000, moving: false, action: "attack", actionProgress: 0.75 })
-      expect(actions.attack.time).toBeCloseTo(0.6, 8)
+      expect(actions.attack.time).toBeCloseTo(0.75, 8)
 
       poseCharacterVisual(visual, { elapsed: 1_001, moving: false, action: "signature", actionProgress: 0.5 })
       expect(actions.signature.time).toBeCloseTo(0.8, 8)
       expect(actions.signature.paused).toBe(true)
-      expect(actions.attack.time).toBeCloseTo(0.6, 8)
+      expect(actions.attack.time).toBeCloseTo(0.75, 8)
       expect(authoredRuntime(visual).activeState).toBe("signature")
 
       poseCharacterVisual(visual, { elapsed: 1_002, moving: false, action: "signature", actionProgress: 2 })
@@ -133,7 +133,7 @@ describe("authored character visuals", () => {
     visuals.forEach(disposeCharacterVisual)
   })
 
-  it("keeps every bow string synchronized to the short draw and release seam", async () => {
+  it("keeps every bow string synchronized to the full draw and release seam", async () => {
     vi.spyOn(GLTFLoader.prototype, "loadAsync").mockImplementation(async () => createAuthoredAsset())
     const visuals = authoredHeroes.map(({ id }) => createCharacterVisual(id))
     await Promise.all(visuals.map((visual) => waitForCharacterVisual(visual)))
@@ -145,18 +145,18 @@ describe("authored character visuals", () => {
 
       poseCharacterVisual(visual, { elapsed: 0.1, moving: false, action: "attack", actionProgress: 0 })
       expect(draw()).toBe(0)
-      poseCharacterVisual(visual, { elapsed: 0.2, moving: false, action: "attack", actionProgress: 0.075 })
+      poseCharacterVisual(visual, { elapsed: 0.2, moving: false, action: "attack", actionProgress: 0.3 })
       expect(draw()).toBeCloseTo(0.5, 8)
-      poseCharacterVisual(visual, { elapsed: 0.3, moving: false, action: "attack", actionProgress: 0.15 })
+      poseCharacterVisual(visual, { elapsed: 0.3, moving: false, action: "attack", actionProgress: 0.6 })
       expect(draw()).toBe(1)
-      poseCharacterVisual(visual, { elapsed: 0.4, moving: false, action: "attack", actionProgress: 0.17125 })
+      poseCharacterVisual(visual, { elapsed: 0.4, moving: false, action: "attack", actionProgress: 0.61 })
       expect(draw()).toBeCloseTo(0.5, 8)
-      poseCharacterVisual(visual, { elapsed: 0.5, moving: false, action: "attack", actionProgress: 0.1925 })
+      poseCharacterVisual(visual, { elapsed: 0.5, moving: false, action: "attack", actionProgress: 0.62 })
       expect(draw()).toBe(0)
       poseCharacterVisual(visual, { elapsed: 0.6, moving: false, action: "attack", actionProgress: 0.8 })
       expect(draw()).toBe(0)
 
-      poseCharacterVisual(visual, { elapsed: 0.7, moving: false, action: "attack", actionProgress: 0.15 })
+      poseCharacterVisual(visual, { elapsed: 0.7, moving: false, action: "attack", actionProgress: 0.6 })
       expect(draw()).toBe(1)
       poseCharacterVisual(visual, { elapsed: 0.8, moving: false, action: "signature", actionProgress: 0.15 })
       expect(draw()).toBe(id === "robin" ? 1 : 0)
@@ -171,7 +171,7 @@ describe("authored character visuals", () => {
         elapsed: 1,
         moving: false,
         action: "attack",
-        actionProgress: 0.15,
+        actionProgress: 0.6,
         downed: true,
       })
       expect(draw()).toBe(0)

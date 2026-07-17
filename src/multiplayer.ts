@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MerryBandState, type MissionSnapshot, type PingKind, type PublicHubPlayer, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState, type VoteChoice } from "../shared/protocol"
+import { PROTOCOL_VERSION, type BandContribution, type BowActionPhase, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MerryBandState, type MissionSnapshot, type PingKind, type PlayerAction, type PublicHubPlayer, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState, type VoteChoice } from "../shared/protocol"
 import type { Vec2 } from "./simulation"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import type { SherwoodSeasonSnapshot } from "../shared/sherwood-season"
@@ -12,7 +12,7 @@ import type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "
 export interface MultiplayerEvents {
   onWelcome?: (playerId: string, roomCode: string) => void
   onRoomState?: (roomCode: string, phase: "lobby" | "mission", players: RoomPlayer[], missionSlug: string, village: VillageState, lastResult: LastMissionResult | null, selectedRotationId: string | null, rotationsPaused: boolean, rotations: SheriffRotation[], upcomingRotations: SheriffRotation[], rescueOffer: RescueOffer | null, contributions: BandContribution[], selectedContributionIds: string[], season: SherwoodSeasonSnapshot | null, band: MerryBandState | null) => void
-  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount">>, mission: MissionSnapshot) => void
+  onSnapshot?: (tick: number, players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "health" | "arrows" | "loot" | "downedFor" | "bowCooldown" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount" | "bowAction">>, mission: MissionSnapshot) => void
   onError?: (message: string) => void
   onConnection?: (connected: boolean) => void
   onHubWelcome?: (instanceId: string, participantId: string, capacity: number) => void
@@ -21,11 +21,25 @@ export interface MultiplayerEvents {
   onChatHistory?: (channel: ChatChannel, messages: ChatMessage[]) => void
   onChatMessage?: (message: ChatMessage) => void
   onChatError?: (channel: ChatChannel, code: ChatErrorCode, message: string, retryAfterMs?: number) => void
+  onActionResult?: (requestId: number, action: PlayerAction, accepted: boolean) => void
+}
+
+export type BowPredictionSnapshotDecision = "wait" | "suppress-draw" | "reconcile" | "clear"
+
+export function classifyBowPredictionSnapshot(
+  phase: BowActionPhase | null,
+  state: { accepted: boolean; awaitingAck: boolean; serverActionSeen: boolean; suppressed: boolean },
+): BowPredictionSnapshotDecision {
+  if (state.awaitingAck) return "wait"
+  if (phase === "drawing" && state.suppressed) return "suppress-draw"
+  if (phase !== null) return "reconcile"
+  return state.accepted || state.serverActionSeen ? "clear" : "wait"
 }
 
 export class MultiplayerClient {
   private socket: WebSocket | null = null
   private sequence = 0
+  private actionSequence = 0
   private lastInputAt = 0
   private pendingAction: (() => void) | null = null
   private reconnectTimer: number | null = null
@@ -63,13 +77,15 @@ export class MultiplayerClient {
     this.reconnectSession = null
     this.hubSession = { displayName, characterId }
     this.pendingIdentity = { displayName, characterId }
-    void this.getAccessToken().then((accessToken) => {
-      if (!accessToken) {
-        this.events.onError?.("Sign in before entering the public camp")
-        return
-      }
-      this.connect(() => this.send({ type: "join_public_hub", ...this.handshake(), displayName, characterId, accessToken }))
-    })
+    void this.getAccessToken()
+      .then((accessToken) => {
+        if (!accessToken) {
+          this.events.onError?.("Sign in before entering the public camp")
+          return
+        }
+        this.connect(() => this.send({ type: "join_public_hub", ...this.handshake(), displayName, characterId, accessToken }))
+      })
+      .catch((error: unknown) => this.events.onError?.(error instanceof Error ? error.message : "Unable to verify Sherwood sign-in"))
   }
 
   setHubIntent(looking: boolean, targetPreference: PublicHubPlayer["targetPreference"], desiredPartySize: 2 | 3 | 4): void { this.send({ type: "hub_intent", looking, targetPreference, desiredPartySize }) }
@@ -170,8 +186,11 @@ export class MultiplayerClient {
     this.send({ type: "input", sequence: this.sequence, move: normalized })
   }
 
-  sendAction(action: "interact" | "shoot" | "signature" | "revive" | "transfer_loot", targetPlayerId?: string): void {
-    this.send({ type: "action", action, targetPlayerId })
+  sendAction(action: PlayerAction, targetPlayerId?: string): number | null {
+    if (action === "shoot") this.stopMovement()
+    const requestId = action === "shoot" ? ++this.actionSequence : undefined
+    const sent = this.send({ type: "action", action, requestId, targetPlayerId })
+    return sent && requestId !== undefined ? requestId : null
   }
 
   sendPing(kind: PingKind): void {
@@ -221,23 +240,31 @@ export class MultiplayerClient {
     const url = configured || (import.meta.env.DEV
       ? `${protocol}//${location.hostname}:8787/rooms`
       : `${protocol}//${location.host}/rooms`)
-    this.socket = new WebSocket(url)
-    this.socket.addEventListener("open", () => {
+    const socket = new WebSocket(url)
+    this.socket = socket
+    socket.addEventListener("open", () => {
+      if (connectionId !== this.connectionId) return
       this.reconnectAttempt = 0
       this.events.onConnection?.(true)
       this.pendingAction?.()
       this.pendingAction = null
       this.heartbeatTimer = window.setInterval(() => this.send({ type: "ping", clientTime: Date.now() }), 5_000)
     })
-    this.socket.addEventListener("close", () => {
+    socket.addEventListener("close", () => {
       if (connectionId !== this.connectionId) return
       if (this.heartbeatTimer !== null) window.clearInterval(this.heartbeatTimer)
       this.heartbeatTimer = null
       this.events.onConnection?.(false)
       if (!this.intentionallyClosed && (this.reconnectSession || this.hubSession)) this.scheduleReconnect()
     })
-    this.socket.addEventListener("error", () => this.events.onError?.("Unable to reach the Merry Band server"))
-    this.socket.addEventListener("message", (event) => this.handleMessage(JSON.parse(String(event.data)) as ServerMessage))
+    socket.addEventListener("error", () => {
+      if (connectionId !== this.connectionId) return
+      this.events.onError?.("Unable to reach the Merry Band server")
+    })
+    socket.addEventListener("message", (event) => {
+      if (connectionId !== this.connectionId) return
+      this.handleMessage(JSON.parse(String(event.data)) as ServerMessage)
+    })
   }
 
   private handleMessage(message: ServerMessage): void {
@@ -263,6 +290,7 @@ export class MultiplayerClient {
     if (message.type === "chat_history") this.events.onChatHistory?.(message.channel, message.messages)
     if (message.type === "chat_message") this.events.onChatMessage?.(message.message)
     if (message.type === "chat_error") this.events.onChatError?.(message.channel, message.code, message.message, message.retryAfterMs)
+    if (message.type === "action_result") this.events.onActionResult?.(message.requestId, message.action, message.accepted)
     if (message.type === "hub_band_ready" && this.pendingIdentity) {
       const identity = this.pendingIdentity
       this.hubSession = null
