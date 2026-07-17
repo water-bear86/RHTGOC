@@ -7,7 +7,8 @@ import {
   stepGuardPatrol,
 } from "../shared/guard-rules"
 import { resolveSherwoodCombinedMovement } from "../shared/world-collisions"
-import { regionCellIndexAt, regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionCellIndexAt, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionalizeFeasibleMissionDefinition } from "../shared/regional-map-generator"
 import {
   BOW_COOLDOWN_SECONDS,
   BOW_DRAW_SECONDS,
@@ -82,7 +83,7 @@ export interface InputState {
   move: Vec2
 }
 
-const DEFAULT_SOLO_MISSION = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, stableSeed("solo-default"))
+const DEFAULT_SOLO_MISSION = regionalizeFeasibleMissionDefinition(PEOPLES_PURSE_MISSION, stableSeed("solo-default"))
 export const CART_POSITION: Vec2 = { ...DEFAULT_SOLO_MISSION.layout.objectivePosition }
 export const VILLAGE_POSITION: Vec2 = { ...DEFAULT_SOLO_MISSION.layout.campfirePosition }
 export const DELIVERY_TARGET = PEOPLES_PURSE_MISSION.rewards.deliveryTarget
@@ -94,7 +95,7 @@ export function getMaxArrows(characterId: CharacterId): number {
 }
 
 export function createInitialState(characterId: CharacterId = "robin", seed = stableSeed("solo-default")): GameState {
-  const regional = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed)
+  const regional = regionalizeFeasibleMissionDefinition(PEOPLES_PURSE_MISSION, seed)
   return {
     layout: regional.layout,
     exploredCellIndices: [regional.layout.campfireCell.index],

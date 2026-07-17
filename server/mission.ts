@@ -11,7 +11,8 @@ import {
 } from "../shared/guard-rules"
 import { missionObjectivePosition } from "../shared/mission-objective"
 import { resolveSherwoodCombinedMovement } from "../shared/world-collisions"
-import { regionCellIndexAt, regionalizeMissionDefinition, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionCellIndexAt, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
+import { regionalizeFeasibleMissionDefinition } from "../shared/regional-map-generator"
 import { BOW_COOLDOWN_SECONDS, BOW_RANGE, SIGNATURE_ACTION_TICKS, bowActionAtTick, createBowAction, hasBowMovement } from "../shared/archery"
 
 export interface MissionOptions {
@@ -154,7 +155,7 @@ export class Mission {
     options: MissionOptions = {},
   ) {
     this.seed = missionSeed(options.seedToken ?? roomCode)
-    const regional = regionalizeMissionDefinition(baseDefinition, this.seed)
+    const regional = regionalizeFeasibleMissionDefinition(baseDefinition, this.seed)
     this.definition = regional.definition
     this.layout = regional.layout
     this.exploredCellIndices.add(this.layout.campfireCell.index)
