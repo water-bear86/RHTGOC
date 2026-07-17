@@ -26,12 +26,12 @@
         <div class="progress"><i id="progress-fill"></i></div>
       </div>
       <div class="status">
-        <span title="Arrows"><i class="arrow">➶</i><b id="arrows">5</b></span>
-        <span title="Stolen coin"><i class="coin"></i><b id="loot">0</b></span>
+        <span title="Arrows" data-label="ARROWS"><i class="arrow">➶</i><b id="arrows">5</b></span>
+        <span title="Stolen coin" data-label="TAKE"><i class="coin"></i><b id="loot">0</b></span>
         <span class="signature-status" title="Signature ability"><i>Q</i><b id="signature">READY</b></span>
       </div>
       <div class="heat" id="heat-wrap" role="meter" aria-label="Sheriff pursuit" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-        <span>WANTED</span>
+        <span class="heat-heading"><b id="threat-state">HIDDEN</b><em id="guard-pressure">0 UP · 0 DOWN</em></span>
         <div><i id="heat-fill"></i></div>
       </div>
       <aside class="party-hud hidden" id="party-hud" aria-label="Merry Band status">

@@ -9,6 +9,7 @@ export interface GuardPose {
   moving: boolean
   alert: boolean
   stunned: boolean
+  stunnedFor?: number
   motionScale?: number
 }
 
@@ -22,6 +23,8 @@ interface GuardRig {
   leftLeg: THREE.Group
   rightLeg: THREE.Group
   weapon: THREE.Group
+  alertMarker: THREE.Object3D
+  recoveryRing: THREE.Object3D
 }
 
 interface GuardIdentity {
@@ -75,6 +78,11 @@ export function createGuardVisual(guardId: number): THREE.Group {
   const leftLeg = namedGroup("GuardRigLeftLeg")
   const rightLeg = namedGroup("GuardRigRightLeg")
   const weapon = namedGroup("GuardWeaponSocket")
+  const alertMarker = mesh("GuardAlertMarker", new THREE.OctahedronGeometry(0.12, 0), 0xd76b57)
+  alertMarker.position.y = 2.32
+  const recoveryRing = mesh("GuardRecoveryRing", new THREE.TorusGeometry(0.48, 0.055, 5, 18), 0xe4b653)
+  recoveryRing.position.y = 0.055
+  recoveryRing.rotation.x = Math.PI / 2
 
   const colors = variant === "levy"
     ? { tunic: 0x8a4b35, sleeve: 0x9b6748, trousers: 0x4a4236, metal: 0x8c918d, accent: 0x5c3c27 }
@@ -154,8 +162,8 @@ export function createGuardVisual(guardId: number): THREE.Group {
   }
 
   bodyRoot.add(torso)
-  root.add(bodyRoot)
-  const rig: GuardRig = { guardId, bodyRoot, torso, head, leftArm, rightArm, leftLeg, rightLeg, weapon }
+  root.add(bodyRoot, alertMarker, recoveryRing)
+  const rig: GuardRig = { guardId, bodyRoot, torso, head, leftArm, rightArm, leftLeg, rightLeg, weapon, alertMarker, recoveryRing }
   root.userData.guardId = guardId
   root.userData.guardVariant = variant
   root.userData.guardRig = rig
@@ -184,6 +192,13 @@ export function poseGuardVisual(root: THREE.Group, pose: GuardPose): void {
   rig.leftLeg.rotation.set(0, 0, 0)
   rig.rightLeg.rotation.set(0, 0, 0)
   rig.weapon.rotation.set(0, 0, 0)
+  rig.alertMarker.visible = pose.alert && !pose.stunned
+  rig.alertMarker.position.y = 2.32 + Math.sin(pose.elapsed * 5 + rig.guardId) * 0.06 * motionScale
+  rig.alertMarker.rotation.y = pose.elapsed * 2.4 * motionScale
+  rig.recoveryRing.visible = pose.stunned
+  const wakePulse = (pose.stunnedFor ?? 0) <= 2 ? 1 + Math.sin(pose.elapsed * 9) * 0.13 * motionScale : 1
+  rig.recoveryRing.scale.setScalar(wakePulse)
+  rig.recoveryRing.rotation.z = pose.elapsed * 0.8 * motionScale
 
   if (pose.stunned) {
     rig.bodyRoot.position.y = 0.08

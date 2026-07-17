@@ -42,21 +42,26 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .progress { height: 3px; overflow: hidden; background: #ffffff18; }
 .progress i { display: block; width: 0; height: 100%; background: var(--gold); box-shadow: 0 0 12px #e4b653; transition: width .4s ease; }
 
-.status { position: absolute; top: 76px; right: 28px; display: flex; gap: 8px; }
-.status span { height: 42px; min-width: 58px; padding: 0 12px; display: flex; align-items: center; justify-content: center; gap: 8px; background: #10251dcc; border: 1px solid #f7f0d42a; border-radius: 3px; box-shadow: 0 8px 24px #0004; }
+.status { position: absolute; top: 76px; right: 28px; display: flex; gap: 5px; padding: 4px; background: #07120ba8; border: 1px solid #f7f0d41f; border-radius: 5px; box-shadow: 0 10px 28px #0005; backdrop-filter: blur(9px); }
+.status span { position: relative; height: 42px; min-width: 58px; padding: 0 12px 4px; display: flex; align-items: center; justify-content: center; gap: 8px; background: #10251de3; border: 1px solid #f7f0d420; border-radius: 2px; transition: border-color .2s, background .2s, box-shadow .2s; }
+.status span[data-label]::after { content: attr(data-label); position: absolute; left: 7px; bottom: 3px; color: #f7f0d45c; font-size: 5px; font-weight: 800; letter-spacing: .14em; }
+.status span.critical { background: #381712e8; border-color: #d76b578f; box-shadow: inset 0 0 16px #d76b571c; }
+.status span.ready { border-color: #e4b65370; box-shadow: inset 0 0 15px #e4b65312; }
 .status .signature-status { min-width: 90px; }
 .signature-status i { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid #e4b65388; color: var(--gold); font: 700 10px Cinzel, serif; font-style: normal; }
 .signature-status b { font-size: 9px; letter-spacing: .08em; }
 .status i { display: inline-block; }
-.heart { width: 14px; height: 14px; background: #bd493b; transform: rotate(45deg); border-radius: 2px; position: relative; }
-.heart::before, .heart::after { content: ""; position: absolute; width: 14px; height: 14px; background: #bd493b; border-radius: 50%; }
-.heart::before { left: -7px; } .heart::after { top: -7px; }
 .arrow { color: #f7f0d4; font-style: normal; font-size: 23px; line-height: 1; }
 .coin { width: 14px; height: 14px; border-radius: 50%; background: var(--gold); box-shadow: inset 0 0 0 3px #a9792e; }
 
-.heat { position: absolute; top: 130px; right: 28px; width: 190px; opacity: 0; transform: translateY(-4px); transition: .25s ease; }
+.heat { position: absolute; top: 132px; right: 28px; width: 218px; padding: 9px 11px 10px; background: #10251dd4; border: 1px solid #f7f0d426; border-radius: 3px; box-shadow: 0 8px 24px #0004; opacity: 0; transform: translateY(-4px); transition: .25s ease; backdrop-filter: blur(8px); }
 .heat.visible { opacity: 1; transform: none; }
-.heat span { color: #f2b3a8; font-size: 9px; font-weight: 700; letter-spacing: .2em; }
+.heat-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.heat-heading b { color: #b7cd8b; font-size: 9px; letter-spacing: .18em; }
+.heat-heading em { color: #f7f0d46f; font-size: 7px; font-style: normal; font-weight: 800; letter-spacing: .08em; }
+.heat[data-level="suspicious"] .heat-heading b { color: #e4b653; }
+.heat[data-level="spotted"] .heat-heading b, .heat[data-level="hunted"] .heat-heading b { color: #f2b3a8; }
+.heat[data-level="hunted"] { border-color: #d76b5766; box-shadow: 0 8px 26px #0006, inset 0 0 20px #d76b5710; }
 .heat div { height: 4px; margin-top: 5px; background: #321511aa; }
 .heat i { display: block; width: 0; height: 100%; background: repeating-linear-gradient(135deg, #c9513f 0 5px, #f4c3b9 5px 8px); transition: width .15s linear; }
 
@@ -537,7 +542,8 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
   .status { top: auto; right: 14px; bottom: 76px; flex-direction: column; }
   .status span { min-width: 48px; height: 36px; }
   .status .signature-status { min-width: 72px; }
-  .heat { top: 126px; right: 14px; width: 150px; }
+  .heat { top: 126px; right: 14px; width: 174px; }
+  .heat-heading em { font-size: 6px; }
   .party-hud { top: 126px; left: 14px; width: min(190px, 48vw); }
   .region-map { left: 14px; bottom: 62px; width: 122px; padding: 8px; }
   .intro { place-items: stretch; padding: 0; }

@@ -142,6 +142,8 @@ const arrowsElement = document.querySelector<HTMLElement>("#arrows")!
 const lootElement = document.querySelector<HTMLElement>("#loot")!
 const heatWrap = document.querySelector<HTMLElement>("#heat-wrap")!
 const heatElement = document.querySelector<HTMLElement>("#heat-fill")!
+const threatStateElement = document.querySelector<HTMLElement>("#threat-state")!
+const guardPressureElement = document.querySelector<HTMLElement>("#guard-pressure")!
 const helpButton = document.querySelector<HTMLButtonElement>("#help-button")!
 const helpPanel = document.querySelector<HTMLDivElement>("#help-panel")!
 const closeHelp = document.querySelector<HTMLButtonElement>("#close-help")!
@@ -4253,10 +4255,34 @@ function updateUI(): void {
   lootElement.textContent = String(rescueMission ? latestMissionSnapshot!.captives.filter((captive) => captive.rewarded).length : state.player.loot)
   lootElement.parentElement?.setAttribute("title", rescueMission ? "Captives extracted" : "Stolen coin")
   signatureElement.textContent = state.player.signatureCooldown > 0 ? `${Math.ceil(state.player.signatureCooldown)}s` : "READY"
+  arrowsElement.parentElement?.classList.toggle("critical", state.player.arrows === 0)
+  signatureElement.parentElement?.classList.toggle("ready", state.player.signatureCooldown <= 0)
   heatElement.style.width = `${state.heat}%`
+  const activeGuards = state.guards.filter((guard) => guard.stunnedFor <= 0)
+  const downGuards = state.guards.length - activeGuards.length
+  const nearestActiveGuard = activeGuards.length > 0
+    ? Math.min(...activeGuards.map((guard) => Math.hypot(guard.position.x - state.player.position.x, guard.position.z - state.player.position.z)))
+    : Number.POSITIVE_INFINITY
+  const alertedGuards = activeGuards.filter((guard) => guard.alertFor > 0).length
+  const threatLevel = state.heat >= 65
+    ? "hunted"
+    : alertedGuards > 0 && nearestActiveGuard < 10
+      ? "spotted"
+      : alertedGuards > 0 || state.heat > 20
+        ? "suspicious"
+        : "hidden"
+  threatStateElement.textContent = threatLevel === "hunted"
+    ? "HUNTED"
+    : threatLevel === "spotted"
+      ? "SPOTTED"
+      : threatLevel === "suspicious"
+        ? "SEARCHING"
+        : "HIDDEN"
+  guardPressureElement.textContent = `${activeGuards.length} UP · ${downGuards} DOWN`
+  heatWrap.dataset.level = threatLevel
   heatWrap.setAttribute("aria-valuenow", String(Math.max(0, Math.min(100, Math.round(state.heat)))))
-  heatWrap.setAttribute("aria-valuetext", state.heat > 60 ? "High pursuit" : state.heat > 20 ? "Sheriff searching" : "Hidden")
-  heatWrap.classList.toggle("visible", state.heat > 3)
+  heatWrap.setAttribute("aria-valuetext", `${threatStateElement.textContent}. ${activeGuards.length} guards active, ${downGuards} down.`)
+  heatWrap.classList.toggle("visible", !inHub)
   progressElement.style.width = `${Math.min(100, (state.delivered / missionTarget) * 100)}%`
   renderRegionMap()
   if (inHub) {
@@ -4581,8 +4607,9 @@ function syncViews(elapsed: number, dt: number): void {
     poseGuardVisual(view, {
       elapsed,
       moving,
-      alert: state.heat > 8,
+      alert: guard.alertFor > 0,
       stunned,
+      stunnedFor: guard.stunnedFor,
       motionScale: renderProfile.motionScale,
     })
     lastGuardPositions.set(guard.id, { ...guard.position })

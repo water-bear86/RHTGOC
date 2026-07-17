@@ -172,6 +172,7 @@ export interface MissionGuard {
   id: number
   position: { x: number; z: number }
   stunnedFor: number
+  alertFor: number
 }
 
 export interface MissionEvent {

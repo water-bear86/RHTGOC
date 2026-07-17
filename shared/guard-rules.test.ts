@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest"
 import {
+  SHERWOOD_ARROW_INCAPACITATION_SECONDS,
   SHERWOOD_ESCORT_BLOCK_RADIUS,
+  SHERWOOD_GUARD_ALERT_MEMORY_SECONDS,
+  SHERWOOD_SNARE_INCAPACITATION_SECONDS,
+  SHERWOOD_SWEEP_INCAPACITATION_SECONDS,
+  SHERWOOD_VOLLEY_INCAPACITATION_SECONDS,
   activeEscortCount,
   activeGuardPositions,
   guardPatrolProfile,
+  guardPursuitTarget,
   initialGuardPatrolAngle,
   stepGuardPatrol,
 } from "./guard-rules"
@@ -48,5 +54,28 @@ describe("shared guard rules", () => {
     expect(recovered.angle).toBeLessThan(Math.PI * 2)
     expect(Number.isFinite(recovered.target.x)).toBe(true)
     expect(Number.isFinite(recovered.target.z)).toBe(true)
+  })
+
+  it("publishes generous, role-readable incapacitation windows", () => {
+    expect(SHERWOOD_ARROW_INCAPACITATION_SECONDS).toBeGreaterThanOrEqual(8)
+    expect(SHERWOOD_VOLLEY_INCAPACITATION_SECONDS).toBeGreaterThan(SHERWOOD_ARROW_INCAPACITATION_SECONDS)
+    expect(SHERWOOD_SWEEP_INCAPACITATION_SECONDS).toBeGreaterThan(SHERWOOD_VOLLEY_INCAPACITATION_SECONDS)
+    expect(SHERWOOD_SNARE_INCAPACITATION_SECONDS).toBeGreaterThan(SHERWOOD_SWEEP_INCAPACITATION_SECONDS)
+    expect(SHERWOOD_GUARD_ALERT_MEMORY_SECONDS).toBeGreaterThan(5)
+  })
+
+  it("assigns stable left, centre, and right lanes around a moving target", () => {
+    const guard = { x: 0, z: 0 }
+    const target = { x: 10, z: 0 }
+    const velocity = { x: 2, z: 0 }
+    const [left, centre, right] = [0, 1, 2].map((id) => guardPursuitTarget(guard, id, target, velocity))
+
+    expect(left.x).toBeGreaterThan(target.x)
+    expect(centre.x).toBeGreaterThan(target.x)
+    expect(right.x).toBeGreaterThan(target.x)
+    expect(left.z).toBeLessThan(0)
+    expect(centre.z).toBeCloseTo(0, 8)
+    expect(right.z).toBeGreaterThan(0)
+    expect(guardPursuitTarget(guard, 2, target, velocity)).toEqual(right)
   })
 })

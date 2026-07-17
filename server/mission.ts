@@ -3,10 +3,19 @@ import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
 import {
+  SHERWOOD_ARROW_INCAPACITATION_SECONDS,
+  SHERWOOD_GUARD_ALERT_MEMORY_SECONDS,
+  SHERWOOD_GUARD_ALERT_RANGE,
+  SHERWOOD_GUARD_COORDINATION_RADIUS,
+  SHERWOOD_GUARD_PROXIMITY_RANGE,
+  SHERWOOD_GUARD_REACTION_SECONDS,
   SHERWOOD_GUARD_SEPARATION,
+  SHERWOOD_SNARE_INCAPACITATION_SECONDS,
+  SHERWOOD_SWEEP_INCAPACITATION_SECONDS,
+  SHERWOOD_VOLLEY_INCAPACITATION_SECONDS,
   activeEscortCount,
   activeGuardPositions,
-  GUARD_ARROW_STUN_SECONDS,
+  guardPursuitTarget,
   initialGuardPatrolAngle,
   stepGuardPatrol,
 } from "../shared/guard-rules"
@@ -60,6 +69,9 @@ interface MissionGuardState {
   home: { x: number; z: number }
   patrolAngle: number
   stunnedFor: number
+  alertFor: number
+  lastKnownPosition: { x: number; z: number } | null
+  reactionFor: number
 }
 
 const defaultMission = getMissionDefinition()
@@ -78,6 +90,19 @@ export const ENTRY_ROUTES = routeMap(defaultMission.routes.entry)
 export const ESCAPE_ROUTES = routeMap(defaultMission.routes.escape)
 
 const distance = (a: { x: number; z: number }, b: { x: number; z: number }): number => Math.hypot(a.x - b.x, a.z - b.z)
+
+function createMissionGuardState(id: number, position: { x: number; z: number }): MissionGuardState {
+  return {
+    id,
+    position: { ...position },
+    home: { ...position },
+    patrolAngle: initialGuardPatrolAngle(id),
+    stunnedFor: 0,
+    alertFor: 0,
+    lastKnownPosition: null,
+    reactionFor: 0,
+  }
+}
 
 export function missionSeed(roomCode: string): number {
   return stableSeed(roomCode)
@@ -227,7 +252,7 @@ export class Mission {
       for (const player of players.values()) player.arrows = Math.max(1, player.arrows - 1)
     }
     for (const player of players.values()) if (player.loadoutId === "smoke") player.veilFor = Math.max(player.veilFor, 2)
-    const guardStarts = definition.spawns.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: initialGuardPatrolAngle(guard.id), stunnedFor: 0 }))
+    const guardStarts = definition.spawns.guards.map((guard) => createMissionGuardState(guard.id, guard.position))
     this.guards = guardStarts
     this.record("mission_started")
     for (const preparation of this.preparations.filter((candidate) => candidate.status === "consumed")) this.record("contribution_consumed", undefined, undefined, `${preparation.type}:${preparation.id}`)
@@ -317,7 +342,7 @@ export class Mission {
         this.heat = Math.min(100, this.heat + 18)
         const existing = new Set(this.guards.map((guard) => guard.id))
         const reinforcement = this.definition.spawns.guards.find((guard) => !existing.has(guard.id))
-        if (reinforcement) this.guards.push({ id: reinforcement.id, position: { ...reinforcement.position }, home: { ...reinforcement.position }, patrolAngle: initialGuardPatrolAngle(reinforcement.id), stunnedFor: 0 })
+        if (reinforcement) this.guards.push(createMissionGuardState(reinforcement.id, reinforcement.position))
         this.record("reinforcement_arrived", undefined, this.searchPressure, "search-pressure")
       }
     }
@@ -429,7 +454,12 @@ export class Mission {
       delivered: this.delivered,
       target: this.deliveryTarget,
       supportScore: [...this.players.values()].reduce((total, player) => total + player.rescueCount * 350 + player.transferCount * 100 + player.protectionScore + player.crowdControl * 75 + player.trapHits * 125 + player.sabotageCount * 200, 0),
-      guards: this.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, stunnedFor: guard.stunnedFor })),
+      guards: this.guards.map((guard) => ({
+        id: guard.id,
+        position: { ...guard.position },
+        stunnedFor: guard.stunnedFor,
+        alertFor: guard.alertFor,
+      })),
       pings: this.pings.map((ping) => ({ ...ping, position: { ...ping.position } })),
       latestEvent: this.events.at(-1) ?? null,
       result: this.result,
@@ -682,7 +712,7 @@ export class Mission {
         this.reinforcementClock = 0
         const existing = new Set(this.guards.map((guard) => guard.id))
         const start = this.definition.spawns.guards.find((guard) => !existing.has(guard.id))
-        if (start) this.guards.push({ id: start.id, position: { ...start.position }, home: { ...start.position }, patrolAngle: initialGuardPatrolAngle(start.id), stunnedFor: 0 })
+        if (start) this.guards.push(createMissionGuardState(start.id, start.position))
         this.reinforcementWave += 1
         this.heat = Math.min(100, this.heat + 12)
         this.record("reinforcement_arrived", undefined, this.reinforcementWave, `alarm:${this.alarmLevel}`)
@@ -733,7 +763,7 @@ export class Mission {
         const existing = new Set(this.guards.map((guard) => guard.id))
         const start = this.definition.spawns.guards.find((guard) => !existing.has(guard.id))
         if (start) {
-          this.guards.push({ id: start.id, position: { ...start.position }, home: { ...start.position }, patrolAngle: initialGuardPatrolAngle(start.id), stunnedFor: 0 })
+          this.guards.push(createMissionGuardState(start.id, start.position))
           this.record("reinforcement_arrived", undefined, start.id)
         }
       }
@@ -842,7 +872,9 @@ export class Mission {
     }
     const target = this.guards.find((guard) => guard.id === targetId && guard.stunnedFor <= 0 && distance(guard.position, player.position) <= BOW_RANGE)
     if (!target) return
-    target.stunnedFor = GUARD_ARROW_STUN_SECONDS
+    target.stunnedFor = SHERWOOD_ARROW_INCAPACITATION_SECONDS
+    target.alertFor = 0
+    target.lastKnownPosition = null
     this.shotsHit += 1
     this.record("guard_stunned", player.id, target.id)
     if (this.phase === "ambush") {
@@ -867,7 +899,11 @@ export class Mission {
       const targets = this.guards.filter((guard) => guard.stunnedFor <= 0 && distance(guard.position, player.position) < 6)
       const allies = [...this.players.values()].filter((candidate) => candidate.id !== player.id && candidate.connected && !candidate.captured && distance(candidate.position, player.position) < 6)
       if (targets.length === 0 && allies.length === 0) return false
-      for (const target of targets) target.stunnedFor = 5
+      for (const target of targets) {
+        target.stunnedFor = SHERWOOD_SWEEP_INCAPACITATION_SECONDS
+        target.alertFor = 0
+        target.lastKnownPosition = null
+      }
       for (const ally of allies) ally.invulnerableFor = Math.max(ally.invulnerableFor, 3.5)
       player.crowdControl += targets.length
       player.protectionScore += allies.length * 100
@@ -886,7 +922,11 @@ export class Mission {
         .sort((a, b) => distance(a.position, player.position) - distance(b.position, player.position))
         .slice(0, 2)
       if (targets.length === 0) return false
-      for (const target of targets) target.stunnedFor = GUARD_ARROW_STUN_SECONDS
+      for (const target of targets) {
+        target.stunnedFor = SHERWOOD_VOLLEY_INCAPACITATION_SECONDS
+        target.alertFor = 0
+        target.lastKnownPosition = null
+      }
       if (this.phase === "ambush") {
         this.ambushStuns += targets.length
         if (this.ambushStuns >= this.ambushTarget) this.setPhase("robbery", player.id)
@@ -924,23 +964,49 @@ export class Mission {
 
   private updateGuard(guard: MissionGuardState, players: MissionPlayer[], dt: number): void {
     guard.stunnedFor = Math.max(0, guard.stunnedFor - dt)
+    guard.alertFor = Math.max(0, guard.alertFor - dt)
+    guard.reactionFor = Math.max(0, guard.reactionFor - dt)
     if (guard.stunnedFor > 0) return
     const trapIndex = this.traps.findIndex((trap) => distance(trap.position, guard.position) < 1.35)
     if (trapIndex >= 0) {
       const [trap] = this.traps.splice(trapIndex, 1)
-      guard.stunnedFor = 4.5
+      guard.stunnedFor = SHERWOOD_SNARE_INCAPACITATION_SECONDS
+      guard.alertFor = 0
+      guard.lastKnownPosition = null
+      guard.reactionFor = 0
       const owner = this.players.get(trap.ownerId)
       if (owner) owner.trapHits += 1
       this.record("trap_triggered", trap.ownerId, guard.id, `trap:${trap.id}`)
       return
     }
+    const detectionRange = this.heat > 8 ? SHERWOOD_GUARD_ALERT_RANGE : SHERWOOD_GUARD_PROXIMITY_RANGE
     const target = players
-      .filter((player) => player.veilFor <= 0)
+      .filter((player) => distance(player.position, guard.position) < (player.veilFor > 0 ? 2.4 : detectionRange))
       .sort((a, b) => distance(a.position, guard.position) - distance(b.position, guard.position))[0]
-    if (target && this.heat > 8 && distance(target.position, guard.position) < 22) {
+    if (target) {
+      const newlyAlerted = guard.alertFor <= 0
+      this.heat = Math.max(12, this.heat)
+      guard.alertFor = SHERWOOD_GUARD_ALERT_MEMORY_SECONDS
+      guard.lastKnownPosition = { ...target.position }
+      if (newlyAlerted) guard.reactionFor = SHERWOOD_GUARD_REACTION_SECONDS
+      for (const ally of this.guards) {
+        if (ally === guard || ally.stunnedFor > 0 || distance(ally.position, guard.position) > SHERWOOD_GUARD_COORDINATION_RADIUS) continue
+        const newlyCoordinated = ally.alertFor <= 0
+        ally.alertFor = Math.max(ally.alertFor, SHERWOOD_GUARD_ALERT_MEMORY_SECONDS * 0.8)
+        ally.lastKnownPosition = { ...target.position }
+        if (newlyCoordinated) ally.reactionFor = SHERWOOD_GUARD_REACTION_SECONDS + dt
+      }
+    }
+    if (target || (guard.alertFor > 0 && guard.lastKnownPosition)) {
       const disruption = this.reinforcementDelaySeconds > 0 ? 0.7 : 0
-      this.moveGuardToward(guard, target.position, 3.35 + this.heat * 0.008 - disruption, dt, players)
-      if (distance(target.position, guard.position) < 1.25 && target.invulnerableFor === 0 && target.captureFor === 0) {
+      const pursuitPosition = target?.position ?? guard.lastKnownPosition!
+      const roleSpeed = target?.characterId === "marian" ? 6.75 : target?.characterId === "little-john" ? 5.9 : 6.2
+      const targetVelocity = target
+        ? { x: target.input.x * roleSpeed, z: target.input.z * roleSpeed }
+        : { x: 0, z: 0 }
+      const intercept = guardPursuitTarget(guard.position, guard.id, pursuitPosition, targetVelocity)
+      this.moveGuardToward(guard, intercept, 3.45 + this.heat * 0.009 - disruption, dt, players)
+      if (target && distance(target.position, guard.position) < 1.25 && target.invulnerableFor === 0 && target.captureFor === 0 && guard.reactionFor <= 0) {
         target.captureFor = OUTLAW_CAPTURE_SECONDS
         target.invulnerableFor = 2
         this.heat = Math.min(100, this.heat + 15)

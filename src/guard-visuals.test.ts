@@ -39,7 +39,7 @@ describe("procedural Sheriff guards", () => {
       expect(guard.getObjectByName("GuardRigLeftArm")).toBeTruthy()
       expect(guard.getObjectByName("GuardRigRightLeg")).toBeTruthy()
       expect(ancestorNames(guard.getObjectByName("GuardWeaponSocket"))).toContain("GuardRigRightArm")
-      expect(meshes.length).toBeLessThanOrEqual(10)
+      expect(meshes.length).toBeLessThanOrEqual(12)
       expect(meshes.filter((mesh) => mesh.castShadow)).toHaveLength(4)
     }
   })
@@ -54,9 +54,14 @@ describe("procedural Sheriff guards", () => {
 
     poseGuardVisual(guard, { elapsed: 0.2, moving: false, alert: true, stunned: false })
     expect(guard.getObjectByName("GuardRigRightArm")!.rotation.x).toBeLessThan(-0.4)
+    expect(guard.getObjectByName("GuardAlertMarker")?.visible).toBe(true)
+    expect(guard.getObjectByName("GuardRecoveryRing")?.visible).toBe(false)
 
-    poseGuardVisual(guard, { elapsed: 0.2, moving: false, alert: true, stunned: true })
+    poseGuardVisual(guard, { elapsed: 0.2, moving: false, alert: true, stunned: true, stunnedFor: 1.5 })
     expect(guard.getObjectByName("GuardRigBodyRoot")!.rotation.z).toBeGreaterThan(1)
+    expect(guard.getObjectByName("GuardAlertMarker")?.visible).toBe(false)
+    expect(guard.getObjectByName("GuardRecoveryRing")?.visible).toBe(true)
+    expect(guard.getObjectByName("GuardRecoveryRing")?.scale.x).not.toBe(1)
     expect(guard.rotation.y).toBe(1.25)
   })
 

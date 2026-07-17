@@ -8,8 +8,6 @@ export interface GuardRuleState {
   stunnedFor: number
 }
 
-export const GUARD_ARROW_STUN_SECONDS = 4.5
-
 export type GuardPatrolShape = "ellipse" | "figure-eight" | "clover"
 
 export interface GuardPatrolProfile {
@@ -26,6 +24,27 @@ export interface GuardPatrolStep {
   target: GuardRulePoint
   moveSpeed: number
 }
+
+/** A normal arrow should buy enough time to make a deliberate objective play. */
+export const SHERWOOD_ARROW_INCAPACITATION_SECONDS = 8
+
+/** Robin's committed twin shot trades breadth for a slightly longer opening. */
+export const SHERWOOD_VOLLEY_INCAPACITATION_SECONDS = 9
+
+/** Little John owns the strongest crowd-control window in the Merry Band. */
+export const SHERWOOD_SWEEP_INCAPACITATION_SECONDS = 12
+
+/** Much's prepared snare is the longest single-guard control tool. */
+export const SHERWOOD_SNARE_INCAPACITATION_SECONDS = 13
+
+/** Guards can spot a calm outlaw only at close range, then see farther once alerted. */
+export const SHERWOOD_GUARD_PROXIMITY_RANGE = 7.5
+export const SHERWOOD_GUARD_ALERT_RANGE = 24
+
+/** Alerted guards remember and share the last sighting instead of instantly resetting. */
+export const SHERWOOD_GUARD_ALERT_MEMORY_SECONDS = 6.5
+export const SHERWOOD_GUARD_COORDINATION_RADIUS = 15
+export const SHERWOOD_GUARD_REACTION_SECONDS = 0.85
 
 /** Active guards inside this radius must be dealt with before an objective can be taken. */
 export const SHERWOOD_ESCORT_BLOCK_RADIUS = 4.25
@@ -121,6 +140,36 @@ export function stepGuardPatrol(home: GuardRulePoint, id: number, angle: number,
     angle: nextAngle,
     target: guardPatrolTarget(home, id, nextAngle),
     moveSpeed: profile.moveSpeed,
+  }
+}
+
+/**
+ * Gives a squad stable left, centre, and right pursuit lanes while leading a
+ * moving target. Stable ids keep solo and authoritative paths deterministic.
+ */
+export function guardPursuitTarget(
+  guard: GuardRulePoint,
+  id: number,
+  target: GuardRulePoint,
+  targetVelocity: GuardRulePoint,
+): GuardRulePoint {
+  if (!isFinitePoint(guard) || !isFinitePoint(target)) return isFinitePoint(target) ? { ...target } : { x: 0, z: 0 }
+  const velocity = isFinitePoint(targetVelocity) ? targetVelocity : { x: 0, z: 0 }
+  const stableId = stableGuardId(id)
+  const leadSeconds = 0.52 + (Math.floor(stableId / 3) % 3) * 0.08
+  const predicted = {
+    x: target.x + velocity.x * leadSeconds,
+    z: target.z + velocity.z * leadSeconds,
+  }
+  const dx = predicted.x - guard.x
+  const dz = predicted.z - guard.z
+  const range = Math.hypot(dx, dz)
+  if (range < 0.001) return predicted
+  const lane = (stableId % 3) - 1
+  const laneOffset = lane * Math.min(2.6, range * 0.2)
+  return {
+    x: predicted.x + (-dz / range) * laneOffset,
+    z: predicted.z + (dx / range) * laneOffset,
   }
 }
 

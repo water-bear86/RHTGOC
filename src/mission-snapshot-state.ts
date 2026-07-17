@@ -67,6 +67,8 @@ export function synchronizeMissionGuards(
       home: existing ? { ...existing.home } : { ...guard.position },
       patrolAngle: existing?.patrolAngle ?? 0,
       stunnedFor: guard.stunnedFor,
+      alertFor: guard.alertFor,
+      lastKnownPosition: existing?.lastKnownPosition ? { ...existing.lastKnownPosition } : null,
     }
   })
 }

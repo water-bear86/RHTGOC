@@ -235,6 +235,7 @@ describe("authoritative mission", () => {
   it("blocks signatures throughout bow draw and recovery", () => {
     const marian = player("marian", "marian")
     const mission = new Mission("BOWSIG", new Map([[marian.id, marian]]))
+    mission.guards.splice(1)
     marian.position = { ...mission.guards[0].position }
 
     expect(mission.action(marian.id, "shoot")).toBe(true)

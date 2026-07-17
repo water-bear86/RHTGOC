@@ -1,9 +1,18 @@
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import {
+  SHERWOOD_ARROW_INCAPACITATION_SECONDS,
+  SHERWOOD_GUARD_ALERT_MEMORY_SECONDS,
+  SHERWOOD_GUARD_ALERT_RANGE,
+  SHERWOOD_GUARD_COORDINATION_RADIUS,
+  SHERWOOD_GUARD_PROXIMITY_RANGE,
+  SHERWOOD_GUARD_REACTION_SECONDS,
   SHERWOOD_GUARD_SEPARATION,
+  SHERWOOD_SNARE_INCAPACITATION_SECONDS,
+  SHERWOOD_SWEEP_INCAPACITATION_SECONDS,
+  SHERWOOD_VOLLEY_INCAPACITATION_SECONDS,
   activeEscortCount,
   activeGuardPositions,
-  GUARD_ARROW_STUN_SECONDS,
+  guardPursuitTarget,
   initialGuardPatrolAngle,
   stepGuardPatrol,
 } from "../shared/guard-rules"
@@ -41,6 +50,9 @@ export interface GuardState {
   home: Vec2
   patrolAngle: number
   stunnedFor: number
+  alertFor: number
+  lastKnownPosition: Vec2 | null
+  reactionFor?: number
 }
 
 export interface GameState {
@@ -90,6 +102,19 @@ export const DELIVERY_TARGET = PEOPLES_PURSE_MISSION.rewards.deliveryTarget
 
 const distance = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z)
 
+function createGuardState(id: number, position: Vec2): GuardState {
+  return {
+    id,
+    position: { ...position },
+    home: { ...position },
+    patrolAngle: initialGuardPatrolAngle(id),
+    stunnedFor: 0,
+    alertFor: 0,
+    lastKnownPosition: null,
+    reactionFor: 0,
+  }
+}
+
 export function getMaxArrows(characterId: CharacterId): number {
   return characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4
 }
@@ -108,7 +133,7 @@ export function createInitialState(characterId: CharacterId = "robin", seed = st
       signatureCooldown: 0,
       veilFor: 0,
     },
-    guards: regional.definition.spawns.guards.map((guard) => ({ id: guard.id, position: { ...guard.position }, home: { ...guard.position }, patrolAngle: initialGuardPatrolAngle(guard.id), stunnedFor: 0 })),
+    guards: regional.definition.spawns.guards.map((guard) => createGuardState(guard.id, guard.position)),
     traps: [],
     delivered: 0,
     objectiveDiscovered: false,
@@ -172,7 +197,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
           z: state.layout.objectivePosition.z + Math.sin(angle) * (5 + state.searchPressure),
         }
         const id = Math.max(-1, ...state.guards.map((guard) => guard.id)) + 1
-        state.guards.push({ id, position: { ...position }, home: { ...position }, patrolAngle: initialGuardPatrolAngle(id), stunnedFor: 0 })
+        state.guards.push(createGuardState(id, position))
         events.push("search-reinforced")
       }
     }
@@ -204,6 +229,12 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   })
   player.position.x = resolvedPlayerPosition.x
   player.position.z = resolvedPlayerPosition.z
+  const playerVelocity = dt > 0
+    ? {
+        x: (player.position.x - playerOrigin.x) / dt,
+        z: (player.position.z - playerOrigin.z) / dt,
+      }
+    : { x: 0, z: 0 }
 
   player.invulnerableFor = Math.max(0, player.invulnerableFor - dt)
   player.signatureCooldown = Math.max(0, player.signatureCooldown - dt)
@@ -231,19 +262,46 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
 
   for (const guard of state.guards) {
     guard.stunnedFor = Math.max(0, guard.stunnedFor - dt)
+    guard.alertFor = Math.max(0, guard.alertFor - dt)
+    guard.reactionFor = Math.max(0, (guard.reactionFor ?? 0) - dt)
     if (guard.stunnedFor > 0) continue
     const trapIndex = state.traps.findIndex((trap) => distance(trap.position, guard.position) < 1.35)
     if (trapIndex >= 0) {
       state.traps.splice(trapIndex, 1)
-      guard.stunnedFor = 4.5
+      guard.stunnedFor = SHERWOOD_SNARE_INCAPACITATION_SECONDS
+      guard.alertFor = 0
+      guard.lastKnownPosition = null
+      guard.reactionFor = 0
       events.push("trap-triggered")
       continue
     }
 
     const guardOrigin = { ...guard.position }
-    const detectionRange = player.veilFor > 0 ? 2.4 : 22
-    if (state.heat > 8 && distance(guard.position, player.position) < detectionRange) {
-      moveToward(guard.position, player.position, 3.35 + state.heat * 0.008, dt)
+    const guardDistance = distance(guard.position, player.position)
+    const detectionRange = player.veilFor > 0
+      ? 2.4
+      : state.heat > 8
+        ? SHERWOOD_GUARD_ALERT_RANGE
+        : SHERWOOD_GUARD_PROXIMITY_RANGE
+    const hasSight = guardDistance < detectionRange
+    if (hasSight) {
+      const newlyAlerted = guard.alertFor <= 0
+      state.heat = Math.max(12, state.heat)
+      guard.alertFor = SHERWOOD_GUARD_ALERT_MEMORY_SECONDS
+      guard.lastKnownPosition = { ...player.position }
+      if (newlyAlerted) guard.reactionFor = SHERWOOD_GUARD_REACTION_SECONDS
+      for (const ally of state.guards) {
+        if (ally === guard || ally.stunnedFor > 0 || distance(ally.position, guard.position) > SHERWOOD_GUARD_COORDINATION_RADIUS) continue
+        const newlyCoordinated = ally.alertFor <= 0
+        ally.alertFor = Math.max(ally.alertFor, SHERWOOD_GUARD_ALERT_MEMORY_SECONDS * 0.8)
+        ally.lastKnownPosition = { ...player.position }
+        if (newlyCoordinated) ally.reactionFor = SHERWOOD_GUARD_REACTION_SECONDS + dt
+      }
+    }
+    if (hasSight || (guard.alertFor > 0 && guard.lastKnownPosition)) {
+      const target = hasSight ? player.position : guard.lastKnownPosition!
+      const pursuitTarget = guardPursuitTarget(guard.position, guard.id, target, hasSight ? playerVelocity : { x: 0, z: 0 })
+      moveToward(guard.position, pursuitTarget, 3.45 + state.heat * 0.009, dt)
     } else {
       const patrol = stepGuardPatrol(guard.home, guard.id, guard.patrolAngle, dt)
       guard.patrolAngle = patrol.angle
@@ -260,7 +318,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       circleSeparation: SHERWOOD_GUARD_SEPARATION,
     })
 
-    if (distance(guard.position, player.position) < 1.25 && player.invulnerableFor === 0) {
+    if (distance(guard.position, player.position) < 1.25 && player.invulnerableFor === 0 && (guard.reactionFor ?? 0) <= 0) {
       state.stats.damageTaken = 3
       state.heat = Math.min(100, state.heat + 15)
       state.lost = true
@@ -371,7 +429,9 @@ function releaseSoloBowShot(state: GameState, lockedTargetId: number): number | 
     && guard.stunnedFor <= 0
     && distance(guard.position, state.player.position) <= BOW_RANGE)
   if (!target) return null
-  target.stunnedFor = GUARD_ARROW_STUN_SECONDS
+  target.stunnedFor = SHERWOOD_ARROW_INCAPACITATION_SECONDS
+  target.alertFor = 0
+  target.lastKnownPosition = null
   state.stats.shotsHit += 1
   return target.id
 }
@@ -398,7 +458,11 @@ export function activateSignature(state: GameState): { event: string; guardIds: 
       state.stats.signatureUses -= 1
       return { event: "signature-unavailable", guardIds: [] }
     }
-    for (const { guard } of targets) guard.stunnedFor = 5
+    for (const { guard } of targets) {
+      guard.stunnedFor = SHERWOOD_SWEEP_INCAPACITATION_SECONDS
+      guard.alertFor = 0
+      guard.lastKnownPosition = null
+    }
     player.signatureCooldown = 20
     state.signatureActionRemaining = SIGNATURE_ACTION_SECONDS
     return { event: "little-john-sweep", guardIds: targets.map(({ guard }) => guard.id) }
@@ -426,7 +490,11 @@ export function activateSignature(state: GameState): { event: string; guardIds: 
     .filter(({ range }) => range < 11)
     .sort((a, b) => a.range - b.range)
     .slice(0, 2)
-  for (const { guard } of targets) guard.stunnedFor = Math.max(guard.stunnedFor, GUARD_ARROW_STUN_SECONDS)
+  for (const { guard } of targets) {
+    guard.stunnedFor = Math.max(guard.stunnedFor, SHERWOOD_VOLLEY_INCAPACITATION_SECONDS)
+    guard.alertFor = 0
+    guard.lastKnownPosition = null
+  }
   if (targets.length > 0) state.signatureActionRemaining = SIGNATURE_ACTION_SECONDS
   return { event: targets.length > 0 ? "robin-volley" : "volley-missed", guardIds: targets.map(({ guard }) => guard.id) }
 }

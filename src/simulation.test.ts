@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest"
-import { SHERWOOD_GUARD_SEPARATION, initialGuardPatrolAngle, stepGuardPatrol } from "../shared/guard-rules"
+import {
+  SHERWOOD_ARROW_INCAPACITATION_SECONDS,
+  SHERWOOD_GUARD_ALERT_MEMORY_SECONDS,
+  SHERWOOD_GUARD_REACTION_SECONDS,
+  SHERWOOD_GUARD_SEPARATION,
+  SHERWOOD_SNARE_INCAPACITATION_SECONDS,
+  SHERWOOD_SWEEP_INCAPACITATION_SECONDS,
+  SHERWOOD_VOLLEY_INCAPACITATION_SECONDS,
+  initialGuardPatrolAngle,
+  stepGuardPatrol,
+} from "../shared/guard-rules"
 import { SHERWOOD_PLAYER_RADIUS, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
 import { BOW_DRAW_SECONDS, BOW_TOTAL_SECONDS, SIGNATURE_ACTION_SECONDS } from "../shared/archery"
 import { CART_POSITION, DELIVERY_TARGET, VILLAGE_POSITION, acquireBowTarget, activateSignature, beginSoloBowDraw, calculateMastery, createInitialState, getContextPrompt, interact, stepSoloBowAction, updateSimulation } from "./simulation"
@@ -34,7 +44,7 @@ describe("Sherwood simulation", () => {
     state.player.position = { ...state.guards[0].position }
     expect(beginSoloBowDraw(state, { x: 0, z: 0 })).toBe("started")
     expect(stepSoloBowAction(state, { x: 0, z: 0 }, BOW_DRAW_SECONDS)).toEqual(["bow-hit:0"])
-    expect(state.guards[0].stunnedFor).toBeGreaterThan(3)
+    expect(state.guards[0].stunnedFor).toBe(SHERWOOD_ARROW_INCAPACITATION_SECONDS)
     expect(state.player.arrows).toBe(5)
   })
 
@@ -74,7 +84,7 @@ describe("Sherwood simulation", () => {
   it("cancels before applying movement on the interruption frame", () => {
     const state = createInitialState()
     state.player.position = { x: -30, z: -30 }
-    state.guards = [{ id: 0, position: { x: -26, z: -30 }, home: { x: -26, z: -30 }, patrolAngle: 0, stunnedFor: 0 }]
+    state.guards = [{ id: 0, position: { x: -26, z: -30 }, home: { x: -26, z: -30 }, patrolAngle: 0, stunnedFor: 0, alertFor: 0, lastKnownPosition: null }]
     state.player.invulnerableFor = 10
     expect(beginSoloBowDraw(state, { x: 0, z: 0 })).toBe("started")
     const before = { ...state.player.position }
@@ -109,22 +119,19 @@ describe("Sherwood simulation", () => {
     expect(state.bowAction).toBeNull()
   })
 
-  it("cancels a drawing shot before release when a guard captures the player", () => {
+  it("telegraphs a close guard before the capture window opens", () => {
     const state = createInitialState()
     state.objectiveDiscovered = true
     state.player.position = { x: -30, z: -30 }
-    state.heat = 100
-    state.guards = [{ id: 0, position: { x: -28.8, z: -30 }, home: { x: -28.8, z: -30 }, patrolAngle: 0, stunnedFor: 0 }]
-    expect(beginSoloBowDraw(state, { x: 0, z: 0 })).toBe("started")
+    state.guards = [{ id: 0, position: { x: -28.8, z: -30 }, home: { x: -28.8, z: -30 }, patrolAngle: 0, stunnedFor: 0, alertFor: 0, lastKnownPosition: null }]
 
-    const events = updateSimulation(state, { move: { x: 0, z: 0 } }, BOW_DRAW_SECONDS)
+    updateSimulation(state, { move: { x: 0, z: 0 } }, 0.01)
+    const warningEvents = updateSimulation(state, { move: { x: 0, z: 0 } }, SHERWOOD_GUARD_REACTION_SECONDS - 0.01)
+    expect(warningEvents).not.toContain("lost")
+    expect(state.guards[0].alertFor).toBeGreaterThan(0)
 
-    expect(events).toContain("lost")
-    expect(events).not.toContain("bow-hit:0")
-    expect(events).not.toContain("bow-missed")
-    expect(state.bowAction).toBeNull()
-    expect(state.player.arrows).toBe(6)
-    expect(state.stats.shotsFired).toBe(0)
+    const captureEvents = updateSimulation(state, { move: { x: 0, z: 0 } }, 0.02)
+    expect(captureEvents).toContain("lost")
   })
 
   it("does not let a signature replace an in-progress bow draw", () => {
@@ -142,7 +149,7 @@ describe("Sherwood simulation", () => {
     state.objectiveDiscovered = true
     state.player.position = { x: -30, z: -30 }
     state.player.invulnerableFor = 10
-    state.guards = [{ id: 0, position: { x: -26, z: -30 }, home: { x: -26, z: -30 }, patrolAngle: 0, stunnedFor: 0 }]
+    state.guards = [{ id: 0, position: { x: -26, z: -30 }, home: { x: -26, z: -30 }, patrolAngle: 0, stunnedFor: 0, alertFor: 0, lastKnownPosition: null }]
 
     expect(activateSignature(state).event).toBe("marian-veil")
     expect(state.signatureActionRemaining).toBe(SIGNATURE_ACTION_SECONDS)
@@ -167,7 +174,7 @@ describe("Sherwood simulation", () => {
   it("does not let the player tunnel through an active guard", () => {
     const state = createInitialState()
     state.player.position = { x: -20, z: -20 }
-    state.guards = [{ id: 0, position: { x: -18, z: -20 }, home: { x: -18, z: -20 }, patrolAngle: 0, stunnedFor: 0 }]
+    state.guards = [{ id: 0, position: { x: -18, z: -20 }, home: { x: -18, z: -20 }, patrolAngle: 0, stunnedFor: 0, alertFor: 0, lastKnownPosition: null }]
     updateSimulation(state, { move: { x: 1, z: 0 } }, 0.75)
     expect(state.player.position.x).toBeLessThan(state.guards[0].position.x)
     expect(Math.hypot(
@@ -179,7 +186,7 @@ describe("Sherwood simulation", () => {
   it("lets the player pass through a stunned guard", () => {
     const state = createInitialState()
     state.player.position = { x: -20, z: -20 }
-    state.guards = [{ id: 0, position: { x: -18, z: -20 }, home: { x: -18, z: -20 }, patrolAngle: 0, stunnedFor: 2 }]
+    state.guards = [{ id: 0, position: { x: -18, z: -20 }, home: { x: -18, z: -20 }, patrolAngle: 0, stunnedFor: 2, alertFor: 0, lastKnownPosition: null }]
     updateSimulation(state, { move: { x: 1, z: 0 } }, 0.75)
     expect(state.player.position.x).toBeGreaterThan(state.guards[0].position.x)
   })
@@ -189,7 +196,7 @@ describe("Sherwood simulation", () => {
     state.player.position = { x: -15, z: 8 }
     state.player.invulnerableFor = 10
     state.objectiveDiscovered = true
-    state.guards = [{ id: 0, position: { x: -14, z: 10.5 }, home: { x: -14, z: 10.5 }, patrolAngle: 0, stunnedFor: 0 }]
+    state.guards = [{ id: 0, position: { x: -14, z: 10.5 }, home: { x: -14, z: 10.5 }, patrolAngle: 0, stunnedFor: 0, alertFor: 0, lastKnownPosition: null }]
     updateSimulation(state, { move: { x: 6, z: 5 } }, Math.hypot(6, 5) / 6.2)
 
     expect(isSherwoodPlayerPositionBlocked(state.player.position, SHERWOOD_PLAYER_RADIUS, state.layout)).toBe(false)
@@ -215,6 +222,30 @@ describe("Sherwood simulation", () => {
 
     expect(guard.patrolAngle).toBeCloseTo(expected.angle, 8)
     expect(Math.hypot(guard.position.x - guard.home.x, guard.position.z - guard.home.z)).toBeLessThanOrEqual(expected.moveSpeed * 0.25 + 0.0001)
+  })
+
+  it("shares a sighting with nearby guards and remembers the last known position", () => {
+    const state = createInitialState()
+    state.objectiveDiscovered = true
+    state.player.position = { x: -30, z: -30 }
+    state.guards = [
+      { id: 1, position: { x: -24, z: -30 }, home: { x: -24, z: -30 }, patrolAngle: 0, stunnedFor: 0, alertFor: 0, lastKnownPosition: null },
+      { id: 2, position: { x: -16, z: -30 }, home: { x: -16, z: -30 }, patrolAngle: 0, stunnedFor: 0, alertFor: 0, lastKnownPosition: null },
+    ]
+
+    updateSimulation(state, { move: { x: 1, z: 0 } }, 0.1)
+
+    expect(state.heat).toBeGreaterThanOrEqual(12)
+    expect(state.guards[0].alertFor).toBeCloseTo(SHERWOOD_GUARD_ALERT_MEMORY_SECONDS, 1)
+    expect(state.guards[1].alertFor).toBeGreaterThan(0)
+    expect(state.guards[1].lastKnownPosition).not.toBeNull()
+
+    const before = { ...state.guards[1].position }
+    state.player.position = { x: -40, z: -40 }
+    state.player.veilFor = 10
+    updateSimulation(state, { move: { x: 0, z: 0 } }, 0.25)
+    expect(state.guards[1].position).not.toEqual(before)
+    expect(state.guards[1].alertFor).toBeGreaterThan(0)
   })
 
   it("lets a wrong 5x5 search route strengthen the Sheriff before discovery", () => {
@@ -247,6 +278,7 @@ describe("Sherwood simulation", () => {
     const signature = activateSignature(state)
     expect(signature.event).toBe("robin-volley")
     expect(signature.guardIds).toHaveLength(2)
+    expect(state.guards.filter((guard) => signature.guardIds.includes(guard.id)).every((guard) => guard.stunnedFor === SHERWOOD_VOLLEY_INCAPACITATION_SECONDS)).toBe(true)
   })
 
   it("gives Little John readable crowd control and a heavy-carry advantage", () => {
@@ -258,6 +290,7 @@ describe("Sherwood simulation", () => {
     expect(signature.event).toBe("little-john-sweep")
     expect(signature.guardIds.length).toBeGreaterThanOrEqual(2)
     expect(john.player.signatureCooldown).toBe(20)
+    expect(john.guards.filter((guard) => signature.guardIds.includes(guard.id)).every((guard) => guard.stunnedFor === SHERWOOD_SWEEP_INCAPACITATION_SECONDS)).toBe(true)
 
     const robin = createInitialState("robin")
     john.player.position = { ...john.layout.campfirePosition }
@@ -277,8 +310,9 @@ describe("Sherwood simulation", () => {
     expect(activateSignature(state).event).toBe("signature-unavailable")
     expect(state.traps).toHaveLength(1)
     expect(updateSimulation(state, { move: { x: 0, z: 0 } }, 0.05)).toContain("trap-triggered")
+    expect(target.stunnedFor).toBeCloseTo(SHERWOOD_SNARE_INCAPACITATION_SECONDS, 1)
     expect(state.traps).toHaveLength(0)
-    expect(target.stunnedFor).toBe(4.5)
+    expect(target.stunnedFor).toBe(SHERWOOD_SNARE_INCAPACITATION_SECONDS)
   })
 
   it("scores speed, precision, survival, and generosity", () => {

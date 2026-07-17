@@ -16,6 +16,8 @@ function guard(id: number, x: number, stunnedFor = 0): GuardState {
     home: { x: x - 2, z: x - 1 },
     patrolAngle: id * 0.5,
     stunnedFor,
+    alertFor: id,
+    lastKnownPosition: { x: x + 2, z: x + 3 },
   }
 }
 
@@ -41,8 +43,8 @@ describe("mission snapshot state", () => {
     const removed = guard(7, 7)
     const last = guard(11, 11)
     const authoritative: MissionGuard[] = [
-      { id: 11, position: { x: 21, z: 22 }, stunnedFor: 2 },
-      { id: 3, position: { x: 31, z: 32 }, stunnedFor: 0 },
+      { id: 11, position: { x: 21, z: 22 }, stunnedFor: 2, alertFor: 4 },
+      { id: 3, position: { x: 31, z: 32 }, stunnedFor: 0, alertFor: 1 },
     ]
 
     const synchronized = synchronizeMissionGuards([first, removed, last], authoritative)
@@ -52,6 +54,8 @@ describe("mission snapshot state", () => {
     expect(synchronized[0]).not.toBe(last)
     expect(synchronized[0].position).toEqual({ x: 21, z: 22 })
     expect(synchronized[0].stunnedFor).toBe(2)
+    expect(synchronized[0].alertFor).toBe(4)
+    expect(synchronized[0].lastKnownPosition).toEqual(last.lastKnownPosition)
     expect(synchronized[0].home).toEqual(last.home)
     expect(synchronized[0].patrolAngle).toBe(last.patrolAngle)
     expect(synchronized[1]).not.toBe(first)
@@ -62,7 +66,7 @@ describe("mission snapshot state", () => {
   it("initializes newly authoritative guards without retaining removed client state", () => {
     const synchronized = synchronizeMissionGuards(
       [guard(1, 1)],
-      [{ id: 9, position: { x: -4, z: 8 }, stunnedFor: 1.5 }],
+      [{ id: 9, position: { x: -4, z: 8 }, stunnedFor: 1.5, alertFor: 0 }],
     )
 
     expect(synchronized).toEqual([{
@@ -71,6 +75,8 @@ describe("mission snapshot state", () => {
       home: { x: -4, z: 8 },
       patrolAngle: 0,
       stunnedFor: 1.5,
+      alertFor: 0,
+      lastKnownPosition: null,
     }])
   })
 })
