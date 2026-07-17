@@ -26,7 +26,7 @@ The checked-in manifest is authoritative; these are the initial ceilings for a s
 
 | Category | GLB bytes | Render vertices | Upload vertices | Triangles | Primitives / draw calls | Texture edge | Approx. texture GPU bytes |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Hero | 2,500,000 | 200,000 | 50,000 | 100,000 | 8 | 1024 | 6,000,000 |
+| Hero | 2,500,000 | 200,000 | 50,000 | 100,000 | 10 | 1024 | 7,500,000 |
 | Modular environment | 3,000,000 | 100,000 | 75,000 | 60,000 | 24 | 1024 | 32,000,000 |
 | Repeated prop | 500,000 | 30,000 | 20,000 | 20,000 | 4 | 512 | 1,500,000 |
 | Decorative environment | 500,000 | 30,000 | 20,000 | 20,000 | 8 | 512 | 1,500,000 |
@@ -43,14 +43,14 @@ The validator hashes the shipping file and compares it with the declared SHA-256
 
 | Character | Shipping GLB bytes | Triangles | Upload vertices | Draws | Palette texture | Clips |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Robin / Ranger | 641,316 | 9,584 | 8,693 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
+| Robin / Ranger | 1,702,460 | 23,084 | 32,898 | 10 | 1024² + 512² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
 | Marian / Rogue | 573,668 | 8,246 | 7,429 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
 | Little John / Barbarian | 548,656 | 7,807 | 7,017 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
 | Much / Hooded Rogue | 542,264 | 7,869 | 6,839 | 8 | 1024² WebP | `Idle`, `Walk`, `Attack`, `Signature` |
 
 The active Merry Band uses KayKit's complete character parts rather than modifying the rejected Meshy meshes. Ranger, Rogue, Barbarian, and Hooded Rogue have the same exact 23-bone `Rig_Medium` rest skeleton. Their native weighted hand geometry is already a closed stylized fist, so the conversion adds no finger bones, hand remodelling, fused geometry, metaballs, or runtime retargeting. Independent comparison keeps the source arm surfaces within floating-point export tolerance and all 23 bones receive channels in every clip.
 
-`tools/build-kaykit-characters.py` is the deterministic offline builder. It reads the Adventurers character pack and Character Animations 1.1 outside `public/`, verifies the exact 23-bone Medium rig, equips every role with `bow_withString`, and emits self-contained GLBs. `Ranged_Bow_Idle` becomes `Idle`, `Running_HoldingBow` becomes `Walk`, and `Attack` is an exact 1.0-second NLA composition: the complete native `Ranged_Bow_Draw` retimed to 0.6 seconds, then the complete `Ranged_Bow_Release` retimed to 0.4 seconds, with the release seam at normalized progress 0.6. `Signature` remains a separately timed clip: Robin preserves the legacy 0.8-second bow composition with its 0.12-second seam, Marian and Little John retain `Use_Item`, and Much retains `Throw`. The builder applies each role palette and reloads the authored palette before WebP export. Robin maps blue cloth to Sherwood green, Marian maps green cloth to burgundy, Little John retains the readable leather-and-bear palette, and Much maps green cloth to olive. Ranger and Hooded Rogue capes are consolidated into their body objects without moving existing body vertices, keeping every hero at the eight-draw ceiling after the bow is added.
+`tools/build-kaykit-characters.py` is the deterministic offline builder. It reads the Adventurers character pack and Character Animations 1.1 outside `public/`, verifies the exact 23-bone Medium rig, equips every role with `bow_withString`, and emits self-contained GLBs. `Ranged_Bow_Idle` becomes `Idle`, `Running_HoldingBow` becomes `Walk`, and `Attack` is an exact 1.0-second NLA composition: the complete native `Ranged_Bow_Draw` retimed to 0.6 seconds, then the complete `Ranged_Bow_Release` retimed to 0.4 seconds, with the release seam at normalized progress 0.6. `Signature` remains a separately timed clip: Robin preserves the legacy 0.8-second bow composition with its 0.12-second seam, Marian and Little John retain `Use_Item`, and Much retains `Throw`. The builder applies each role palette and reloads the authored palette before WebP export. Robin maps blue cloth to Sherwood green, Marian maps green cloth to burgundy, Little John retains the readable leather-and-bear palette, and Much maps green cloth to olive. Ranger and Hooded Rogue capes are consolidated into their body objects without moving existing body vertices. Marian, Little John, and Much remain at eight draws; Robin uses two additional draws for the consolidated hat and feather.
 
 Build all four from the untouched local pack with Blender 5.1 or newer:
 
@@ -60,8 +60,11 @@ Build all four from the untouched local pack with Blender 5.1 or newer:
   --python tools/build-kaykit-characters.py -- \
   --source-dir /path/to/KayKit_Adventurers_2.0_FREE \
   --animation-dir /path/to/KayKit_Character_Animations_1.1/Animations \
+  --robin-accessory-blend /path/to/robinHoodHatLowPoly.blend \
   --output-dir public/assets/characters
 ```
+
+Robin builds require the saved accessory source to contain `Robin_Hat_Brim`, `Robin_Hat_Cap`, `Robin_Hat_Band`, and `Robin_Hat_Feather`, each attached to the `head` bone of `Rig_Medium.001`. The builder rejects any rest-rig mismatch, verifies that transfer changes no accessory world matrix beyond floating-point tolerance, consolidates the three textured hat pieces to one primitive, applies the feather's non-destructive thickness modifier on the export copy, and retains both results as children of the animated head joint. The authored source placement is not recomputed or guessed during export.
 
 Every KayKit bow keeps its `Basis` and `Draw` morph targets and is parented directly to `handslot.l`. The native equipment-space transform is XYZ `(-90°, 0°, -180°)` at uniform scale `0.91`; front, both side views, full draw, the Draw-to-Release seam, separation, and recovery were rendered before acceptance. Runtime samples the authored one-shot deterministically from gameplay `actionProgress`: normal attacks reach full string draw at progress 0.6, then release during the final 0.4 seconds. Robin's bow-driven signature retains its independent legacy 0.15 seam; the other three role signatures leave the string at rest.
 

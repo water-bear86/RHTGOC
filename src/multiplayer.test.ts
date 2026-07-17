@@ -1,7 +1,44 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("./supabase", () => ({ getSupabase: vi.fn() }))
+
+import { getSupabase } from "./supabase"
 import { classifyBowPredictionSnapshot, MultiplayerClient } from "./multiplayer"
 
-afterEach(() => vi.unstubAllGlobals())
+const getSupabaseMock = vi.mocked(getSupabase)
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  getSupabaseMock.mockReset()
+})
+
+describe("multiplayer public hub auth", () => {
+  it("reports session lookup failures instead of leaving public entry pending", async () => {
+    getSupabaseMock.mockReturnValue({
+      auth: { getSession: vi.fn().mockRejectedValue(new Error("Session lookup unavailable")) },
+    } as never)
+    const onError = vi.fn()
+
+    new MultiplayerClient({ onError }).joinPublicHub("Greenhood", "robin")
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("Session lookup unavailable"))
+  })
+
+  it("reports synchronous socket setup failures through the public-entry error path", async () => {
+    getSupabaseMock.mockReturnValue({
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: "header.payload.signature-long" } } }) },
+    } as never)
+    vi.stubGlobal("location", { protocol: "http:", hostname: "localhost", host: "localhost" })
+    vi.stubGlobal("WebSocket", class {
+      constructor() { throw new Error("Socket setup unavailable") }
+    })
+    const onError = vi.fn()
+
+    new MultiplayerClient({ onError }).joinPublicHub("Greenhood", "robin")
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("Socket setup unavailable"))
+  })
+})
 
 describe("multiplayer bow prediction", () => {
   it("waits for a causal acknowledgement but honors authoritative recovery", () => {

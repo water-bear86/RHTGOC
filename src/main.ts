@@ -96,8 +96,20 @@ import { ChatState, truncateChatInput } from "./chat-state"
 import { BOW_TOTAL_SECONDS, BOW_TOTAL_TICKS, hasBowMovement, type BowActionSnapshot } from "../shared/archery"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
+const hud = document.querySelector<HTMLElement>("#hud")!
+const walletDock = document.querySelector<HTMLElement>(".wallet-dock")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
+const introCard = document.querySelector<HTMLElement>(".intro-card")!
+const introEyebrow = document.querySelector<HTMLElement>("#intro-eyebrow")!
+const introTitle = document.querySelector<HTMLElement>("#intro-title")!
+const introCopy = document.querySelector<HTMLElement>("#intro-copy")!
 const startButton = document.querySelector<HTMLButtonElement>("#start-button")!
+const friendsDisclosure = document.querySelector<HTMLDetailsElement>("#friends-disclosure")!
+const friendsSummary = document.querySelector<HTMLElement>("#friends-summary")!
+const introHelpButton = document.querySelector<HTMLButtonElement>("#intro-help")!
+const entryAccessNote = document.querySelector<HTMLElement>("#entry-access-note")!
+const outlawDisclosure = document.querySelector<HTMLDetailsElement>("#outlaw-disclosure")!
+const selectedOutlawSummary = document.querySelector<HTMLElement>("#selected-outlaw-summary")!
 const promptElement = document.querySelector<HTMLDivElement>("#prompt")!
 const toastElement = document.querySelector<HTMLDivElement>("#toast")!
 const objectivePointer = document.querySelector<HTMLElement>("#objective-pointer")!
@@ -196,6 +208,7 @@ const socialFriendList = document.querySelector<HTMLUListElement>("#social-frien
 const socialRecentList = document.querySelector<HTMLUListElement>("#social-recent-list")!
 const socialStatus = document.querySelector<HTMLElement>("#social-status")!
 const walletState = document.querySelector<HTMLElement>("#wallet-state")!
+const accessCard = document.querySelector<HTMLElement>("#access-card")!
 const accessCopy = document.querySelector<HTMLElement>("#access-copy")!
 const accessStatus = document.querySelector<HTMLElement>("#access-status")!
 const walletSignIn = document.querySelector<HTMLButtonElement>("#wallet-sign-in")!
@@ -229,6 +242,8 @@ const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
 const rejoinRoomButton = document.querySelector<HTMLButtonElement>("#rejoin-room")!
 const joinPublicHubButton = document.querySelector<HTMLButtonElement>("#join-public-hub")!
 const hubPanel = document.querySelector<HTMLElement>("#hub-panel")!
+const hubClose = document.querySelector<HTMLButtonElement>("#hub-close")!
+const hubTitle = document.querySelector<HTMLElement>("#hub-title")!
 const hubRoomCode = document.querySelector<HTMLElement>("#hub-room-code")!
 const hubRecent = document.querySelector<HTMLElement>("#hub-recent")!
 const hubBand = document.querySelector<HTMLElement>("#hub-band")!
@@ -257,6 +272,7 @@ const contributionDepositButtons = [...document.querySelectorAll<HTMLButtonEleme
 const hubContributionList = document.querySelector<HTMLUListElement>("#hub-contribution-list")!
 const hubContributionState = document.querySelector<HTMLElement>("#hub-contribution-state")!
 const hubMissions = document.querySelector<HTMLDivElement>("#hub-missions")!
+const hubMissionLabel = document.querySelector<HTMLElement>("#hub-mission-label")!
 const hubRoles = [...document.querySelectorAll<HTMLButtonElement>("[data-hub-character]")]
 const hubLoadout = document.querySelector<HTMLSelectElement>("#hub-loadout")!
 const hubCopyCode = document.querySelector<HTMLButtonElement>("#hub-copy-code")!
@@ -290,7 +306,11 @@ const quickChatInput = document.querySelector<HTMLInputElement>("#quick-chat-inp
 const quickChatChannel = document.querySelector<HTMLElement>("#quick-chat-channel")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
 const invitedRoom = new URLSearchParams(location.search).get("room")?.trim().toUpperCase()
-if (invitedRoom?.match(/^[A-Z2-9]{6}$/)) roomCodeInput.value = invitedRoom
+if (invitedRoom?.match(/^[A-Z2-9]{6}$/)) {
+  roomCodeInput.value = invitedRoom
+  friendsDisclosure.open = true
+  friendsSummary.textContent = `JOIN BAND ${invitedRoom}`
+}
 const lastRoomCode = localStorage.getItem("sherwood:last-room-code")
 if (lastRoomCode?.match(/^[A-Z2-9]{6}$/)) rejoinRoomButton.classList.remove("hidden")
 
@@ -380,6 +400,7 @@ let publicHubParticipantId: string | null = null
 let publicHubPlayers: PublicHubPlayer[] = []
 let publicHubIsLooking = false
 let publicHubCapacity = 12
+let publicHubEntryPending = false
 let localRoleConfirmed = false
 let cameraQuarterTurns = 0
 let currentExperimentAssignments: RoomExperimentAssignment[] = []
@@ -642,8 +663,61 @@ const characterNames: Record<CharacterId, string> = {
   much: "Much",
 }
 
+const characterRoles: Record<CharacterId, string> = {
+  robin: "Marksman",
+  marian: "Scout",
+  "little-john": "Vanguard",
+  much: "Saboteur",
+}
+
 function characterName(characterId: CharacterId): string {
   return characterNames[characterId]
+}
+
+function refreshEntryModeCopy(): void {
+  if (intro.classList.contains("ending")) return
+  const spectator = isMobileSpectator()
+  startButton.innerHTML = `${spectator ? "WATCH SHERWOOD" : "PLAY SOLO"} <span>→</span>`
+  startButton.setAttribute("aria-label", spectator ? "Enter Sherwood as a mobile spectator" : `Play solo as ${characterName(selectedCharacter)}`)
+  introControls.textContent = spectator
+    ? "MOBILE SPECTATOR · VIEW THE FIELD · FULL CONTROLS AVAILABLE ON DESKTOP"
+    : "MOVE WITH WASD OR CLICK · STAND STILL + SPACE TO FIRE · FULL CONTROLS IN ?"
+  renderPublicEntryAuthState(accessState.authenticated)
+  refreshPublicEntryAvailability()
+  if (!publicHubEntryPending && !accessState.gateEnabled) renderOpenPlayEntryNote(accessState.authenticated)
+}
+
+function refreshSelectedOutlawSummary(): void {
+  selectedOutlawSummary.textContent = `${characterName(selectedCharacter).toUpperCase()} · ${characterRoles[selectedCharacter].toUpperCase()}`
+  refreshEntryModeCopy()
+}
+
+function setIntroVisible(visible: boolean): void {
+  intro.classList.toggle("closed", !visible)
+  intro.setAttribute("aria-hidden", String(!visible))
+  intro.setAttribute("aria-modal", "false")
+  document.body.classList.toggle("intro-open", visible)
+  for (const child of document.body.children) {
+    if (!(child instanceof HTMLElement)) continue
+    const overlay = child === intro || child.matches("[role='dialog']") || child.tagName === "SCRIPT"
+    const requiredWallet = child === walletDock
+    child.toggleAttribute("inert", visible && !overlay && !requiredWallet)
+  }
+}
+
+function setHubBoardOpen(open: boolean, focus = false): void {
+  hubPanel.classList.toggle("hidden", !open)
+  hubPanel.setAttribute("aria-hidden", String(!open))
+  document.body.classList.toggle("hub-board-open", open)
+  container.toggleAttribute("inert", open)
+  hud.toggleAttribute("inert", open)
+  walletDock.toggleAttribute("inert", open)
+  keys.clear()
+  if (inHub) promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} ${open ? "closes" : "opens"} the mission board`
+  if (open) {
+    hubPanel.scrollTop = 0
+    if (focus) queueMicrotask(() => hubTitle.focus({ preventScroll: true }))
+  } else if (focus) queueMicrotask(() => renderer.domElement.focus())
 }
 
 function material(color: number): THREE.MeshToonMaterial {
@@ -1343,7 +1417,7 @@ const multiplayer = new MultiplayerClient({
       if (phase === "lobby") state.player.position = { ...localPlayer.position }
     }
     readyButton.textContent = localReady ? "NOT READY" : "READY UP"
-    readyButton.disabled = !localRoleConfirmed
+    readyButton.disabled = !roomConnected || !localRoleConfirmed
     hubReady.textContent = localReady ? "NOT READY" : "READY UP"
     hubReady.disabled = roomConnected && !localRoleConfirmed
     hubLoadout.value = localPlayer?.loadoutId ?? "balanced"
@@ -1362,8 +1436,8 @@ const multiplayer = new MultiplayerClient({
       inHub = false
       running = true
       intro.scrollTop = 0
-      intro.classList.add("closed")
-      hubPanel.classList.add("hidden")
+      setIntroVisible(false)
+      setHubBoardOpen(false)
       setMissionWorldVisible(true)
       lobbyStatus.textContent = "Mission started"
       ensureRemotePlayers(players)
@@ -1421,6 +1495,14 @@ const multiplayer = new MultiplayerClient({
     if (!wasCancelled) showToast("Bow not ready")
   },
   onError: (message) => {
+    if (publicHubEntryPending) {
+      publicHubEntryPending = false
+      multiplayer.leavePublicHub()
+      refreshPublicEntryAvailability()
+      renderPublicEntryAuthState(accessState.authenticated)
+      entryAccessNote.textContent = message.toUpperCase()
+      void refreshAccessPanel()
+    }
     if (pendingRoomSelection) {
       pendingRoomSelection = false
       if (inHub) renderHub()
@@ -1431,6 +1513,14 @@ const multiplayer = new MultiplayerClient({
   },
   onConnection: (connected) => {
     roomConnected = connected
+    if (!connected && publicHubEntryPending) {
+      publicHubEntryPending = false
+      multiplayer.leavePublicHub()
+      refreshPublicEntryAvailability()
+      renderPublicEntryAuthState(accessState.authenticated)
+      entryAccessNote.textContent = "PUBLIC CAMP CONNECTION LOST · TRY AGAIN"
+    }
+    readyButton.disabled = !connected || !localRoleConfirmed
     if (!connected && multiplayerActive) resetLocalHeroActions()
     lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
     if (inHub) renderHub()
@@ -1439,6 +1529,9 @@ const multiplayer = new MultiplayerClient({
     if (!connected) void syncPresence("available", null)
   },
   onHubWelcome: (_instanceId, participantId, capacity) => {
+    publicHubEntryPending = false
+    refreshPublicEntryAvailability()
+    renderPublicEntryAuthState(true)
     blockedPlayerIds.clear()
     mutedPlayerIds.clear()
     chatState.reset()
@@ -1451,8 +1544,8 @@ const multiplayer = new MultiplayerClient({
     publicHubParticipantId = participantId
     publicHubCapacity = capacity
     running = true
-    intro.classList.add("closed")
-    hubPanel.classList.add("hidden")
+    setIntroVisible(false)
+    setHubBoardOpen(false)
     publicHubPanel.classList.remove("hidden")
     partyHud.classList.add("hidden")
     resetMissionRuntimeState()
@@ -1502,6 +1595,7 @@ function hubPlayerAsRoomPlayer(player: PublicHubPlayer): RoomPlayer {
 function renderRoleChoice(players: RoomPlayer[]): void {
   const shouldOpen = roomConnected && !localRoleConfirmed
   const opening = shouldOpen && roleChoicePanel.classList.contains("hidden")
+  const closing = !shouldOpen && !roleChoicePanel.classList.contains("hidden")
   roleChoicePanel.classList.toggle("hidden", !shouldOpen)
   roleChoicePanel.setAttribute("aria-hidden", String(!shouldOpen))
   for (const button of roleChoiceButtons) {
@@ -1515,6 +1609,7 @@ function renderRoleChoice(players: RoomPlayer[]): void {
   }
   roleChoiceStatus.textContent = "Choose an outlaw before readying up."
   if (opening) roleChoiceButtons.find((button) => !button.disabled)?.focus()
+  else if (closing && inHub && !hubPanel.classList.contains("hidden")) queueMicrotask(() => hubTitle.focus({ preventScroll: true }))
 }
 
 function setMissionWorldVisible(visible: boolean): void {
@@ -1561,45 +1656,48 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
 
 function renderHub(): void {
   const online = roomSessionActive
+  const spectator = !online && isMobileSpectator()
   const isLeader = !online || currentRoomPlayers[0]?.id === multiplayer.playerId
+  hubPanel.classList.toggle("solo", !online)
+  hubMissionLabel.textContent = online ? "TRUSTED MISSIONS" : spectator ? "SPECTATOR HEIST" : "YOUR FIRST HEIST"
   missionTitle.textContent = getMissionDefinition(currentMissionSlug).name.toUpperCase()
   hubRotations.replaceChildren()
-  for (const rotation of currentRotations) {
-    const mission = getMissionDefinition(rotation.missionSlug)
-    const button = document.createElement("button")
-    button.classList.toggle("selected", rotation.id === selectedRotationId)
-    button.disabled = !online || !roomConnected || !isLeader || rotationsPaused
-    const name = document.createElement("b")
-    const detail = document.createElement("small")
-    name.textContent = `${rotation.partySize}P · ${mission.name}`
-    detail.textContent = `${rotation.region.replaceAll("-", " ")} · ${rotation.modifierIds.map((id) => id.replaceAll("-", " ")).join(" + ")} · ${rotation.rewardLabel}`
-    button.append(name, detail)
-    button.addEventListener("click", () => multiplayer.selectRotation(rotation.id))
-    hubRotations.append(button)
-  }
-  if (currentRotations.length === 0 && !rotationsPaused) {
-    const empty = document.createElement("small")
-    empty.textContent = online ? "The Sheriff has posted no valid target." : "Form a band to load today's server-owned targets."
-    hubRotations.append(empty)
+  if (online) {
+    for (const rotation of currentRotations) {
+      const mission = getMissionDefinition(rotation.missionSlug)
+      const button = document.createElement("button")
+      button.classList.toggle("selected", rotation.id === selectedRotationId)
+      button.disabled = !roomConnected || !isLeader || rotationsPaused
+      const name = document.createElement("b")
+      const detail = document.createElement("small")
+      name.textContent = `${rotation.partySize}P · ${mission.name}`
+      detail.textContent = `${rotation.region.replaceAll("-", " ")} · ${rotation.modifierIds.map((id) => id.replaceAll("-", " ")).join(" + ")} · ${rotation.rewardLabel}`
+      button.append(name, detail)
+      button.addEventListener("click", () => multiplayer.selectRotation(rotation.id))
+      hubRotations.append(button)
+    }
+    if (currentRotations.length === 0 && !rotationsPaused) {
+      const empty = document.createElement("small")
+      empty.textContent = "The Sheriff has posted no valid target."
+      hubRotations.append(empty)
+    }
   }
   renderRotationCountdown()
   renderRescueOffer()
   renderContributions()
   renderSeason()
   hubMissions.replaceChildren()
-  for (const mission of MISSION_CATALOG.values()) {
-    const missionKind = mission.scenario?.kind ?? "tax-cart"
-    const bandOnly = !online && missionKind !== "tax-cart"
+  const availableMissions = [...MISSION_CATALOG.values()].filter((mission) => online || (mission.scenario?.kind ?? "tax-cart") === "tax-cart")
+  for (const mission of availableMissions) {
     const button = document.createElement("button")
     button.classList.toggle("selected", mission.slug === currentMissionSlug)
-    button.disabled = (online && (!roomConnected || !isLeader || pendingRoomSelection)) || bandOnly
+    button.disabled = online && (!roomConnected || !isLeader || pendingRoomSelection)
     const name = document.createElement("b")
     const detail = document.createElement("small")
     name.textContent = mission.name
-    detail.textContent = bandOnly
-      ? `BAND REQUIRED · ${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par`
-      : `${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par · v${mission.missionVersion}`
-    if (bandOnly) button.title = "This mission currently requires a multiplayer Merry Band"
+    detail.textContent = online
+      ? `${mission.routes.entry.length} approaches · ${Math.round(mission.mastery.parSeconds / 60)} min par · v${mission.missionVersion}`
+      : "Ambush the tax cart · recover the coin · return to the village"
     button.append(name, detail)
     button.addEventListener("click", () => {
       if (online) {
@@ -1621,7 +1719,12 @@ function renderHub(): void {
   hubLoadout.disabled = online && !roomConnected
   hubRoomCode.textContent = online ? multiplayer.roomCode ?? "------" : "SOLO"
   hubCopyCode.disabled = !online || !roomConnected
-  hubReady.textContent = online ? (localReady ? "NOT READY" : "READY UP") : "START MISSION"
+  hubCopyCode.classList.toggle("hidden", !online)
+  hubReady.textContent = online
+    ? (localReady ? "NOT READY" : "READY UP")
+    : spectator
+      ? `WATCH ${getMissionDefinition(currentMissionSlug).name.toUpperCase()}`
+      : `START ${getMissionDefinition(currentMissionSlug).name.toUpperCase()} AS ${characterName(selectedCharacter).toUpperCase()}`
   hubReady.disabled = online && (!roomConnected || !localRoleConfirmed || pendingRoomSelection)
   hubBand.classList.toggle("hidden", !currentBand)
   if (currentBand) {
@@ -1633,14 +1736,20 @@ function renderHub(): void {
     if (document.activeElement !== hubBandNameInput) hubBandNameInput.value = currentBand.name
     hubBandBanner.value = currentBand.bannerId
   }
-  hubRecent.textContent = currentLastResult
-    ? `Last heist: ${currentLastResult.status === "succeeded" ? currentLastResult.grade : "PARTIAL"} · ${currentLastResult.score.toLocaleString()} renown${currentLastResult.totalCaptives > 0 ? ` · ${currentLastResult.rescuedCaptives}/${currentLastResult.totalCaptives} rescued` : ""}. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
-    : `Village works: granary ${currentVillage.granary}, infirmary ${currentVillage.infirmary}, watchtower ${currentVillage.watchtower}.`
+  hubRecent.textContent = online
+    ? currentLastResult
+      ? `Last heist: ${currentLastResult.status === "succeeded" ? currentLastResult.grade : "PARTIAL"} · ${currentLastResult.score.toLocaleString()} renown${currentLastResult.totalCaptives > 0 ? ` · ${currentLastResult.rescuedCaptives}/${currentLastResult.totalCaptives} rescued` : ""}. Village: G${currentVillage.granary} I${currentVillage.infirmary} W${currentVillage.watchtower}.`
+      : `Village works: granary ${currentVillage.granary}, infirmary ${currentVillage.infirmary}, watchtower ${currentVillage.watchtower}.`
+    : spectator
+      ? "The People's Purse is ready. Enter spectator view to follow the heist."
+      : "The People's Purse is ready. Choose your outlaw, keep the balanced kit, and begin."
   hubState.textContent = online
     ? roomConnected
       ? `${isLeader ? "Band leader chooses the target." : "The band leader chooses the target."} Ready together when roles and kits are set.`
       : "Connection lost · returning to this camp before any readiness can change."
-    : "Start the People's Purse solo, or form a Merry Band for the prison wagon and storehouse."
+    : spectator
+      ? "Watch Sherwood without desktop controls."
+      : "One mission. One outlaw. Take back the people's coin."
 }
 
 function renderPublicHub(): void {
@@ -1865,21 +1974,23 @@ function enterHub(online: boolean): void {
   state.won = false
   state.lost = false
   intro.scrollTop = 0
-  intro.classList.add("closed")
+  intro.classList.remove("ending")
+  setIntroVisible(false)
   resultsPanel.classList.add("hidden")
   resultsPanel.setAttribute("aria-hidden", "true")
-  hubPanel.classList.remove("hidden")
   partyHud.classList.toggle("hidden", !online)
   setMissionWorldVisible(false)
   positionMissionCampfire(HUB_CAMPFIRE_POSITION)
   positionVillageUpgrades(HUB_CAMPFIRE_POSITION)
-  objectiveElement.textContent = "Choose the band's next target"
-  missionModifiers.textContent = `${MISSION_CATALOG.size} TRUSTED MISSION${MISSION_CATALOG.size === 1 ? "" : "S"} ON THE BOARD`
+  objectiveElement.textContent = online ? "Choose the band's next target" : "Prepare your first heist"
+  missionModifiers.textContent = online
+    ? `${MISSION_CATALOG.size} TRUSTED MISSION${MISSION_CATALOG.size === 1 ? "" : "S"} ON THE BOARD`
+    : "1 MISSION READY"
   if (!online) state.player.position = { ...PEOPLES_PURSE_MISSION.spawns.players[0] }
   lastPlayerPosition = { ...state.player.position }
   renderHub()
+  setHubBoardOpen(true, enteringHub && roleChoicePanel.classList.contains("hidden"))
   clock.getDelta()
-  if (enteringHub && roleChoicePanel.classList.contains("hidden")) queueMicrotask(() => hubReady.focus())
 }
 
 function startSoloMission(): void {
@@ -1891,7 +2002,7 @@ function startSoloMission(): void {
   }
   inHub = false
   multiplayerActive = false
-  hubPanel.classList.add("hidden")
+  setHubBoardOpen(false)
   setMissionWorldVisible(true)
   soloRunSequence += 1
   state = createInitialState(selectedCharacter, stableSeed(`solo:${Date.now()}:${soloRunSequence}`))
@@ -1904,6 +2015,7 @@ function startSoloMission(): void {
   objectiveElement.textContent = "Search Sherwood for the Sheriff's shipment"
   missionModifiers.textContent = ""
   clock.getDelta()
+  showToast(isMobileSpectator() ? "SPECTATOR VIEW · FOLLOW THE HEIST" : "MOVE WITH WASD OR CLICK · STAND STILL + SPACE TO FIRE")
   queueMicrotask(() => renderer.domElement.focus())
 }
 
@@ -2049,24 +2161,7 @@ function finishTutorial(): void {
   continuation?.()
 }
 
-function runCampfireTutorialGate(action: () => void, trigger: HTMLElement, completionLabel: string): void {
-  const fullPlan = buildTutorialPlan(selectedCharacter, missionKindForSlug(currentMissionSlug), tutorialProgress.completed)
-  const lessons = fullPlan?.lessons.filter((lesson) => lesson.moduleId === "fieldcraft" || lesson.moduleId === `character:${selectedCharacter}`) ?? []
-  if (!fullPlan || lessons.length === 0) {
-    action()
-    return
-  }
-  const plan: TutorialPlan = { ...fullPlan, lessons, moduleIds: lessons.map((lesson) => lesson.moduleId) }
-  openTutorial(plan, {
-    continuation: () => runCampfireTutorialGate(action, trigger, completionLabel),
-    completionLabel,
-    recordProgress: true,
-    showTacticalTip: false,
-    trigger,
-  })
-}
-
-function requestMissionReady(trigger: HTMLElement): void {
+function requestMissionReady(): void {
   if (roomSessionActive && !roomConnected) {
     showToast("RETURNING TO YOUR BAND · READY AGAIN WHEN RECONNECTED")
     renderHub()
@@ -2089,22 +2184,11 @@ function requestMissionReady(trigger: HTMLElement): void {
     multiplayer.setReady(false)
     return
   }
-  const plan = buildTutorialPlan(selectedCharacter, missionKindForSlug(currentMissionSlug), tutorialProgress.completed)
-  if (plan) {
-    openTutorial(plan, {
-      continuation: () => requestMissionReady(trigger),
-      completionLabel: roomSessionActive ? "READY UP" : "START MISSION",
-      recordProgress: true,
-      showTacticalTip: true,
-      trigger,
-    })
-    return
-  }
   if (roomSessionActive) multiplayer.setReady(true, { missionSlug: currentMissionSlug, characterId: selectedCharacter })
   else startSoloMission()
 }
 
-function replayCurrentTutorial(): void {
+function replayCurrentTutorial(trigger: HTMLElement = helpButton): void {
   const missionKind = latestMissionSnapshot?.missionKind ?? missionKindForSlug(currentMissionSlug)
   const plan = buildTutorialPlan(selectedCharacter, missionKind, {})
   if (!plan) return
@@ -2112,7 +2196,7 @@ function replayCurrentTutorial(): void {
     completionLabel: "CLOSE NOTES",
     recordProgress: false,
     showTacticalTip: true,
-    trigger: helpButton,
+    trigger,
   })
 }
 
@@ -2133,7 +2217,7 @@ function refreshControlCopy(): void {
     const action = label.dataset.signalKey as "pingDanger" | "pingTarget" | "pingRoute" | "pingLoot" | "pingRegroup"
     label.textContent = keyLabel(key[action])
   }
-  introControls.textContent = `${keyLabel(key.moveUp)}${keyLabel(key.moveLeft)}${keyLabel(key.moveDown)}${keyLabel(key.moveRight)} / POINTER / STICK TO MOVE · ${keyLabel(key.cameraLeft)}/${keyLabel(key.cameraRight)} CAMERA · ${keyLabel(key.interact)} INTERACT · ${keyLabel(key.fire)} STAND & FIRE · ${keyLabel(key.signature)} SIGNATURE · ENTER CHAT`
+  refreshEntryModeCopy()
   missionPrompt = missionPromptForPhase(currentMissionPhase)
 }
 
@@ -2155,6 +2239,7 @@ function applyInputSettings(): void {
   mobileSpectatorSetting.checked = inputSettings.mobileSpectator
   gameplayAnalyticsSetting.checked = getProductAnalyticsConsent()
   refreshControlCopy()
+  if (inHub) renderHub()
 }
 
 function persistInputSettings(message = "Changes saved on this device."): void {
@@ -2850,10 +2935,14 @@ async function refreshSocialPanel(): Promise<void> {
         roomSessionActive = false
         multiplayerActive = false
         running = false
-        hubPanel.classList.add("hidden")
+        setHubBoardOpen(false)
         roomCodeInput.value = code
-        intro.classList.remove("closed")
-        closePanel(socialPanel)
+        friendsDisclosure.open = true
+        friendsSummary.textContent = `JOIN BAND ${code}`
+        intro.classList.remove("ending")
+        setIntroVisible(true)
+        closePanel(socialPanel, false)
+        queueMicrotask(() => joinRoomButton.focus())
         showToast("INVITE READY · JOIN THE ROOM TO CHOOSE YOUR HERO")
       })
       addSocialAction(actions, "DECLINE", async () => { await respondDirectInvite(invite.id, false); await refreshSocialPanel() })
@@ -2876,6 +2965,33 @@ function canEnterSherwood(): boolean {
   return !accessState.gateEnabled || accessState.entitled
 }
 
+function renderPublicEntryAuthState(authenticated: boolean): void {
+  if (publicHubEntryPending) return
+  if (isMobileSpectator()) {
+    joinPublicHubButton.textContent = "PUBLIC BANDS REQUIRE DESKTOP"
+    joinPublicHubButton.setAttribute("aria-label", "Public Merry Bands require desktop controls")
+    return
+  }
+  joinPublicHubButton.textContent = authenticated ? "FIND A PUBLIC BAND" : "SIGN IN & FIND A PUBLIC BAND"
+  joinPublicHubButton.setAttribute("aria-label", authenticated
+    ? "Find a public Merry Band"
+    : "Sign in with Robinhood Wallet and find a public Merry Band")
+}
+
+function refreshPublicEntryAvailability(): void {
+  joinPublicHubButton.disabled = publicHubEntryPending || !canEnterSherwood() || isMobileSpectator()
+}
+
+function renderOpenPlayEntryNote(authenticated: boolean): void {
+  if (isMobileSpectator()) {
+    entryAccessNote.textContent = "MOBILE SPECTATOR OPEN · PUBLIC BANDS REQUIRE DESKTOP CONTROLS"
+    return
+  }
+  entryAccessNote.textContent = authenticated
+    ? "WALLET CONNECTED · SOLO, PRIVATE & PUBLIC PLAY OPEN"
+    : "SOLO + PRIVATE OPEN · PUBLIC BANDS NEED WALLET SIGN-IN · NO PAYMENT"
+}
+
 async function refreshAccessPanel(): Promise<void> {
   try {
     const [session, nextAccess] = await Promise.all([currentWalletSession(), loadAccessState()])
@@ -2885,31 +3001,54 @@ async function refreshAccessPanel(): Promise<void> {
     walletSignIn.classList.toggle("hidden", nextAccess.authenticated)
     walletSignOut.classList.toggle("hidden", !nextAccess.authenticated)
     tokenPassPurchase.classList.toggle("hidden", !nextAccess.gateEnabled || !nextAccess.authenticated || nextAccess.entitled || !nextAccess.payment)
-    startButton.disabled = !canEnterSherwood()
-    createRoomButton.disabled = !canEnterSherwood()
-    joinRoomButton.disabled = !canEnterSherwood()
-    joinPublicHubButton.disabled = !canEnterSherwood()
+    const entryLocked = !canEnterSherwood()
+    startButton.disabled = entryLocked
+    rejoinRoomButton.disabled = entryLocked
+    createRoomButton.disabled = entryLocked
+    joinRoomButton.disabled = entryLocked
+    refreshPublicEntryAvailability()
+    const publicIdentityReady = Boolean(session && nextAccess.authenticated)
+    renderPublicEntryAuthState(publicIdentityReady)
+    accessCard.classList.toggle("hidden", !nextAccess.gateEnabled)
     if (!nextAccess.gateEnabled) {
-      accessCopy.textContent = "The token-pass gate is switched off. Wallet sign-in is optional while Sherwood remains open."
+      if (!publicHubEntryPending) renderOpenPlayEntryNote(publicIdentityReady)
+      accessCopy.textContent = "Solo and private bands are open. Public matchmaking uses wallet sign-in for identity only; no token or payment is required."
       accessStatus.textContent = "ACCESS SWITCH OFF · OPEN PLAY"
     } else if (!nextAccess.authenticated) {
+      if (!publicHubEntryPending) entryAccessNote.textContent = "WALLET SIGN-IN REQUIRED FOR THIS REALM"
       accessCopy.textContent = `Sign in with Robinhood Wallet, then buy a 30-day pass with the Sherwood token (approximately $${nextAccess.referencePriceUsd}).`
       accessStatus.textContent = "WALLET SIGNATURE REQUIRED"
     } else if (nextAccess.entitled) {
       const expiry = nextAccess.accessExpiresAt ? new Date(nextAccess.accessExpiresAt).toLocaleDateString() : ""
+      if (!publicHubEntryPending) entryAccessNote.textContent = "SHERWOOD ACCESS ACTIVE"
       accessCopy.textContent = "Your on-chain Sherwood pass is active. The authoritative realm is unlocked."
       accessStatus.textContent = expiry ? `PASS ACTIVE THROUGH ${expiry.toUpperCase()}` : "PASS ACTIVE"
     } else if (!nextAccess.payment) {
+      if (!publicHubEntryPending) entryAccessNote.textContent = "SHERWOOD ACCESS LOCKED"
       accessCopy.textContent = "Token payments are not configured on this realm. Access remains locked while the gate is on."
       accessStatus.textContent = "TOKEN PAYMENT UNAVAILABLE"
     } else {
       const payment = nextAccess.payment
+      if (!publicHubEntryPending) entryAccessNote.textContent = "TOKEN PASS REQUIRED"
       tokenPassPurchase.textContent = `PAY ${payment.amountDisplay} ${payment.tokenSymbol} · ${payment.passDays} DAYS`
       accessCopy.textContent = `Transfer ${payment.amountDisplay} ${payment.tokenSymbol} on ${payment.chainName} for ${payment.passDays} days of access (approximately $${nextAccess.referencePriceUsd}).`
       accessStatus.textContent = "PASS NOT ACTIVE"
     }
+    if (!intro.classList.contains("closed")) {
+      setIntroVisible(true)
+      const focusTarget = invitedRoom ? joinRoomButton : startButton
+      if (document.activeElement === document.body || document.activeElement === introCard) queueMicrotask(() => focusTarget.focus({ preventScroll: true }))
+    }
   } catch (error) {
-    accessStatus.textContent = error instanceof Error ? error.message : "Unable to check Sherwood access"
+    const message = error instanceof Error ? error.message : "Unable to check Sherwood access"
+    if (!publicHubEntryPending) entryAccessNote.textContent = "SHERWOOD ACCESS CHECK FAILED · RELOAD TO RETRY"
+    accessStatus.textContent = message
+    accessCard.classList.remove("hidden")
+    startButton.disabled = true
+    rejoinRoomButton.disabled = true
+    createRoomButton.disabled = true
+    joinRoomButton.disabled = true
+    joinPublicHubButton.disabled = true
   }
 }
 
@@ -3620,9 +3759,9 @@ function sendChatInput(input: HTMLInputElement, channel: ChatChannel): boolean {
 
 function handleInteraction(): void {
   if (inHub) {
-    hubPanel.classList.remove("hidden")
-    hubReady.focus()
-    showToast("MISSION BOARD OPEN")
+    const opening = hubPanel.classList.contains("hidden")
+    setHubBoardOpen(opening, true)
+    showToast(opening ? "MISSION BOARD OPEN" : "MISSION BOARD CLOSED")
     return
   }
   if (multiplayerActive) {
@@ -3789,7 +3928,9 @@ function useSignature(): void {
 }
 
 function isModalOpen(): boolean {
-  return !roleChoicePanel.classList.contains("hidden") || panelElements.some((panel) => !panel.classList.contains("hidden"))
+  return !roleChoicePanel.classList.contains("hidden")
+    || (inHub && !hubPanel.classList.contains("hidden"))
+    || panelElements.some((panel) => !panel.classList.contains("hidden"))
 }
 
 async function openLeaderboard(): Promise<void> {
@@ -3895,7 +4036,7 @@ function updateUI(): void {
     renderRescueOffer()
     objectiveElement.textContent = "Prepare at the campfire mission board"
     progressElement.style.width = "0%"
-    promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} opens the board · move with your mapped controls`
+    promptElement.textContent = `${keyLabel(inputSettings.keyboard.interact)} ${hubPanel.classList.contains("hidden") ? "opens" : "closes"} the mission board`
     return
   }
   const signalPosition = latestMissionSnapshot?.layout.reinforcementSignalPosition ?? state.layout.reinforcementSignalPosition
@@ -4014,19 +4155,16 @@ function renderRegionMap(): void {
 function showEnding(won: boolean): void {
   if (ended) return
   ended = true
-  const title = intro.querySelector("h1")!
-  const copy = intro.querySelector("p")!
-  const eyebrow = intro.querySelector<HTMLElement>(".eyebrow")!
-  const small = intro.querySelector("small")!
   const mastery = calculateMastery(state)
-  eyebrow.textContent = won ? "THE FIRST SPARK" : "CAPTURED BY THE SHERIFF"
-  title.innerHTML = won ? "Sherwood<br /><em>rises.</em>" : "The rebellion<br /><em>needs another try.</em>"
-  copy.textContent = won
+  introEyebrow.textContent = won ? "THE FIRST SPARK" : "CAPTURED BY THE SHERIFF"
+  introTitle.innerHTML = won ? "Sherwood<br /><em>rises.</em>" : "The rebellion<br /><em>needs another try.</em>"
+  introCopy.textContent = won
     ? `${state.delivered} crown coin reached the people. Mastery grade ${mastery.grade} · ${mastery.score.toLocaleString()} points · ${Math.round(state.stats.elapsedSeconds)} seconds.`
     : `The guards caught ${characterName(state.player.characterId)}. Grade ${mastery.grade} · ${mastery.score.toLocaleString()} points. Change your route and time your signature.`
   startButton.innerHTML = "PLAY AGAIN <span>→</span>"
-  small.textContent = "RESTART THE 3D PROTOTYPE"
-  intro.classList.remove("closed")
+  introControls.textContent = "RETURN TO SHERWOOD AND TRY A NEW ROUTE"
+  intro.classList.add("ending")
+  setIntroVisible(true)
   roleChoicePanel.classList.add("hidden")
   roleChoicePanel.setAttribute("aria-hidden", "true")
   if (won && !resultSubmitted) {
@@ -4415,33 +4553,63 @@ function sendSupportAction(action: "revive" | "transfer_loot"): void {
 }
 
 startButton.addEventListener("click", () => {
+  if (ended) return
   if (!canEnterSherwood()) {
     accessStatus.textContent = "Buy a 30-day token pass before entering Sherwood."
     return
   }
-  runCampfireTutorialGate(() => enterHub(false), startButton, "ENTER CAMPFIRE")
+  enterHub(false)
 })
 
 rejoinRoomButton.addEventListener("click", () => {
   const code = localStorage.getItem("sherwood:last-room-code")
   const displayName = playerNameInput.value.trim().slice(0, 20)
   if (!code || !displayName) return
-  runCampfireTutorialGate(() => multiplayer.joinRoom(code, displayName, selectedCharacter), rejoinRoomButton, "REJOIN BAND")
+  friendsDisclosure.open = true
+  friendsSummary.textContent = `REJOIN BAND ${code}`
+  roomCodeInput.value = code
+  roomLobby.classList.remove("hidden")
+  lobbyStatus.textContent = `Rejoining band ${code}…`
+  readyButton.disabled = true
+  queueMicrotask(() => lobbyStatus.scrollIntoView({ block: "nearest" }))
+  localStorage.setItem("sherwood-rebellion:player-name", displayName)
+  multiplayer.joinRoom(code, displayName, selectedCharacter)
 })
 
 joinPublicHubButton.addEventListener("click", () => void (async () => {
-  const social = await loadSocialState().catch(() => null)
-  if (!social?.session) {
-    openPanel(socialPanel, joinPublicHubButton)
-    socialStatus.textContent = "Sign in with Robinhood Wallet before opting into the public camp."
-    await refreshSocialPanel()
-    return
+  if (publicHubEntryPending || isMobileSpectator()) return
+  publicHubEntryPending = true
+  joinPublicHubButton.disabled = true
+  joinPublicHubButton.textContent = "CHECKING WALLET…"
+  entryAccessNote.textContent = "CHECKING PUBLIC-CAMP IDENTITY…"
+  try {
+    let session = await currentWalletSession()
+    if (!session || !accessState.authenticated) {
+      entryAccessNote.textContent = "SIGN ROBINHOOD WALLET · THIS DOES NOT AUTHORIZE A TRANSACTION"
+      await connectWalletAndRefresh()
+      session = await currentWalletSession()
+    }
+    if (!session || !accessState.authenticated) throw new Error("Wallet sign-in did not create a current Sherwood session")
+
+    void loadSocialState().then((social) => { currentSocial = social }).catch(() => {
+      socialStatus.textContent = "Public matchmaking is available. Friends and saved identity are temporarily offline."
+    })
+
+    const displayName = playerNameInput.value.trim().slice(0, 20)
+    if (!displayName) throw new Error("Choose an outlaw name before entering the public camp")
+    localStorage.setItem("sherwood-rebellion:player-name", displayName)
+    joinPublicHubButton.textContent = "ENTERING PUBLIC CAMP…"
+    entryAccessNote.textContent = "ENTERING THE PUBLIC CAMP…"
+    multiplayer.joinPublicHub(displayName, selectedCharacter)
+  } catch (error) {
+    publicHubEntryPending = false
+    const message = error instanceof Error ? error.message : "Unable to enter the public camp"
+    entryAccessNote.textContent = message.toUpperCase()
+    showToast(message)
+    const session = await currentWalletSession().catch(() => null)
+    refreshPublicEntryAvailability()
+    renderPublicEntryAuthState(Boolean(session && accessState.authenticated))
   }
-  currentSocial = social
-  const displayName = playerNameInput.value.trim().slice(0, 20)
-  if (!displayName) return
-  localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  runCampfireTutorialGate(() => multiplayer.joinPublicHub(displayName, selectedCharacter), joinPublicHubButton, "ENTER CAMPFIRE")
 })())
 
 createRoomButton.addEventListener("click", () => {
@@ -4451,7 +4619,7 @@ createRoomButton.addEventListener("click", () => {
     return
   }
   localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  runCampfireTutorialGate(() => multiplayer.createRoom(displayName, selectedCharacter), createRoomButton, "FORM BAND")
+  multiplayer.createRoom(displayName, selectedCharacter)
 })
 
 joinRoomButton.addEventListener("click", () => {
@@ -4463,11 +4631,12 @@ joinRoomButton.addEventListener("click", () => {
     return
   }
   localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  runCampfireTutorialGate(() => multiplayer.joinRoom(code, displayName, selectedCharacter), joinRoomButton, "JOIN BAND")
+  multiplayer.joinRoom(code, displayName, selectedCharacter)
 })
 
-readyButton.addEventListener("click", () => requestMissionReady(readyButton))
-hubReady.addEventListener("click", () => requestMissionReady(hubReady))
+readyButton.addEventListener("click", requestMissionReady)
+hubReady.addEventListener("click", requestMissionReady)
+hubClose.addEventListener("click", () => setHubBoardOpen(false, true))
 hubRoles.forEach((button) => button.addEventListener("click", () => {
   const characterId = button.dataset.hubCharacter
   if (characterId !== "robin" && characterId !== "marian" && characterId !== "little-john" && characterId !== "much") return
@@ -4585,7 +4754,8 @@ publicHubLeave.addEventListener("click", () => {
   closeChatDrawer(false)
   renderChatChrome()
   publicHubPanel.classList.add("hidden")
-  intro.classList.remove("closed")
+  intro.classList.remove("ending")
+  setIntroVisible(true)
   running = false
   ensureRemotePlayers([])
   void syncPresence("available", null)
@@ -4614,6 +4784,8 @@ roleChoiceButtons.forEach((button) => button.addEventListener("click", () => {
 
 function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): void {
   if (selectedCharacter === characterId) {
+    refreshSelectedOutlawSummary()
+    if (!running) outlawDisclosure.open = false
     if (notifyServer && multiplayer.playerId) multiplayer.selectCharacter(characterId)
     return
   }
@@ -4630,12 +4802,15 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   playerView = createCharacter(selectedCharacter)
   scene.add(playerView)
   if (notifyServer && multiplayer.playerId) multiplayer.selectCharacter(selectedCharacter)
+  refreshSelectedOutlawSummary()
+  if (!running) outlawDisclosure.open = false
   updateUI()
 }
 
 helpButton.addEventListener("click", () => openPanel(helpPanel, helpButton))
 closeHelp.addEventListener("click", () => closePanel(helpPanel))
-replayTutorialButton.addEventListener("click", replayCurrentTutorial)
+introHelpButton.addEventListener("click", () => replayCurrentTutorial(introHelpButton))
+replayTutorialButton.addEventListener("click", () => replayCurrentTutorial(helpButton))
 closeTutorial.addEventListener("click", () => closePanel(tutorialPanel))
 tutorialBack.addEventListener("click", () => {
   if (!activeTutorialPlan || activeTutorialLessonIndex === 0) return
@@ -4788,9 +4963,14 @@ window.addEventListener("keydown", (event) => {
   const activePanel = !roleChoicePanel.classList.contains("hidden")
     ? roleChoicePanel
     : panelElements.find((panel) => !panel.classList.contains("hidden"))
+      ?? (inHub && !hubPanel.classList.contains("hidden") ? hubPanel : undefined)
+      ?? (!accessState.gateEnabled && !intro.classList.contains("closed") ? intro : undefined)
   if (event.code === "Tab" && activePanel) {
     const focusable = [...activePanel.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex='-1'])")]
-      .filter((element) => element.offsetParent !== null)
+      .filter((element) => {
+        const closedDisclosure = element.closest<HTMLDetailsElement>("details:not([open])")
+        return element.offsetParent !== null && (!closedDisclosure || closedDisclosure.firstElementChild === element)
+      })
     if (focusable.length > 0) {
       event.preventDefault()
       const current = focusable.indexOf(document.activeElement as HTMLElement)
@@ -4804,6 +4984,10 @@ window.addEventListener("keydown", (event) => {
   if (event.code === "Escape") {
     event.preventDefault()
     if (!roleChoicePanel.classList.contains("hidden")) return
+    if (inHub && !hubPanel.classList.contains("hidden")) {
+      setHubBoardOpen(false, true)
+      return
+    }
     if (!closeActivePanel() && running) openPanel(helpPanel, helpButton)
     return
   }
@@ -4812,7 +4996,10 @@ window.addEventListener("keydown", (event) => {
   const action = GAME_ACTIONS.find((candidate) => inputSettings.keyboard[candidate] === event.code)
   if (action && running) event.preventDefault()
   if (!running || event.repeat) return
-  if (isModalOpen()) return
+  if (isModalOpen()) {
+    if (inHub && !hubPanel.classList.contains("hidden") && action === "interact") handleInteraction()
+    return
+  }
   keys.add(event.code)
   if (action) performMappedAction(action)
 })
@@ -4864,6 +5051,8 @@ renderer.domElement.addEventListener("webglcontextrestored", () => showToast("Sh
 
 renderBindingControls()
 applyInputSettings()
+refreshSelectedOutlawSummary()
+setIntroVisible(true)
 updateMissionDebug()
 renderChatChrome()
 void refreshAccessPanel()

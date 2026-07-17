@@ -6,13 +6,14 @@ Run with Blender 5.1 or newer:
       --python tools/build-kaykit-characters.py -- \
       --source-dir /path/to/KayKit_Adventurers_2.0_FREE \
       --animation-dir /path/to/KayKit_Character_Animations_1.1/Animations \
+      --robin-accessory-blend /path/to/robinHoodHatLowPoly.blend \
       --output-dir public/assets/characters
 
 KayKit ships character meshes and animation libraries separately. This builder
 keeps each native Rig_Medium skin, equips each hero with a native KayKit bow,
 assembles four compatible animation clips, applies a role palette, and emits
 one self-contained GLB per Sherwood hero. Both downloaded source directories
-are read-only throughout.
+and the optional Robin accessory blend are read-only throughout export.
 """
 
 from __future__ import annotations
@@ -62,6 +63,13 @@ ROBIN_SIGNATURE_DRAW_SECONDS = 0.12
 EXPORT_FPS = 30
 BOW_ROTATION_XYZ = (-pi / 2.0, 0.0, -pi)
 BOW_SCALE = 0.91
+ROBIN_ACCESSORY_OBJECTS = (
+    "Robin_Hat_Brim",
+    "Robin_Hat_Cap",
+    "Robin_Hat_Band",
+    "Robin_Hat_Feather",
+)
+ROBIN_ACCESSORY_RIG = "Rig_Medium.001"
 
 
 @dataclass(frozen=True)
@@ -144,6 +152,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-dir", required=True)
     parser.add_argument("--animation-dir", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument(
+        "--robin-accessory-blend",
+        help=(
+            "Saved Blender source containing Robin_Hat_Brim, Robin_Hat_Cap, "
+            "Robin_Hat_Band, and Robin_Hat_Feather parented to the verified "
+            "Rig_Medium.001 head bone. Required when building Robin."
+        ),
+    )
     parser.add_argument(
         "--roles",
         nargs="*",
@@ -533,12 +549,295 @@ def attach_bow(
     return bow
 
 
+def matrix_max_delta(left: Matrix, right: Matrix) -> float:
+    return max(
+        abs(left[row][column] - right[row][column])
+        for row in range(4)
+        for column in range(4)
+    )
+
+
+def create_principled_material(
+    name: str,
+    base_color: tuple[float, float, float, float],
+    image: bpy.types.Image | None = None,
+) -> bpy.types.Material:
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    material.diffuse_color = base_color
+    material.metallic = 0.0
+    material.roughness = 0.9
+    nodes = material.node_tree.nodes
+    nodes.clear()
+    output = nodes.new("ShaderNodeOutputMaterial")
+    output.name = f"{name}_Output"
+    principled = nodes.new("ShaderNodeBsdfPrincipled")
+    principled.name = f"{name}_Principled"
+    principled.inputs["Base Color"].default_value = base_color
+    principled.inputs["Metallic"].default_value = 0.0
+    principled.inputs["Roughness"].default_value = 0.9
+    material.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
+    if image is not None:
+        texture = nodes.new("ShaderNodeTexImage")
+        texture.name = f"{name}_BaseColor"
+        texture.image = image
+        material.node_tree.links.new(
+            texture.outputs["Color"], principled.inputs["Base Color"]
+        )
+    return material
+
+
+def material_base_color_image(material: bpy.types.Material) -> bpy.types.Image:
+    if material.node_tree is None:
+        raise RuntimeError(f"Accessory material {material.name} has no node tree")
+    principled = next(
+        (node for node in material.node_tree.nodes if node.type == "BSDF_PRINCIPLED"),
+        None,
+    )
+    if principled is None:
+        raise RuntimeError(
+            f"Accessory material {material.name} has no Principled BSDF"
+        )
+    base_color = principled.inputs.get("Base Color")
+    if base_color is None or not base_color.is_linked:
+        raise RuntimeError(
+            f"Accessory material {material.name} has no base-colour image"
+        )
+    image_nodes = [
+        link.from_node
+        for link in base_color.links
+        if link.from_node.type == "TEX_IMAGE" and link.from_node.image is not None
+    ]
+    if len(image_nodes) != 1:
+        raise RuntimeError(
+            f"Accessory material {material.name} has ambiguous base-colour input"
+        )
+    return image_nodes[0].image
+
+
+def attach_robin_accessories(
+    armature: bpy.types.Object,
+    source_blend: Path,
+) -> list[bpy.types.Object]:
+    requested_names = (*ROBIN_ACCESSORY_OBJECTS, ROBIN_ACCESSORY_RIG)
+    with bpy.data.libraries.load(str(source_blend), link=False) as (
+        source_data,
+        loaded_data,
+    ):
+        missing = [
+            name for name in requested_names if name not in source_data.objects
+        ]
+        if missing:
+            raise RuntimeError(
+                f"Robin accessory source is missing required objects: {missing}"
+            )
+        # Blender replaces this list's string entries with loaded datablocks.
+        loaded_data.objects = list(requested_names)
+
+    loaded = dict(zip(requested_names, loaded_data.objects, strict=True))
+    source_rig = loaded[ROBIN_ACCESSORY_RIG]
+    if source_rig is None or source_rig.type != "ARMATURE":
+        raise RuntimeError("Robin accessory source rig is not an armature")
+    source_bones = {bone.name for bone in source_rig.data.bones}
+    target_bones = {bone.name for bone in armature.data.bones}
+    if source_bones != EXPECTED_BONES or target_bones != EXPECTED_BONES:
+        raise RuntimeError(
+            "Robin accessory and target rigs must use exact Rig_Medium bones"
+        )
+    bpy.context.scene.collection.objects.link(source_rig)
+    bpy.context.view_layer.update()
+    rest_delta = max(
+        matrix_max_delta(
+            source_rig.data.bones[name].matrix_local,
+            armature.data.bones[name].matrix_local,
+        )
+        for name in EXPECTED_BONES
+    )
+    rig_delta = matrix_max_delta(source_rig.matrix_world, armature.matrix_world)
+    if rest_delta > 1e-5 or rig_delta > 1e-5:
+        raise RuntimeError(
+            "Robin accessory source rig does not match the target Ranger rig: "
+            f"rest delta={rest_delta}, object delta={rig_delta}"
+        )
+
+    accessories: list[bpy.types.Object] = []
+    local_transforms: dict[str, Matrix] = {}
+    source_world_transforms: dict[str, Matrix] = {}
+    for name in ROBIN_ACCESSORY_OBJECTS:
+        accessory = loaded[name]
+        if accessory is None or accessory.type != "MESH":
+            raise RuntimeError(f"Robin accessory {name} is not a mesh")
+        accessories.append(accessory)
+        bpy.context.scene.collection.objects.link(accessory)
+    bpy.context.view_layer.update()
+    for accessory in accessories:
+        local_transforms[accessory.name] = accessory.matrix_basis.copy()
+        source_world_transforms[accessory.name] = accessory.matrix_world.copy()
+
+    for accessory in accessories:
+        accessory.parent = armature
+        accessory.parent_type = "BONE"
+        accessory.parent_bone = "head"
+        accessory.matrix_parent_inverse = Matrix.Identity(4)
+        accessory.matrix_basis = local_transforms[accessory.name]
+    bpy.context.view_layer.update()
+
+    placement_delta = max(
+        matrix_max_delta(
+            source_world_transforms[accessory.name], accessory.matrix_world
+        )
+        for accessory in accessories
+    )
+    if placement_delta > 1e-5:
+        raise RuntimeError(
+            "Robin accessories shifted while moving to the export rig: "
+            f"max matrix delta={placement_delta}"
+        )
+    bpy.data.objects.remove(source_rig, do_unlink=True)
+
+    brim, cap, band, feather = accessories
+    hat_images = {
+        material_base_color_image(slot.material)
+        for part in (brim, cap, band)
+        for slot in part.material_slots
+        if slot.material is not None
+    }
+    if len(hat_images) != 1:
+        raise RuntimeError(
+            f"Robin hat parts must share one base-colour image, found {len(hat_images)}"
+        )
+    hat_material = create_principled_material(
+        "Robin_Hat_Material", (0.18, 0.42, 0.12, 1.0), next(iter(hat_images))
+    )
+    for part in (brim, cap, band):
+        part.data.materials.clear()
+        part.data.materials.append(hat_material)
+        for polygon in part.data.polygons:
+            polygon.material_index = 0
+
+    # Blender's object join can introduce a bone-parent offset when the active
+    # object and selected parts are joined in equipment space. Join in world
+    # space, then restore one verified head-bone attachment on the result.
+    hat_world_transforms = {
+        part.name: part.matrix_world.copy() for part in (brim, cap, band)
+    }
+    for part in (brim, cap, band):
+        world_transform = hat_world_transforms[part.name]
+        part.parent = None
+        part.parent_type = "OBJECT"
+        part.parent_bone = ""
+        part.matrix_world = world_transform
+    bpy.context.view_layer.update()
+    hat_vertices_before = [
+        part.matrix_world @ vertex.co
+        for part in (brim, cap, band)
+        for vertex in part.data.vertices
+    ]
+    bpy.ops.object.select_all(action="DESELECT")
+    for part in (brim, cap, band):
+        part.select_set(True)
+    bpy.context.view_layer.objects.active = cap
+    result = bpy.ops.object.join()
+    if "FINISHED" not in result:
+        raise RuntimeError("Could not consolidate Robin's hat parts")
+    hat = cap
+    hat.name = "Robin_Hat"
+    hat.data.name = "Robin_Hat_Geometry"
+    hat.data.materials.clear()
+    hat.data.materials.append(hat_material)
+    for polygon in hat.data.polygons:
+        polygon.material_index = 0
+    bpy.context.view_layer.update()
+    hat_vertices_after = [
+        hat.matrix_world @ vertex.co for vertex in hat.data.vertices
+    ]
+    if len(hat_vertices_after) != len(hat_vertices_before):
+        raise RuntimeError(
+            "Consolidating Robin's hat changed its vertex count: "
+            f"{len(hat_vertices_before)} to {len(hat_vertices_after)}"
+        )
+    bounds_delta = max(
+        abs(
+            min(point[axis] for point in hat_vertices_before)
+            - min(point[axis] for point in hat_vertices_after)
+        )
+        for axis in range(3)
+    )
+    bounds_delta = max(
+        bounds_delta,
+        max(
+            abs(
+                max(point[axis] for point in hat_vertices_before)
+                - max(point[axis] for point in hat_vertices_after)
+            )
+            for axis in range(3)
+        ),
+    )
+    if bounds_delta > 1e-5:
+        raise RuntimeError(
+            f"Consolidating Robin's hat changed its bounds by {bounds_delta}"
+        )
+    hat_world = hat.matrix_world.copy()
+    hat.parent = armature
+    hat.parent_type = "BONE"
+    hat.parent_bone = "head"
+    hat.matrix_parent_inverse = Matrix.Identity(4)
+    hat.matrix_world = hat_world
+    bpy.context.view_layer.update()
+    hat_attachment_delta = matrix_max_delta(hat_world, hat.matrix_world)
+    if hat_attachment_delta > 1e-5:
+        raise RuntimeError(
+            "Robin's consolidated hat shifted during head attachment: "
+            f"max matrix delta={hat_attachment_delta}"
+        )
+
+    bpy.ops.object.select_all(action="DESELECT")
+    feather.select_set(True)
+    bpy.context.view_layer.objects.active = feather
+    for modifier in list(feather.modifiers):
+        result = bpy.ops.object.modifier_apply(modifier=modifier.name)
+        if "FINISHED" not in result:
+            raise RuntimeError(
+                f"Could not apply Robin feather modifier {modifier.name}"
+            )
+    feather_material = create_principled_material(
+        "Robin_Feather_Material", (0.58, 0.61, 0.56, 1.0)
+    )
+    feather.data.materials.clear()
+    feather.data.materials.append(feather_material)
+    for polygon in feather.data.polygons:
+        polygon.material_index = 0
+    feather.name = "Robin_Hat_Feather"
+    feather.data.name = "Robin_Hat_Feather_Geometry"
+
+    for accessory in (hat, feather):
+        if (
+            accessory.parent is not armature
+            or accessory.parent_type != "BONE"
+            or accessory.parent_bone != "head"
+        ):
+            raise RuntimeError(f"{accessory.name} is not attached to Robin's head")
+    print(
+        {
+            "role": "robin",
+            "accessory_source": source_blend.name,
+            "source_rig_rest_delta": round(rest_delta, 9),
+            "placement_matrix_delta": round(placement_delta, 9),
+            "hat_join_bounds_delta": round(bounds_delta, 9),
+            "hat_attachment_matrix_delta": round(hat_attachment_delta, 9),
+            "accessory_meshes": [hat.name, feather.name],
+        }
+    )
+    return [hat, feather]
+
+
 def export_role(
     source_dir: Path,
     animation_dir: Path,
     output_dir: Path,
     spec: RoleSpec,
     temp_dir: Path,
+    robin_accessory_blend: Path | None,
 ) -> dict[str, object]:
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.context.scene.render.fps = EXPORT_FPS
@@ -564,14 +863,22 @@ def export_role(
 
     material = character_material(meshes)
     apply_role_palette(material, spec, temp_dir)
+    accessories: list[bpy.types.Object] = []
+    if spec.role == "robin":
+        if robin_accessory_blend is None:
+            raise RuntimeError("Robin build requires --robin-accessory-blend")
+        accessories = attach_robin_accessories(armature, robin_accessory_blend)
     retained_actions, clip_names = configure_animation_tracks(
         armature, animation_dir, spec
     )
     meshes = join_role_parts(meshes, spec)
     meshes.append(attach_bow(armature, material, source_dir, spec.role))
-    if len(meshes) > 8:
+    meshes.extend(accessories)
+    primitive_budget = 10 if spec.role == "robin" else 8
+    if len(meshes) > primitive_budget:
         raise RuntimeError(
-            f"{spec.role} exceeds the eight-primitive hero budget: {len(meshes)}"
+            f"{spec.role} exceeds its {primitive_budget}-primitive hero budget: "
+            f"{len(meshes)}"
         )
 
     armature.name = f"{spec.role.replace('-', '_')}_Rig_Medium"
@@ -628,6 +935,7 @@ def export_role(
         "actions": clip_names,
         "source_actions": [action.name for action in retained_actions],
         "bow": True,
+        "head_accessories": [accessory.name for accessory in accessories],
     }
 
 
@@ -641,6 +949,16 @@ def main() -> None:
     if not animation_dir.is_dir():
         raise FileNotFoundError(animation_dir)
     selected = set(args.roles or [spec.role for spec in ROLE_SPECS])
+    robin_accessory_blend = (
+        Path(args.robin_accessory_blend).expanduser().resolve()
+        if args.robin_accessory_blend
+        else None
+    )
+    if "robin" in selected:
+        if robin_accessory_blend is None:
+            raise RuntimeError("Robin build requires --robin-accessory-blend")
+        if not robin_accessory_blend.is_file():
+            raise FileNotFoundError(robin_accessory_blend)
 
     results: list[dict[str, object]] = []
     with tempfile.TemporaryDirectory(prefix="sherwood-kaykit-") as temp:
@@ -651,10 +969,25 @@ def main() -> None:
             role_temp = temp_root / spec.role
             role_temp.mkdir(parents=True, exist_ok=True)
             results.append(
-                export_role(source_dir, animation_dir, output_dir, spec, role_temp)
+                export_role(
+                    source_dir,
+                    animation_dir,
+                    output_dir,
+                    spec,
+                    role_temp,
+                    robin_accessory_blend,
+                )
             )
     print({"kaykit_characters": results})
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # Blender otherwise reports a Python traceback but may still exit zero,
+        # which can make an unsuccessful asset rebuild look deployable.
+        import traceback
+
+        traceback.print_exc()
+        raise SystemExit(1)

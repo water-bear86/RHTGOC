@@ -77,13 +77,15 @@ export class MultiplayerClient {
     this.reconnectSession = null
     this.hubSession = { displayName, characterId }
     this.pendingIdentity = { displayName, characterId }
-    void this.getAccessToken().then((accessToken) => {
-      if (!accessToken) {
-        this.events.onError?.("Sign in before entering the public camp")
-        return
-      }
-      this.connect(() => this.send({ type: "join_public_hub", ...this.handshake(), displayName, characterId, accessToken }))
-    })
+    void this.getAccessToken()
+      .then((accessToken) => {
+        if (!accessToken) {
+          this.events.onError?.("Sign in before entering the public camp")
+          return
+        }
+        this.connect(() => this.send({ type: "join_public_hub", ...this.handshake(), displayName, characterId, accessToken }))
+      })
+      .catch((error: unknown) => this.events.onError?.(error instanceof Error ? error.message : "Unable to verify Sherwood sign-in"))
   }
 
   setHubIntent(looking: boolean, targetPreference: PublicHubPlayer["targetPreference"], desiredPartySize: 2 | 3 | 4): void { this.send({ type: "hub_intent", looking, targetPreference, desiredPartySize }) }

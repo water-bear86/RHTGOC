@@ -10,7 +10,7 @@
       "qualityGate": {
         "decision": "accept",
         "reviewedAt": "2026-07-15",
-        "rationale": "CC0 KayKit Ranger rebuilt with its unchanged native 23-bone Rig_Medium skin and closed hands, a Sherwood-green palette, four named clips, an eight-draw ceiling, a left-hand bow, and a complete 0.6-second bow load before release; its legacy volley signature remains unchanged."
+        "rationale": "Project-authorized Robin composite built from the CC0 KayKit Ranger and animations plus the project owner's positioned hat and feather, attached directly to the verified head bone. It retains the unchanged native 23-bone skin, closed hands, Sherwood-green palette, four named clips, a ten-draw ceiling, a left-hand bow, the complete 0.6-second bow load before release, and the legacy volley signature."
       },
       "provenance": {
         "sourceAsset": "KayKit_Adventurers_2.0_FREE.zip",
@@ -23,6 +23,12 @@
             "sourceSha256": "65882f31f905ad2e953819648a59287cdeab8f623908d5ef701971d3758be20f",
             "sourceBytes": 14858957,
             "sourceGenerator": "Khronos glTF Blender I/O v1.7.33"
+          },
+          {
+            "sourceAsset": "robinHoodHatLowPoly.blend",
+            "sourceSha256": "ddb78e4c5a2bbc76a24e33eda22ee6aaedfd0d2ba47da84b7122d959725b609b",
+            "sourceBytes": 5074705,
+            "sourceGenerator": "Blender 5.1.2 assembly from Sketchfab-12.67.0 hat geometry and project-owner feather placement"
           }
         ],
         "suppliedBy": "project owner",
@@ -31,31 +37,34 @@
         "optimizer": "Blender 5.1.2 glTF exporter with embedded WebP"
       },
       "license": {
-        "status": "verified",
-        "identifier": "CC0-1.0",
-        "evidence": "docs/assets/licenses/kaykit-adventurers-and-character-animations-cc0.txt",
-        "evidenceSha256": "17d0717d98ea5d86ccd8edf8520c0d2ed0e35be61291135bba5daba16575e031"
+        "status": "project-authorized",
+        "identifier": "LicenseRef-Project-Owner-Authorized",
+        "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
+        "evidenceSha256": "1f21c2cf454a1709d0dcf809fed89879510a972179bfdb87570711b15df8fc63"
       },
       "uri": "assets/characters/robin-kaykit-ranger.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "a0d98d6c250c794315c6ca61f0ee8f2ae3ee2a47074aae819c47ac7ea59e932b",
-      "bytesMax": 750000,
+      "sha256": "aec332616f1e70717c1f07d355d9c1a4977494657a3cf2c1c4296be401f04bc6",
+      "bytesMax": 2000000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
-        "renderVertices": 28752,
-        "uploadVertices": 8693,
-        "triangles": 9584,
-        "uniquePrimitives": 8,
-        "sceneDrawCalls": 8
+        "renderVertices": 69252,
+        "uploadVertices": 32898,
+        "triangles": 23084,
+        "uniquePrimitives": 10,
+        "sceneDrawCalls": 10
       },
-      "materials": { "count": 1, "names": ["ranger"] },
+      "materials": {
+        "count": 3,
+        "names": ["ranger", "Robin_Hat_Material", "Robin_Feather_Material"]
+      },
       "texture": {
-        "count": 1,
+        "count": 2,
         "format": "webp",
         "width": 1024,
         "height": 1024,
-        "encodedBytes": 7234,
-        "gpuBytesApprox": 5592404
+        "encodedBytes": 30900,
+        "gpuBytesApprox": 6990504
       },
       "clips": ["Idle", "Walk", "Attack", "Signature"],
       "pivot": {
@@ -66,8 +75,8 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.97126, -0.00203, -0.51435],
-        "boundsMax": [0.99979, 2.27293, 0.53503],
+        "boundsMin": [-0.97126, -0.00203, -0.79717],
+        "boundsMax": [0.99979, 2.89321, 0.7589],
         "runtimeMaxHeight": 2.35
       },
       "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
@@ -322,7 +331,7 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "94d08b2aac85b91ebe06fe467459829f7e424299f6b59d476a9eecde614ce0e8"
+        "evidenceSha256": "1f21c2cf454a1709d0dcf809fed89879510a972179bfdb87570711b15df8fc63"
       },
       "uri": "assets/characters/robin-ranger-rigged.glb",
       "format": "glTF 2.0 GLB",
@@ -513,7 +522,7 @@
         "status": "project-authorized",
         "identifier": "LicenseRef-Project-Owner-Authorized",
         "evidence": "docs/assets/quality-gate-audit.md#shipped-artifacts",
-        "evidenceSha256": "94d08b2aac85b91ebe06fe467459829f7e424299f6b59d476a9eecde614ce0e8"
+        "evidenceSha256": "1f21c2cf454a1709d0dcf809fed89879510a972179bfdb87570711b15df8fc63"
       },
       "uri": "assets/props/treasure-chest.glb",
       "format": "glTF 2.0 GLB",
@@ -741,11 +750,11 @@
         "renderVerticesMax": 200000,
         "uploadVerticesMax": 50000,
         "trianglesMax": 100000,
-        "uniquePrimitivesMax": 8,
-        "sceneDrawCallsMax": 8,
+        "uniquePrimitivesMax": 10,
+        "sceneDrawCallsMax": 10,
         "materialsMax": 8,
         "textureEdgeMax": 1024,
-        "textureGpuBytesMax": 6000000
+        "textureGpuBytesMax": 7500000
       },
       "modular-environment": {
         "bytesMax": 3000000,
