@@ -10,6 +10,14 @@ Parameters:
     Type: String
     Default: RHTGOC
     AllowedPattern: "[A-Za-z0-9_.-]+"
+  GitHubOwnerId:
+    Type: String
+    Default: "106428155"
+    AllowedPattern: "[0-9]+"
+  GitHubRepositoryId:
+    Type: String
+    Default: "1296882415"
+    AllowedPattern: "[0-9]+"
   GitHubEnvironment:
     Type: String
     Default: production
@@ -44,7 +52,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}/${GitHubRepository}:environment:${GitHubEnvironment}
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepository}@${GitHubRepositoryId}:environment:${GitHubEnvironment}
       Policies:
         - PolicyName: sherwood-production-release
           PolicyDocument:
