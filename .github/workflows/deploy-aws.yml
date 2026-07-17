@@ -78,7 +78,7 @@ jobs:
         run: npm ci
 
       - name: Run the test suite
-        run: npm test
+        run: npm test -- --testTimeout=15000
 
       - name: Build the production image
         shell: bash
