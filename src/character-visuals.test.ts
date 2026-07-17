@@ -43,6 +43,27 @@ function rotations(root: THREE.Group): number[] {
 }
 
 describe("procedural Merry Band characters", () => {
+  it("keeps every fallback hero in a distinct, readable Sherwood green", () => {
+    const tunicColours = heroes.map((hero) => {
+      const tunic = createHeroCharacter(hero).getObjectByName("TunicChest") as THREE.Mesh
+      const colour = (tunic.material as THREE.MeshToonMaterial).color
+      expect(colour.g).toBeGreaterThan(colour.r)
+      expect(colour.g).toBeGreaterThan(colour.b)
+      return colour.getHex()
+    })
+    expect(new Set(tunicColours).size).toBe(heroes.length)
+
+    for (const detail of [
+      createHeroCharacter("marian").getObjectByName("MarianMantlePanel2"),
+      createHeroCharacter("little-john").getObjectByName("JohnVestLeft"),
+      createHeroCharacter("much").getObjectByName("MuchCap"),
+    ]) {
+      const colour = ((detail as THREE.Mesh).material as THREE.MeshToonMaterial).color
+      expect(colour.g).toBeGreaterThan(colour.r)
+      expect(colour.g).toBeGreaterThan(colour.b)
+    }
+  })
+
   it("builds all four heroes around one clean body and socket hierarchy", () => {
     for (const hero of heroes) {
       const character = createHeroCharacter(hero)

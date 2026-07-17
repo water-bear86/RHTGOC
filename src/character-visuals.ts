@@ -78,19 +78,19 @@ const CHARACTER_PROFILES: Readonly<Record<CharacterId, CharacterProfile>> = Obje
     shoulderWidth: 0.75, waistWidth: 0.53, torsoDepth: 0.47, torsoHeight: 0.97, skirtLength: 0.52,
     upperArmLength: 0.42, lowerArmLength: 0.4, armRadius: 0.103,
     upperLegLength: 0.48, lowerLegLength: 0.46, legRadius: 0.102, headRadius: 0.286,
-    tunic: 0x536b78, sleeve: 0x7a7186, trousers: 0x514752, hair: 0x5a3526,
+    tunic: 0x3f7050, sleeve: 0x5f8764, trousers: 0x37463c, hair: 0x5a3526,
   },
   "little-john": {
     shoulderWidth: 1.08, waistWidth: 0.76, torsoDepth: 0.65, torsoHeight: 1.04, skirtLength: 0.38,
     upperArmLength: 0.54, lowerArmLength: 0.52, armRadius: 0.155,
     upperLegLength: 0.49, lowerLegLength: 0.47, legRadius: 0.15, headRadius: 0.34,
-    tunic: 0x765332, sleeve: 0x634328, trousers: 0x453b30, hair: 0x553523,
+    tunic: 0x435c32, sleeve: 0x4e6738, trousers: 0x333b30, hair: 0x553523,
   },
   much: {
     shoulderWidth: 0.65, waistWidth: 0.49, torsoDepth: 0.46, torsoHeight: 0.78, skirtLength: 0.34,
     upperArmLength: 0.36, lowerArmLength: 0.34, armRadius: 0.1,
     upperLegLength: 0.34, lowerLegLength: 0.33, legRadius: 0.098, headRadius: 0.285,
-    tunic: 0x6b5a39, sleeve: 0x7a6842, trousers: 0x443c31, hair: 0x8a5b32,
+    tunic: 0x617548, sleeve: 0x718955, trousers: 0x3d4435, hair: 0x8a5b32,
   },
 })
 
@@ -264,7 +264,7 @@ function createMarianMantle(rig: CharacterRig, mesh: MeshFactory): void {
     bevelSize: 0.012,
     bevelThickness: 0.01,
     steps: 1,
-  }), 0x40566c)
+  }), 0x2f5c43)
   panel.position.z = -0.045
   hinge.add(panel)
   rig.torso.add(hinge)
@@ -349,12 +349,12 @@ function addMarianDetails(rig: CharacterRig, mesh: MeshFactory): void {
   rig.head.add(hairCap, leftLock, rightLock, braid, circlet, circletJewel)
   createMarianMantle(rig, mesh)
 
-  const shoulderMantle = mesh("MarianShoulderMantle", new THREE.TorusGeometry(0.4, 0.082, 6, 16, Math.PI), 0x774f59, { castShadow: false })
+  const shoulderMantle = mesh("MarianShoulderMantle", new THREE.TorusGeometry(0.4, 0.082, 6, 16, Math.PI), 0x71905a, { castShadow: false })
   shoulderMantle.position.set(0, CHARACTER_PROFILES.marian.torsoHeight * 0.84, CHARACTER_PROFILES.marian.torsoDepth * 0.36)
   shoulderMantle.scale.y = 0.46
   const brooch = mesh("MarianBrooch", new THREE.SphereGeometry(0.085, 8, 6), 0xc5a65b, { castShadow: false })
   brooch.position.set(0, CHARACTER_PROFILES.marian.torsoHeight * 0.83, CHARACTER_PROFILES.marian.torsoDepth * 0.51)
-  const sash = mesh("MarianSash", new THREE.BoxGeometry(0.09, 0.86, 0.04), 0x774f59)
+  const sash = mesh("MarianSash", new THREE.BoxGeometry(0.09, 0.86, 0.04), 0x71905a)
   sash.name = "MarianSash"
   sash.position.set(0.06, 0.45, CHARACTER_PROFILES.marian.torsoDepth * 0.525)
   sash.rotation.z = 0.38
@@ -392,7 +392,7 @@ function addLittleJohnDetails(rig: CharacterRig, mesh: MeshFactory): void {
   const chestStrap = mesh("JohnChestStrap", new THREE.BoxGeometry(0.13, 1.25, 0.07), DARK_LEATHER)
   chestStrap.position.set(0, 0.55, CHARACTER_PROFILES["little-john"].torsoDepth * 0.52)
   chestStrap.rotation.z = -0.48
-  const vestLeft = mesh("JohnVestLeft", new THREE.BoxGeometry(0.38, 0.84, 0.07), 0x4d3424)
+  const vestLeft = mesh("JohnVestLeft", new THREE.BoxGeometry(0.38, 0.84, 0.07), 0x30462d)
   vestLeft.position.set(-0.22, 0.53, CHARACTER_PROFILES["little-john"].torsoDepth * 0.53)
   vestLeft.rotation.z = -0.05
   const vestRight = vestLeft.clone()
@@ -417,9 +417,9 @@ function addLittleJohnDetails(rig: CharacterRig, mesh: MeshFactory): void {
 function addMuchDetails(rig: CharacterRig, mesh: MeshFactory): void {
   const hair = mesh("MuchHair", new THREE.SphereGeometry(0.3, 9, 6, 0, Math.PI * 2, 0, Math.PI * 0.54), 0x8a5b32)
   hair.position.set(0, 0.08, -0.04)
-  const cap = mesh("MuchCap", new THREE.SphereGeometry(0.34, 9, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0x53603b)
+  const cap = mesh("MuchCap", new THREE.SphereGeometry(0.34, 9, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0x4e683c)
   cap.position.y = 0.16
-  const capTail = mesh("MuchCapTail", new THREE.ConeGeometry(0.1, 0.48, 7), 0x53603b)
+  const capTail = mesh("MuchCapTail", new THREE.ConeGeometry(0.1, 0.48, 7), 0x4e683c)
   capTail.position.set(0.24, 0.18, -0.08)
   capTail.rotation.z = -0.82
   rig.head.add(hair, cap, capTail)

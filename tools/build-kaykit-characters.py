@@ -123,7 +123,7 @@ ROLE_SPECS = (
         output_name="marian-kaykit-rogue.glb",
         signature_action="Use_Item",
         source_hue="green",
-        target_hue_rgb=(1.0, 0.18, 0.55),
+        target_hue_rgb=(0.34, 0.82, 0.44),
     ),
     RoleSpec(
         role="little-john",
@@ -131,8 +131,8 @@ ROLE_SPECS = (
         mesh_prefix="Barbarian_",
         output_name="little-john-kaykit-barbarian.glb",
         signature_action="Use_Item",
-        source_hue=None,
-        target_hue_rgb=None,
+        source_hue="blue",
+        target_hue_rgb=(0.34, 0.56, 0.2),
     ),
     RoleSpec(
         role="much",
@@ -141,7 +141,7 @@ ROLE_SPECS = (
         output_name="much-kaykit-rogue-hooded.glb",
         signature_action="Throw",
         source_hue="green",
-        target_hue_rgb=(0.75, 1.0, 0.12),
+        target_hue_rgb=(0.48, 0.72, 0.22),
         join_into_body=("RogueHooded_Cape",),
     ),
 )
