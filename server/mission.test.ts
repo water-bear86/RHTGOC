@@ -310,7 +310,7 @@ describe("authoritative mission", () => {
     expect(robin.position.z).toBeLessThanOrEqual(mission.definition.rules.worldBounds)
   })
 
-  it("keeps solo prediction and authoritative movement identical at the rotated cottage", () => {
+  it("keeps solo prediction and authoritative movement identical across the retired hub cottage", () => {
     const cosine = Math.cos(VILLAGE_COTTAGE_COLLIDER.rotation)
     const sine = Math.sin(VILLAGE_COTTAGE_COLLIDER.rotation)
     const start = {
@@ -334,7 +334,8 @@ describe("authoritative mission", () => {
 
     expect(remote.position.x).toBeCloseTo(local.player.position.x, 10)
     expect(remote.position.z).toBeCloseTo(local.player.position.z, 10)
-    expect(isSherwoodPlayerPositionBlocked(remote.position)).toBe(false)
+    expect(isSherwoodPlayerPositionBlocked(remote.position)).toBe(true)
+    expect(isSherwoodPlayerPositionBlocked(remote.position, SHERWOOD_PLAYER_RADIUS, mission.layout)).toBe(false)
   })
 
   it("prevents authoritative movement from tunnelling through an active guard", () => {
