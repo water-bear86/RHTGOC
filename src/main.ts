@@ -54,6 +54,7 @@ import {
   type DynamicRangePreset,
 } from "./audio-settings"
 import { PresentationEventBus, type PresentationEventInput } from "./presentation-events"
+import { cueForPing, presentationForMissionEvent } from "./gameplay-presentation"
 import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, updateSocialPresence, type SocialState } from "./social"
 import { currentWalletSession, disconnectRobinhoodWallet, shortWalletAddress, signInWithRobinhoodWallet, walletAddress } from "./wallet-auth"
 import { loadAccessState, purchaseTokenPass, type AccessState } from "./token-access"
@@ -71,7 +72,7 @@ import { createArcheryEquipment } from "./archery-equipment"
 import type { HeroAction } from "./character-visuals"
 import { createCharacterVisual, disposeCharacterVisual, poseCharacterVisual } from "./character-assets"
 import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, normalizedHeroActionProgress } from "./character-animation"
-import { cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
+import { blocksCameraSightline, cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
 import { regionCellIndexAt, sherwoodRegionCells, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } from "./region-map"
@@ -382,6 +383,7 @@ const unsubscribePresentationEvents = presentationEvents.subscribe((event) => {
   toastElement.textContent = event.message
   toastElement.dataset.channel = event.channel
   toastElement.dataset.priority = event.priority
+  toastElement.setAttribute("aria-live", event.priority === "critical" ? "assertive" : "polite")
   toastElement.classList.add("show")
   toastTimer = event.lifetimeSeconds ?? (event.priority === "critical" ? 4 : event.priority === "important" ? 3 : 2.4)
   if (event.cue) audioDirector.playCue(event.cue)
@@ -2417,7 +2419,10 @@ function performMappedAction(action: GameAction | PointerAction): void {
     pingRegroup: "regroup",
   }
   const ping = pings[action as GameAction]
-  if (ping && multiplayerActive) multiplayer.sendPing(ping)
+  if (ping && multiplayerActive) {
+    multiplayer.sendPing(ping)
+    audioDirector.playCue(cueForPing(ping))
+  }
 }
 
 function pollControllerActions(): void {
@@ -2642,7 +2647,12 @@ function showMissionEvent(event: MissionEvent): void {
     : event.type === "reinforcement_arrived" && event.detail === "search-pressure"
       ? `SEARCH DELAY — THE SHERIFF FORTIFIES THE TARGET (${event.value}/3)`
     : messages[event.type]
-  if (message) showToast(message)
+  if (message) {
+    showToast(message, {
+      ...presentationForMissionEvent(event.type),
+      dedupeKey: `mission:${event.sequence}`,
+    })
+  }
 }
 
 function syncPingViews(pings: WorldPing[]): void {
@@ -2654,6 +2664,7 @@ function syncPingViews(pings: WorldPing[]): void {
       view = createPingView(ping)
       pingViews.set(ping.id, view)
       scene.add(view)
+      if (ping.playerId !== multiplayer.playerId) audioDirector.playCue(cueForPing(ping.kind))
     }
     view.position.set(ping.position.x, 0.08, ping.position.z)
   }
@@ -4313,38 +4324,32 @@ function syncViews(elapsed: number, dt: number): void {
   const propDistance = renderProfile.tier === "degraded" ? 34 : 48
   for (const prop of medievalPropViews) prop.visible = Math.hypot(prop.position.x - player.x, prop.position.z - player.z) <= propDistance
   syncVillageLods(player)
-  const cameraToPlayer = { x: player.x - camera.position.x, z: player.z - camera.position.z }
-  const cameraToPlayerLengthSquared = cameraToPlayer.x ** 2 + cameraToPlayer.z ** 2
+  const cameraPosition = { x: camera.position.x, z: camera.position.z }
   for (const occluder of cameraOccluders) {
     const cameraToOccluder = { x: occluder.view.position.x - camera.position.x, z: occluder.view.position.z - camera.position.z }
     const cameraDistance = Math.hypot(cameraToOccluder.x, cameraToOccluder.z)
-    const segmentPosition = cameraToPlayerLengthSquared > 0
-      ? Math.max(0, Math.min(1, (cameraToOccluder.x * cameraToPlayer.x + cameraToOccluder.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
-      : 0
-    const sightline = {
-      x: camera.position.x + cameraToPlayer.x * segmentPosition,
-      z: camera.position.z + cameraToPlayer.z * segmentPosition,
-    }
+    const blocksCamera = blocksCameraSightline({
+      camera: cameraPosition,
+      focus: player,
+      occluder: occluder.view.position,
+      radius: occluder.radius,
+    })
     occluder.view.visible = occluder.view.userData.lodVisible !== false
       && cameraDistance > occluder.radius * 2.35
       && (occluder.maxDistance === undefined || Math.hypot(occluder.view.position.x - player.x, occluder.view.position.z - player.z) <= occluder.maxDistance)
-      && !(segmentPosition > 0.05 && segmentPosition < 0.95
-      && Math.hypot(occluder.view.position.x - sightline.x, occluder.view.position.z - sightline.z) < occluder.radius)
+      && !blocksCamera
   }
   const dirtyTreeBatches = new Set<THREE.InstancedMesh>()
   for (const tree of authoredTreeInstances) {
     const playerDistance = Math.hypot(tree.x - player.x, tree.z - player.z)
     const cameraToTree = { x: tree.x - camera.position.x, z: tree.z - camera.position.z }
     const cameraDistance = Math.hypot(cameraToTree.x, cameraToTree.z)
-    const segmentPosition = cameraToPlayerLengthSquared > 0
-      ? Math.max(0, Math.min(1, (cameraToTree.x * cameraToPlayer.x + cameraToTree.z * cameraToPlayer.z) / cameraToPlayerLengthSquared))
-      : 0
-    const sightline = {
-      x: camera.position.x + cameraToPlayer.x * segmentPosition,
-      z: camera.position.z + cameraToPlayer.z * segmentPosition,
-    }
-    const blocksCamera = segmentPosition > 0.05 && segmentPosition < 0.95
-      && Math.hypot(tree.x - sightline.x, tree.z - sightline.z) < tree.radius
+    const blocksCamera = blocksCameraSightline({
+      camera: cameraPosition,
+      focus: player,
+      occluder: tree,
+      radius: tree.radius,
+    })
     const hidden = playerDistance > treeDistance || cameraDistance <= tree.radius * 2.35 || blocksCamera
     if (hidden === tree.hidden) continue
     tree.hidden = hidden
@@ -4554,10 +4559,23 @@ function animate(): void {
         if (Number.isInteger(guardId)) createArrowEffect(guardId)
         showToast("Guard stunned")
       }
-      if (event === "player-hit") showToast("The Sheriff strikes!")
-      if (event === "cart-ready") showToast("A new tax cart has entered Sherwood")
-      if (event === "objective-found") showToast("THE SHERIFF'S SHIPMENT — FOUND")
-      if (event === "search-reinforced") showToast(`SEARCH DELAY — SHERIFF PRESSURE ${state.searchPressure}/3`)
+      if (event === "player-hit") {
+        showToast("The Sheriff strikes!", { channel: "threat", priority: "important", cue: "ui.warning" })
+      }
+      if (event === "cart-ready") {
+        showToast("A new tax cart has entered Sherwood", { channel: "objective", priority: "important", cue: "ui.notice" })
+      }
+      if (event === "objective-found") {
+        showToast("THE SHERIFF'S SHIPMENT — FOUND", { channel: "objective", priority: "important", cue: "ui.confirm" })
+      }
+      if (event === "search-reinforced") {
+        showToast(`SEARCH DELAY — SHERIFF PRESSURE ${state.searchPressure}/3`, {
+          channel: "threat",
+          priority: "critical",
+          cue: "ui.warning",
+          lifetimeSeconds: 4,
+        })
+      }
     }
     updateUI()
     if (toastTimer > 0) {
