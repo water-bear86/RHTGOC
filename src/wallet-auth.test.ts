@@ -94,6 +94,7 @@ async function loadWalletAuth() {
 
 beforeEach(() => {
   vi.stubEnv("VITE_REOWN_PROJECT_ID", "test-project")
+  vi.stubEnv("VITE_ROBINHOOD_CHAIN", "testnet")
   vi.stubGlobal("location", { origin: "https://rhtgoc.site" })
   vi.stubGlobal("window", {
     setTimeout,
