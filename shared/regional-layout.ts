@@ -7,7 +7,11 @@ export interface RegionCell {
   center: { x: number; z: number }
 }
 
+export type RegionalLayoutVariant = "long-haul" | "cross-river" | "same-bank" | "central-expedition"
+
 export interface RegionalMissionLayout {
+  seed: number
+  variant: RegionalLayoutVariant
   gridSize: 5
   cellSize: number
   worldBounds: number
@@ -43,6 +47,62 @@ export function riverPointAt(z: number): { x: number; z: number } {
 function missionAnchorCellClearOfRiver(cell: RegionCell): boolean {
   return Math.abs(cell.center.x - SHERWOOD_RIVER_CENTER_X - SHERWOOD_RIVER_SLOPE * cell.center.z)
     >= SHERWOOD_MISSION_ANCHOR_RIVER_CLEARANCE
+}
+
+function isPerimeterCell(cell: RegionCell): boolean {
+  return cell.row === 0
+    || cell.column === 0
+    || cell.row === SHERWOOD_GRID_SIZE - 1
+    || cell.column === SHERWOOD_GRID_SIZE - 1
+}
+
+function cellDistance(left: RegionCell, right: RegionCell): number {
+  return Math.abs(left.row - right.row) + Math.abs(left.column - right.column)
+}
+
+function riverSide(cell: RegionCell): -1 | 1 {
+  return cell.center.x < riverPointAt(cell.center.z).x ? -1 : 1
+}
+
+function choose<T>(values: readonly T[], random: () => number): T {
+  return values[Math.min(values.length - 1, Math.floor(random() * values.length))]
+}
+
+function chooseAnchorCells(
+  anchorCells: readonly RegionCell[],
+  variant: RegionalLayoutVariant,
+  random: () => number,
+): { campfireCell: RegionCell; objectiveCell: RegionCell } {
+  const perimeterCells = anchorCells.filter(isPerimeterCell)
+  const interiorCells = anchorCells.filter((cell) => !isPerimeterCell(cell))
+  const campfireCell = choose(
+    variant === "central-expedition" && interiorCells.length > 0 ? interiorCells : perimeterCells,
+    random,
+  )
+  const distance = (cell: RegionCell): number => cellDistance(cell, campfireCell)
+  let objectiveCandidates: readonly RegionCell[]
+
+  if (variant === "long-haul") {
+    const farthest = Math.max(...anchorCells.map(distance))
+    objectiveCandidates = anchorCells.filter((cell) => distance(cell) === farthest)
+  } else if (variant === "cross-river") {
+    objectiveCandidates = anchorCells.filter((cell) => (
+      riverSide(cell) !== riverSide(campfireCell) && distance(cell) >= 3
+    ))
+  } else if (variant === "same-bank") {
+    objectiveCandidates = anchorCells.filter((cell) => (
+      riverSide(cell) === riverSide(campfireCell)
+      && distance(cell) >= 2
+      && distance(cell) <= 4
+    ))
+  } else {
+    objectiveCandidates = perimeterCells.filter((cell) => distance(cell) >= 3)
+  }
+
+  const usableCandidates = objectiveCandidates.length > 0
+    ? objectiveCandidates
+    : anchorCells.filter((cell) => cell.index !== campfireCell.index && distance(cell) >= 2)
+  return { campfireCell, objectiveCell: choose(usableCandidates, random) }
 }
 
 export function seededUnit(seed: number): () => number {
@@ -99,15 +159,9 @@ export function regionalizeMissionDefinition(base: MissionDefinition, seed: numb
   const random = seededUnit(seed)
   const cells = sherwoodRegionCells()
   const anchorCells = cells.filter(missionAnchorCellClearOfRiver)
-  const campfireCandidates = anchorCells.filter((cell) => cell.row === 0 || cell.column === 0 || cell.row === SHERWOOD_GRID_SIZE - 1 || cell.column === SHERWOOD_GRID_SIZE - 1)
-  const campfireCell = campfireCandidates[Math.floor(random() * campfireCandidates.length)]
-  const distances = anchorCells.map((cell) => ({
-    cell,
-    distance: Math.abs(cell.row - campfireCell.row) + Math.abs(cell.column - campfireCell.column),
-  }))
-  const farthest = Math.max(...distances.map(({ distance }) => distance))
-  const objectiveCandidates = distances.filter(({ distance }) => distance === farthest).map(({ cell }) => cell)
-  const objectiveCell = objectiveCandidates[Math.floor(random() * objectiveCandidates.length)]
+  const variants: readonly RegionalLayoutVariant[] = ["long-haul", "cross-river", "same-bank", "central-expedition"]
+  const variant = choose(variants, random)
+  const { campfireCell, objectiveCell } = chooseAnchorCells(anchorCells, variant, random)
   const campfirePosition = jittered(campfireCell, random)
   const objectivePosition = jittered(objectiveCell, random)
   const crossingBands = [-42, -26, -10, 10, 26, 42]
@@ -191,6 +245,8 @@ export function regionalizeMissionDefinition(base: MissionDefinition, seed: numb
   }
 
   const layout: RegionalMissionLayout = {
+    seed,
+    variant,
     gridSize: SHERWOOD_GRID_SIZE,
     cellSize: SHERWOOD_CELL_SIZE,
     worldBounds: SHERWOOD_REGIONAL_BOUNDS,

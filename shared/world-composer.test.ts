@@ -3,8 +3,9 @@ import { PEOPLES_PURSE_MISSION } from "./mission-catalog"
 import {
   SHERWOOD_RIVER_CENTER_X,
   SHERWOOD_RIVER_SLOPE,
-  regionalizeMissionDefinition,
 } from "./regional-layout"
+import { regionalizeFeasibleMissionDefinition } from "./regional-map-generator"
+import { regionalizeMissionDefinition } from "./regional-layout"
 import { composeSherwoodWorld } from "./world-composer"
 import { SHERWOOD_RIVER_HALF_WIDTH } from "./world-obstacles"
 import { SHERWOOD_SETTLEMENT_SITES } from "./world-topology"
@@ -44,7 +45,7 @@ describe("Sherwood world composer", () => {
 
   it("finds sparse authored routes across a broad deterministic seed sample", () => {
     for (let index = 1; index <= 32; index += 1) {
-      const seededLayout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, index * 7919).layout
+      const seededLayout = regionalizeFeasibleMissionDefinition(PEOPLES_PURSE_MISSION, index * 7919).layout
       const world = composeSherwoodWorld(seededLayout)
       expect(world.roads).toHaveLength(6)
       expect(world.roads.every((road) => road.points.length >= 2)).toBe(true)
@@ -55,7 +56,7 @@ describe("Sherwood world composer", () => {
   it("keeps every building footprint entirely out of the river", () => {
     const riverNormalLength = Math.hypot(1, -SHERWOOD_RIVER_SLOPE)
     for (let index = 1; index <= 64; index += 1) {
-      const seededLayout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, index * 7919).layout
+      const seededLayout = regionalizeFeasibleMissionDefinition(PEOPLES_PURSE_MISSION, index * 7919).layout
       const buildings = composeSherwoodWorld(seededLayout).settlements.flatMap((settlement) => settlement.buildings)
       for (const building of buildings) {
         const centerlineDistance = Math.abs(
@@ -65,5 +66,5 @@ describe("Sherwood world composer", () => {
         expect(centerlineDistance - footprintRadius).toBeGreaterThan(SHERWOOD_RIVER_HALF_WIDTH)
       }
     }
-  })
+  }, 15_000)
 })

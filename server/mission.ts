@@ -399,6 +399,8 @@ export class Mission {
       seed: this.seed,
       layout: {
         ...this.layout,
+        seed: this.layout.seed,
+        variant: this.layout.variant,
         campfireCell: { ...this.layout.campfireCell, center: { ...this.layout.campfireCell.center } },
         objectiveCell: { ...this.layout.objectiveCell, center: { ...this.layout.objectiveCell.center } },
         campfirePosition: { ...this.layout.campfirePosition },

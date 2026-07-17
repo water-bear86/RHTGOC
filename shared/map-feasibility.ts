@@ -191,6 +191,21 @@ export function validateRegionalMissionFeasibility(regional: RegionalizedMission
     return { feasible: false, diagnostics, checkedPositions, checkedRoadSegments: 0 }
   }
 
+  // Collision construction also consumes the composed settlement and road
+  // layout. Establish that composition succeeds before any position check can
+  // indirectly request those colliders.
+  let roads: readonly ComposedRoad[]
+  try {
+    roads = composeSherwoodWorld(layout).roads
+  } catch (error) {
+    diagnostics.push({
+      code: "world_composition_failed",
+      subject: "world",
+      detail: error instanceof Error ? error.message : String(error),
+    })
+    return { feasible: false, diagnostics, checkedPositions, checkedRoadSegments: 0 }
+  }
+
   const checkPosition = (
     named: NamedPosition,
     outOfBoundsCode: MapFeasibilityDiagnosticCode,
@@ -224,18 +239,6 @@ export function validateRegionalMissionFeasibility(regional: RegionalizedMission
   })
   for (const interaction of missionInteractions(definition, layout)) {
     checkPosition(interaction, "interaction_out_of_bounds", "interaction_blocked")
-  }
-
-  let roads: readonly ComposedRoad[]
-  try {
-    roads = composeSherwoodWorld(layout).roads
-  } catch (error) {
-    diagnostics.push({
-      code: "world_composition_failed",
-      subject: "world",
-      detail: error instanceof Error ? error.message : String(error),
-    })
-    return { feasible: false, diagnostics, checkedPositions, checkedRoadSegments: 0 }
   }
 
   const network = inspectRoadNetwork(roads, layout, worldBounds, diagnostics)

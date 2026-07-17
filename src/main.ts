@@ -866,13 +866,43 @@ function createWorld(): void {
   positionMissionCampfire(state.layout.campfirePosition)
   scene.add(missionCampfireView)
 
-  const exclusions = sherwoodRegionCells().map((cell) => ({ x: cell.center.x, z: cell.center.z, radius: 8.5 }))
-  const dressing = createForestDressing({ degraded: renderProfile.tier === "degraded", exclusions })
-  forestDressingView = dressing.group
-  scene.add(dressing.group)
+  rebuildForestDressing(state.layout)
 
   rebuildLandmarks(state.layout)
   rebuildComposedWorld(state.layout)
+}
+
+function disposeForestDressing(view: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>()
+  const materials = new Set<THREE.Material>()
+  view.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return
+    if (object instanceof THREE.InstancedMesh) object.dispose()
+    if (object.userData.sherwoodSharedGeometry === true) return
+    geometries.add(object.geometry)
+    const objectMaterials = Array.isArray(object.material) ? object.material : [object.material]
+    objectMaterials.forEach((material) => materials.add(material))
+  })
+  geometries.forEach((geometry) => geometry.dispose())
+  materials.forEach((material) => material.dispose())
+}
+
+function rebuildForestDressing(layout: RegionalMissionLayout): void {
+  const exclusions = sherwoodRegionCells().map((cell) => ({ x: cell.center.x, z: cell.center.z, radius: 8.5 }))
+  const options = {
+    seed: layout.seed,
+    degraded: renderProfile.tier === "degraded",
+    exclusions,
+  }
+  const next = natureCatalogSource
+    ? createAuthoredForestDressing(natureCatalogSource, options)
+    : createForestDressing(options)
+  if (forestDressingView) {
+    scene.remove(forestDressingView)
+    disposeForestDressing(forestDressingView)
+  }
+  forestDressingView = next.group
+  scene.add(next.group)
 }
 
 function rebuildLandmarks(layout: RegionalMissionLayout): void {
@@ -1084,14 +1114,7 @@ function loadNatureCatalog(): Promise<NatureCatalog> {
 function attachNatureDressing(): void {
   void loadNatureCatalog().then((catalog) => {
     natureCatalogSource = catalog
-    const exclusions = sherwoodRegionCells().map((cell) => ({ x: cell.center.x, z: cell.center.z, radius: 8.5 }))
-    const authored = createAuthoredForestDressing(catalog, { degraded: renderProfile.tier === "degraded", exclusions })
-    if (forestDressingView) {
-      scene.remove(forestDressingView)
-      disposeOwnedMeshResources(forestDressingView)
-    }
-    forestDressingView = authored.group
-    scene.add(authored.group)
+    rebuildForestDressing(state.layout)
     rebuildLandmarks(state.layout)
   }).catch(() => showToast("Textured forest dressing could not be loaded; using the lightweight fallback"))
 }
@@ -1679,6 +1702,8 @@ function setMissionWorldVisible(visible: boolean): void {
 function applyRegionalLayout(layout: RegionalMissionLayout): void {
   state.layout = {
     ...layout,
+    seed: layout.seed,
+    variant: layout.variant,
     campfireCell: { ...layout.campfireCell, center: { ...layout.campfireCell.center } },
     objectiveCell: { ...layout.objectiveCell, center: { ...layout.objectiveCell.center } },
     campfirePosition: { ...layout.campfirePosition },
@@ -1697,6 +1722,7 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
   disguiseRackView.position.set(layout.disguisePosition.x, sherwoodHeightAt(layout.disguisePosition.x, layout.disguisePosition.z), layout.disguisePosition.z)
   rebuildCrossingInfrastructure(layout)
   rebuildBowCaches(layout)
+  rebuildForestDressing(state.layout)
   rebuildLandmarks(layout)
   rebuildComposedWorld(layout)
   positionVillageUpgrades(layout.campfirePosition)
@@ -2061,7 +2087,7 @@ function startSoloMission(): void {
   resultSubmitted = false
   missionTarget = DELIVERY_TARGET
   objectiveElement.textContent = "Search Sherwood for the Sheriff's shipment"
-  missionModifiers.textContent = ""
+  missionModifiers.textContent = `${state.layout.variant.replaceAll("-", " ").toUpperCase()} · MAP ${state.layout.seed.toString(16).toUpperCase()}`
   clock.getDelta()
   showToast(isMobileSpectator() ? "SPECTATOR VIEW · FOLLOW THE HEIST" : "MOVE WITH WASD OR CLICK · STAND STILL + SPACE TO FIRE")
   queueMicrotask(() => renderer.domElement.focus())
@@ -2513,6 +2539,7 @@ function updateMissionDebug(): void {
     `RESCUE   ${mission?.captives.filter((captive) => captive.rewarded).length ?? 0}/${mission?.captives.length ?? 0} · LOCK ${mission?.lockProgress ?? 0}/${mission?.lockTarget ?? 0}`,
     `INFILTRATION alarms=${mission?.alarmLevel ?? 0} waves=${mission?.reinforcementWave ?? 0} intel=${mission?.intelFound ? "yes" : "no"} ledger=${mission?.ledgerStolen ? "yes" : "no"}`,
     `ROTATION ${mission?.rotationId ?? "standard"} · modifiers=${mission?.rotationModifierIds.join(",") || "seeded"}`,
+    `MAP      ${state.layout.variant} · seed=${state.layout.seed}`,
     `RESCUE CHAIN ${mission?.rescueOfferId ?? "none"} · source=${mission?.rescueSourceMissionId ?? "none"}`,
     `PREPARATION ${(mission?.preparations ?? []).map((preparation) => `${preparation.type}:${preparation.status}:${preparation.contributorLabel}`).join(" · ") || "none"}`,
     `EXPERIMENTS ${currentExperimentAssignments.map((assignment) => `${assignment.experimentId}@${assignment.experimentRevision}:${assignment.variantId}`).join(", ") || "none"}`,

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
 import { PEOPLES_PURSE_MISSION, PRISON_WAGON_MISSION, ROYAL_STOREHOUSE_MISSION } from "./mission-catalog"
-import { SHERWOOD_REGIONAL_BOUNDS, regionCellIndexAt, regionalizeMissionDefinition, sherwoodRegionCells, stableSeed } from "./regional-layout"
+import {
+  SHERWOOD_REGIONAL_BOUNDS,
+  regionCellIndexAt,
+  regionalizeMissionDefinition,
+  sherwoodRegionCells,
+  stableSeed,
+  type RegionalLayoutVariant,
+} from "./regional-layout"
 import {
   SHERWOOD_STATIC_OBSTACLES,
   createSherwoodRiverObstacles,
@@ -8,15 +15,15 @@ import {
 } from "./world-obstacles"
 
 describe("5x5 regional mission layout", () => {
-  it("publishes 25 stable cells and separates campfire from the objective as far as possible", () => {
+  it("publishes 25 stable cells and keeps every layout family meaningfully traversable", () => {
     expect(sherwoodRegionCells()).toHaveLength(25)
     for (const token of ["first", "second", "third", "fourth"]) {
       const { layout } = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, stableSeed(token))
       const distance = Math.abs(layout.campfireCell.row - layout.objectiveCell.row)
         + Math.abs(layout.campfireCell.column - layout.objectiveCell.column)
-      expect(distance).toBeGreaterThanOrEqual(4)
+      expect(distance).toBeGreaterThanOrEqual(2)
       expect(layout.campfireCell.index).not.toBe(layout.objectiveCell.index)
-      expect(Math.hypot(layout.campfirePosition.x - layout.objectivePosition.x, layout.campfirePosition.z - layout.objectivePosition.z)).toBeGreaterThan(90)
+      expect(Math.hypot(layout.campfirePosition.x - layout.objectivePosition.x, layout.campfirePosition.z - layout.objectivePosition.z)).toBeGreaterThan(30)
       expect(layout.crossingPositions).toHaveLength(2)
       expect(Math.abs(layout.crossingPositions[0].z - layout.crossingPositions[1].z)).toBeGreaterThan(15)
       expect(layout.guardPositions.length).toBeGreaterThanOrEqual(12)
@@ -36,11 +43,13 @@ describe("5x5 regional mission layout", () => {
     const campCells = new Set<number>()
     const objectiveCells = new Set<number>()
     const anchorPairs = new Set<string>()
+    const variants = new Set<RegionalLayoutVariant>()
     for (let seed = 1; seed <= 128; seed += 1) {
       const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed * 7919).layout
       campCells.add(layout.campfireCell.index)
       objectiveCells.add(layout.objectiveCell.index)
       anchorPairs.add(`${layout.campfireCell.index}:${layout.objectiveCell.index}`)
+      variants.add(layout.variant)
       const blockers = [...SHERWOOD_STATIC_OBSTACLES, ...createSherwoodRiverObstacles(layout)]
       for (const anchor of [layout.campfirePosition, layout.objectivePosition]) {
         expect(
@@ -50,11 +59,12 @@ describe("5x5 regional mission layout", () => {
       }
       const cellDistance = Math.abs(layout.campfireCell.row - layout.objectiveCell.row)
         + Math.abs(layout.campfireCell.column - layout.objectiveCell.column)
-      expect(cellDistance).toBeGreaterThanOrEqual(4)
+      expect(cellDistance).toBeGreaterThanOrEqual(2)
     }
-    expect(campCells.size).toBeGreaterThanOrEqual(10)
-    expect(objectiveCells.size).toBeGreaterThanOrEqual(4)
-    expect(anchorPairs.size).toBeGreaterThanOrEqual(12)
+    expect(variants).toEqual(new Set<RegionalLayoutVariant>(["long-haul", "cross-river", "same-bank", "central-expedition"]))
+    expect(campCells.size).toBeGreaterThanOrEqual(18)
+    expect(objectiveCells.size).toBeGreaterThanOrEqual(18)
+    expect(anchorPairs.size).toBeGreaterThanOrEqual(80)
   })
 
   it("translates every mission family while preserving stable package identity", () => {

@@ -24,7 +24,9 @@ function regionCellsEqual(left: RegionCell, right: RegionCell): boolean {
 
 function regionalMissionLayoutsEqual(left: RegionalMissionLayout, right: RegionalMissionLayout): boolean {
   if (left === right) return true
-  return left.gridSize === right.gridSize
+  return left.seed === right.seed
+    && left.variant === right.variant
+    && left.gridSize === right.gridSize
     && left.cellSize === right.cellSize
     && left.worldBounds === right.worldBounds
     && regionCellsEqual(left.campfireCell, right.campfireCell)
