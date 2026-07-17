@@ -6,9 +6,10 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@reown/appkit", () => ({ createAppKit: mocks.createAppKit }))
-vi.mock("@reown/appkit-adapter-ethers", () => ({
-  EthersAdapter: class {},
-}))
+vi.mock("./sherwood-ethers-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./sherwood-ethers-adapter")>()
+  return { ...actual, SherwoodEthersAdapter: class {} }
+})
 vi.mock("./supabase", () => ({ getSupabase: mocks.getSupabase }))
 
 interface FakeProvider {
@@ -31,7 +32,7 @@ type AppKitEvent =
 
 function fakeProvider(): FakeProvider {
   return {
-    request: vi.fn(),
+    request: vi.fn(async ({ method }: { method: string }) => method === "eth_chainId" ? "0xb626" : undefined),
     on: vi.fn(),
     removeListener: vi.fn(),
   }
@@ -128,6 +129,12 @@ describe("Robinhood wallet connection", () => {
     expect(modal.subscribeEvents).toHaveBeenCalledTimes(1)
     expect(modal.unsubscribeAccount).toHaveBeenCalledTimes(1)
     expect(modal.unsubscribeEvents).toHaveBeenCalledTimes(1)
+    expect(mocks.createAppKit).toHaveBeenCalledWith(expect.objectContaining({
+      enableEIP6963: true,
+      enableWalletConnect: true,
+      enableInjected: false,
+      enableCoinbase: false,
+    }))
   })
 
   it("does not mistake WalletConnect's pre-account modal close for cancellation", async () => {
@@ -201,6 +208,33 @@ describe("Robinhood wallet connection", () => {
     expect(modal.resetWcConnection).toHaveBeenCalledTimes(1)
     expect(modal.close).toHaveBeenCalledTimes(1)
   })
+
+  it("switches a restored wallet to the configured Robinhood network before returning it", async () => {
+    const modal = fakeModal()
+    const provider = fakeProvider()
+    let chainId = "0x1"
+    provider.request.mockImplementation(async ({ method }: { method: string }) => {
+      if (method === "eth_chainId") return chainId
+      if (method === "wallet_switchEthereumChain") {
+        chainId = "0xb626"
+        return null
+      }
+      throw new Error(`Unexpected wallet method: ${method}`)
+    })
+    modal.setExisting("0x2323232323232323232323232323232323232323", provider)
+    mocks.createAppKit.mockReturnValue(modal)
+    const { connectedRobinhoodWallet } = await loadWalletAuth()
+
+    await expect(connectedRobinhoodWallet()).resolves.toEqual({
+      address: "0x2323232323232323232323232323232323232323",
+      provider,
+    })
+    expect(provider.request).toHaveBeenNthCalledWith(1, { method: "eth_chainId" })
+    expect(provider.request).toHaveBeenNthCalledWith(2, {
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0xb626" }],
+    })
+  })
 })
 
 describe("Robinhood wallet sign-in", () => {
@@ -212,7 +246,7 @@ describe("Robinhood wallet sign-in", () => {
     provider.request.mockImplementation(async ({ method }: { method: string }) => {
       if (appKitConnecting) throw new Error("Request already pending")
       if (method === "eth_requestAccounts") return ["0x3333333333333333333333333333333333333333"]
-      if (method === "eth_chainId") return "0x1"
+      if (method === "eth_chainId") return "0xb626"
       if (method === "personal_sign") return "0xsigned"
       throw new Error(`Unexpected wallet method: ${method}`)
     })
@@ -239,9 +273,10 @@ describe("Robinhood wallet sign-in", () => {
     await expect(first).resolves.toBe(session)
     await expect(second).resolves.toBe(session)
     expect(signInWithWeb3).toHaveBeenCalledTimes(1)
-    expect(provider.request).toHaveBeenCalledTimes(3)
-    expect(provider.request).toHaveBeenNthCalledWith(1, { method: "eth_requestAccounts" })
-    expect(provider.request).toHaveBeenNthCalledWith(2, { method: "eth_chainId" })
+    expect(provider.request).toHaveBeenCalledTimes(4)
+    expect(provider.request).toHaveBeenNthCalledWith(1, { method: "eth_chainId" })
+    expect(provider.request).toHaveBeenNthCalledWith(2, { method: "eth_requestAccounts" })
+    expect(provider.request).toHaveBeenNthCalledWith(3, { method: "eth_chainId" })
     expect(provider.request).toHaveBeenCalledWith({ method: "personal_sign", params: ["0xmessage"] })
   })
 

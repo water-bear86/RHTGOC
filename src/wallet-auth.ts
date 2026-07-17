@@ -1,7 +1,7 @@
 import { createAppKit } from "@reown/appkit"
-import { EthersAdapter } from "@reown/appkit-adapter-ethers"
 import { robinhood, robinhoodTestnet } from "@reown/appkit/networks"
 import type { Session } from "@supabase/supabase-js"
+import { ensureEip1193Network, SherwoodEthersAdapter } from "./sherwood-ethers-adapter"
 import { getSupabase } from "./supabase"
 
 export interface EthereumWalletProvider {
@@ -26,10 +26,15 @@ function configuredAppKit(): ReturnType<typeof createAppKit> {
   const projectId = import.meta.env.VITE_REOWN_PROJECT_ID
   if (!projectId) throw new Error("Robinhood Wallet sign-in is not configured")
   appKit = createAppKit({
-    adapters: [new EthersAdapter()],
+    adapters: [new SherwoodEthersAdapter()],
     networks: [robinhoodNetwork],
     defaultNetwork: robinhoodNetwork,
     projectId,
+    // The adapter keeps only provider-stable EIP-6963 and WalletConnect connector paths.
+    enableEIP6963: true,
+    enableWalletConnect: true,
+    enableInjected: false,
+    enableCoinbase: false,
     metadata: {
       name: "Robin Hood: The Game (On Chain)",
       description: "Enter Sherwood with your Robinhood Wallet",
@@ -133,9 +138,15 @@ async function connectedProvider(modal: ReturnType<typeof createAppKit>): Promis
   })
 }
 
+async function connectedProviderOnConfiguredNetwork(): Promise<ConnectedWallet> {
+  const connected = await connectedProvider(configuredAppKit())
+  await ensureEip1193Network(connected.provider, robinhoodNetwork)
+  return connected
+}
+
 export function connectedRobinhoodWallet(): Promise<ConnectedWallet> {
   if (walletConnectionPending) return walletConnectionPending
-  const pending = connectedProvider(configuredAppKit())
+  const pending = connectedProviderOnConfiguredNetwork()
   walletConnectionPending = pending
   void pending.then(
     () => {
