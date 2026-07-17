@@ -21,6 +21,18 @@ let walletSignInPending: Promise<Session> | null = null
 
 export const robinhoodNetwork = import.meta.env.VITE_ROBINHOOD_CHAIN === "mainnet" ? robinhood : robinhoodTestnet
 
+function sameChainId(value: string | number | undefined, expected: number): boolean {
+  if (value === undefined) return false
+  const candidate = typeof value === "string" && value.includes(":")
+    ? value.slice(value.lastIndexOf(":") + 1)
+    : value
+  try {
+    return BigInt(candidate) === BigInt(expected)
+  } catch {
+    return false
+  }
+}
+
 function configuredAppKit(): ReturnType<typeof createAppKit> {
   if (appKit) return appKit
   const projectId = import.meta.env.VITE_REOWN_PROJECT_ID
@@ -173,7 +185,13 @@ async function connectedProvider(modal: ReturnType<typeof createAppKit>): Promis
 }
 
 async function connectedProviderOnConfiguredNetwork(): Promise<ConnectedWallet> {
-  const connected = await connectedProvider(configuredAppKit())
+  const modal = configuredAppKit()
+  // AppKit can restore an old same-namespace CAIP id as an unsupported network.
+  // Replace that stale state through its public API before the adapter connects.
+  if (!sameChainId(modal.getChainId(), robinhoodNetwork.id)) {
+    await modal.switchNetwork(robinhoodNetwork, { throwOnFailure: true })
+  }
+  const connected = await connectedProvider(modal)
   await ensureEip1193Network(connected.provider, robinhoodNetwork)
   return connected
 }

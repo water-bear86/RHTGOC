@@ -42,12 +42,14 @@ function fakeModal() {
   let provider: FakeProvider | null = null
   let address: string | undefined
   let connected = false
+  let chainId: string | number | undefined = 46630
   const accountListeners = new Set<(state: AccountState) => void>()
   const eventListeners = new Set<(state: { data: AppKitEvent }) => void>()
   const unsubscribeAccount = vi.fn()
   const unsubscribeEvents = vi.fn()
 
   return {
+    getChainId: vi.fn(() => chainId),
     getWalletProvider: vi.fn(() => provider),
     getAddress: vi.fn(() => address),
     getIsConnectedState: vi.fn(() => connected),
@@ -67,6 +69,9 @@ function fakeModal() {
     }),
     open: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
+    switchNetwork: vi.fn(async (network: { id: string | number }) => {
+      chainId = network.id
+    }),
     resetWcConnection: vi.fn(),
     connect(nextAddress: string, nextProvider: FakeProvider) {
       provider = nextProvider
@@ -81,6 +86,9 @@ function fakeModal() {
       provider = nextProvider
       address = nextAddress
       connected = true
+    },
+    setChainId(nextChainId: string | number | undefined) {
+      chainId = nextChainId
     },
     unsubscribeAccount,
     unsubscribeEvents,
@@ -111,6 +119,47 @@ afterEach(() => {
 })
 
 describe("Robinhood wallet connection", () => {
+  it("replaces a stale testnet CAIP state with Robinhood mainnet before opening the connector", async () => {
+    vi.stubEnv("VITE_ROBINHOOD_CHAIN", "mainnet")
+    const modal = fakeModal()
+    const provider = fakeProvider()
+    provider.request.mockImplementation(async ({ method }: { method: string }) => {
+      if (method === "eth_chainId") return "0x1237"
+      throw new Error(`Unexpected wallet method: ${method}`)
+    })
+    modal.setChainId("46630")
+    mocks.createAppKit.mockReturnValue(modal)
+    const { connectedRobinhoodWallet, robinhoodNetwork } = await loadWalletAuth()
+
+    const pending = connectedRobinhoodWallet()
+
+    expect(robinhoodNetwork.id).toBe(4663)
+    expect(modal.switchNetwork).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 4663, name: "Robinhood Chain" }),
+      { throwOnFailure: true },
+    )
+    await vi.waitFor(() => expect(modal.open).toHaveBeenCalledTimes(1))
+    expect(modal.switchNetwork.mock.invocationCallOrder[0]).toBeLessThan(modal.open.mock.invocationCallOrder[0]!)
+
+    modal.connect("0x0101010101010101010101010101010101010101", provider)
+    await expect(pending).resolves.toEqual({
+      address: "0x0101010101010101010101010101010101010101",
+      provider,
+    })
+  })
+
+  it("does not open the connector when restoring Robinhood mainnet fails", async () => {
+    vi.stubEnv("VITE_ROBINHOOD_CHAIN", "mainnet")
+    const modal = fakeModal()
+    modal.setChainId(46630)
+    modal.switchNetwork.mockRejectedValueOnce(new Error("Network switch was declined"))
+    mocks.createAppKit.mockReturnValue(modal)
+    const { connectedRobinhoodWallet } = await loadWalletAuth()
+
+    await expect(connectedRobinhoodWallet()).rejects.toThrow("Network switch was declined")
+    expect(modal.open).not.toHaveBeenCalled()
+  })
+
   it("shares one AppKit connection across concurrent callers", async () => {
     const modal = fakeModal()
     const provider = fakeProvider()
@@ -121,6 +170,7 @@ describe("Robinhood wallet connection", () => {
     const second = connectedRobinhoodWallet()
 
     expect(modal.open).toHaveBeenCalledTimes(1)
+    expect(modal.switchNetwork).not.toHaveBeenCalled()
     modal.connect("0x1111111111111111111111111111111111111111", provider)
     modal.emit({ event: "CONNECT_SUCCESS", properties: {} })
 
