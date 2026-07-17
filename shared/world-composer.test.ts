@@ -19,9 +19,48 @@ describe("Sherwood world composer", () => {
     expect(first).toEqual(second)
     expect(first.settlements).toHaveLength(3)
     expect(first.buildingCount).toBeGreaterThanOrEqual(10)
-    expect(first.roads).toHaveLength(6)
+    expect(first.roads).toHaveLength(7)
     expect(first.roads.every((road) => road.points.length >= 8)).toBe(true)
     expect(first.roads.some((road) => (road.passIds?.length ?? 0) > 0)).toBe(true)
+    expect(first.roads.map(({ id }) => id)).toEqual([
+      "camp-village-road",
+      "village-ford-road",
+      "sheriff-ford-road",
+      "post-objective-road",
+      "camp-hamlet-track",
+      "hamlet-ford-track",
+      "far-ford-objective-track",
+    ])
+  })
+
+  it("forms a readable high-road and low-road loop between camp and objective", () => {
+    const world = composeSherwoodWorld(layout)
+    const endpointKey = (point: { x: number; z: number }): string => `${point.x.toFixed(3)}:${point.z.toFixed(3)}`
+    const connections = new Map<string, Set<string>>()
+    for (const road of world.roads) {
+      const start = endpointKey(road.points[0])
+      const end = endpointKey(road.points[road.points.length - 1])
+      connections.set(start, (connections.get(start) ?? new Set()).add(end))
+      connections.set(end, (connections.get(end) ?? new Set()).add(start))
+    }
+    const camp = endpointKey(layout.campfirePosition)
+    const objective = endpointKey(layout.objectivePosition)
+    expect(connections.get(camp)?.size).toBe(2)
+    expect(connections.get(objective)?.size).toBe(2)
+  })
+
+  it("arranges settlement buildings as legible street fronts", () => {
+    const world = composeSherwoodWorld(layout)
+    for (const settlement of world.settlements) {
+      const cosine = Math.cos(settlement.streetHeading)
+      const sine = Math.sin(settlement.streetHeading)
+      const localSides = settlement.buildings.map((building) => (
+        sine * (building.position.x - settlement.center.x)
+        + cosine * (building.position.z - settlement.center.z)
+      ))
+      expect(localSides.some((side) => side < -3.5)).toBe(true)
+      expect(localSides.some((side) => side > 3.5)).toBe(true)
+    }
   })
 
   it("keeps substantial buildings away from the exact mission anchors", () => {
@@ -47,7 +86,7 @@ describe("Sherwood world composer", () => {
     for (let index = 1; index <= 32; index += 1) {
       const seededLayout = regionalizeFeasibleMissionDefinition(PEOPLES_PURSE_MISSION, index * 7919).layout
       const world = composeSherwoodWorld(seededLayout)
-      expect(world.roads).toHaveLength(6)
+      expect(world.roads).toHaveLength(7)
       expect(world.roads.every((road) => road.points.length >= 2)).toBe(true)
       expect(world.buildingCount).toBeGreaterThanOrEqual(10)
     }

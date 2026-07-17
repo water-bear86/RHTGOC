@@ -36,6 +36,7 @@ export interface ComposedSettlement {
   id: string
   kind: SettlementKind
   center: { x: number; z: number }
+  streetHeading: number
   buildings: ComposedBuilding[]
 }
 
@@ -123,17 +124,47 @@ function createSettlement(
   count: number,
   roads: readonly ComposedRoad[],
 ): ComposedSettlement {
+  const streetRoad = [...roads]
+    .filter((road) => road.points.length >= 2)
+    .map((road) => {
+      const atStart = Math.hypot(road.points[0].x - center.x, road.points[0].z - center.z)
+      const atEnd = Math.hypot(
+        road.points[road.points.length - 1].x - center.x,
+        road.points[road.points.length - 1].z - center.z,
+      )
+      const index = atStart <= atEnd ? 0 : road.points.length - 2
+      const start = road.points[index]
+      const end = road.points[index + 1]
+      return {
+        distance: Math.min(atStart, atEnd),
+        heading: Math.atan2(-(end.z - start.z), end.x - start.x),
+        width: road.width,
+      }
+    })
+    .sort((left, right) => left.distance - right.distance || right.width - left.width)[0]
+  const streetHeading = streetRoad?.heading ?? 0
+  const cosine = Math.cos(streetHeading)
+  const sine = Math.sin(streetHeading)
+  const slots = [
+    { along: -7.2, side: -1 }, { along: -6.6, side: 1 },
+    { along: -2.4, side: 1 }, { along: -1.8, side: -1 },
+    { along: 2.4, side: -1 }, { along: 3, side: 1 },
+    { along: 7.2, side: 1 }, { along: 7.8, side: -1 },
+  ]
   const buildings: ComposedBuilding[] = []
-  for (let index = 0; index < count * 18 && buildings.length < count; index += 1) {
-    const angle = index * 2.399963 + (kind === "sheriff-post" ? 0.4 : -0.25)
-    const radius = 4.6 + (index % 5) * 1.75
-    const position = { x: clamp(center.x + Math.cos(angle) * radius), z: clamp(center.z + Math.sin(angle) * radius) }
+  for (let index = 0; index < slots.length && buildings.length < count; index += 1) {
     const kindForBuilding = kind === "sheriff-post" && buildings.length === 0
       ? "watchtower"
       : buildings.length % 4 === 3 ? "barn" : "cottage"
     const halfExtents = kindForBuilding === "watchtower" ? { x: 1.45, z: 1.45 }
       : kindForBuilding === "barn" ? { x: 2.5, z: 1.75 }
         : { x: 1.9, z: 1.45 }
+    const sideDistance = 3.5 + halfExtents.z
+    const localZ = slots[index].side * sideDistance
+    const position = {
+      x: clamp(center.x + cosine * slots[index].along + sine * localZ),
+      z: clamp(center.z - sine * slots[index].along + cosine * localZ),
+    }
     if (!treeClear(position, Math.max(halfExtents.x, halfExtents.z) + 0.8)) continue
     const footprintRadius = Math.hypot(halfExtents.x, halfExtents.z)
     if (!riverClearForBuilding(position, footprintRadius)) continue
@@ -143,9 +174,45 @@ function createSettlement(
       return Math.hypot(position.x - existing.position.x, position.z - existing.position.z) < footprintRadius + existingRadius + 1.1
     })
     if (overlapsBuilding) continue
-    buildings.push({ id: `${id}-building-${buildings.length}`, kind: kindForBuilding, position, halfExtents, rotation: angle + Math.PI / 2 })
+    buildings.push({
+      id: `${id}-building-${buildings.length}`,
+      kind: kindForBuilding,
+      position,
+      halfExtents,
+      rotation: streetHeading + (slots[index].side > 0 ? Math.PI : 0),
+    })
   }
-  return { id, kind, center, buildings }
+  for (let index = 0; index < count * 18 && buildings.length < count; index += 1) {
+    const angle = index * 2.399963 + (kind === "sheriff-post" ? 0.4 : -0.25)
+    const radius = 5.2 + (index % 5) * 1.75
+    const kindForBuilding = kind === "sheriff-post" && buildings.length === 0
+      ? "watchtower"
+      : buildings.length % 4 === 3 ? "barn" : "cottage"
+    const halfExtents = kindForBuilding === "watchtower" ? { x: 1.45, z: 1.45 }
+      : kindForBuilding === "barn" ? { x: 2.5, z: 1.75 }
+        : { x: 1.9, z: 1.45 }
+    const position = {
+      x: clamp(center.x + Math.cos(angle) * radius),
+      z: clamp(center.z + Math.sin(angle) * radius),
+    }
+    if (!treeClear(position, Math.max(halfExtents.x, halfExtents.z) + 0.8)) continue
+    const footprintRadius = Math.hypot(halfExtents.x, halfExtents.z)
+    if (!riverClearForBuilding(position, footprintRadius)
+      || !roadCorridorClearForBuilding(position, footprintRadius, roads)) continue
+    if (buildings.some((existing) => {
+      const existingRadius = Math.hypot(existing.halfExtents.x, existing.halfExtents.z)
+      return Math.hypot(position.x - existing.position.x, position.z - existing.position.z)
+        < footprintRadius + existingRadius + 1.1
+    })) continue
+    buildings.push({
+      id: `${id}-building-${buildings.length}`,
+      kind: kindForBuilding,
+      position,
+      halfExtents,
+      rotation: angle + Math.PI / 2,
+    })
+  }
+  return { id, kind, center, streetHeading, buildings }
 }
 
 function isRoadSegmentClear(
@@ -460,8 +527,14 @@ export function composeSherwoodWorld(layout: RegionalMissionLayout): ComposedWor
     x: (villageCenter.x + sheriffCenter.x) / 2,
     z: (villageCenter.z + sheriffCenter.z) / 2,
   }, anchors, usedSites, true)
-  const nearestCrossing = (point: { x: number; z: number }): { x: number; z: number } => [...layout.crossingPositions]
-    .sort((left, right) => Math.hypot(point.x - left.x, point.z - left.z) - Math.hypot(point.x - right.x, point.z - right.z))[0]
+  const orderedCrossings = [...layout.crossingPositions].sort((left, right) => {
+    const score = (point: { x: number; z: number }): number => (
+      Math.hypot(villageCenter.x - point.x, villageCenter.z - point.z)
+      + Math.hypot(sheriffCenter.x - point.x, sheriffCenter.z - point.z)
+    )
+    return score(left) - score(right)
+  })
+  const [primaryCrossing, secondaryCrossing] = orderedCrossings
   const routingContext: RoadRoutingContext = {
     layout,
     obstacles: [...SHERWOOD_STATIC_OBSTACLES, ...createSherwoodRiverObstacles(layout)],
@@ -475,11 +548,12 @@ export function composeSherwoodWorld(layout: RegionalMissionLayout): ComposedWor
   }
   const roads = [
     curvedRoad("camp-village-road", layout.campfirePosition, villageCenter, 3.2, routingContext),
-    curvedRoad("village-ford-road", villageCenter, nearestCrossing(villageCenter), 3.4, routingContext),
-    curvedRoad("sheriff-ford-road", nearestCrossing(sheriffCenter), sheriffCenter, 3.4, routingContext),
+    curvedRoad("village-ford-road", villageCenter, primaryCrossing, 3.4, routingContext),
+    curvedRoad("sheriff-ford-road", primaryCrossing, sheriffCenter, 3.4, routingContext),
     curvedRoad("post-objective-road", sheriffCenter, layout.objectivePosition, 3.2, routingContext),
-    curvedRoad("hamlet-track", hamletCenter, nearestCrossing(hamletCenter), 2.15, routingContext),
-    curvedRoad("river-road", layout.crossingPositions[0], layout.crossingPositions[1], 2.2, routingContext),
+    curvedRoad("camp-hamlet-track", layout.campfirePosition, hamletCenter, 2.15, routingContext),
+    curvedRoad("hamlet-ford-track", hamletCenter, secondaryCrossing, 2.15, routingContext),
+    curvedRoad("far-ford-objective-track", secondaryCrossing, layout.objectivePosition, 2.15, routingContext),
   ]
   const settlements = [
     createSettlement("greenwood-village", "forest-village", villageCenter, 6, roads),
