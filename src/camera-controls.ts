@@ -20,6 +20,25 @@ export function rotateCameraOffset(offset: Vec2, quarterTurns: number): Vec2 {
   }
 }
 
+/** Chooses the closest quarter-turn that presents a route ahead of the player. */
+export function cameraQuarterTurnsForRoute(offset: Vec2, routeDirection: Vec2): number {
+  const routeLength = Math.hypot(routeDirection.x, routeDirection.z)
+  if (routeLength <= 0.0001) return 0
+  const direction = {
+    x: routeDirection.x / routeLength,
+    z: routeDirection.z / routeLength,
+  }
+  return [0, 1, 2, 3]
+    .map((quarterTurns) => {
+      const rotated = rotateCameraOffset(offset, quarterTurns)
+      const cameraDistance = Math.max(0.0001, Math.hypot(rotated.x, rotated.z))
+      const forward = { x: -rotated.x / cameraDistance, z: -rotated.z / cameraDistance }
+      return { quarterTurns, alignment: forward.x * direction.x + forward.z * direction.z }
+    })
+    .sort((left, right) => right.alignment - left.alignment || left.quarterTurns - right.quarterTurns)[0]
+    .quarterTurns
+}
+
 export function cameraRelativeMove(screenMove: Vec2, cameraPosition: Vec2, focus: Vec2): Vec2 {
   const forwardX = focus.x - cameraPosition.x
   const forwardZ = focus.z - cameraPosition.z

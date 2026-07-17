@@ -50,6 +50,7 @@ interface RoadNetworkResult {
 }
 
 const ROAD_ENDPOINT_EPSILON = 0.25
+const ROAD_CAMP_APPROACH_EPSILON = 4.25
 const ROAD_SEGMENT_EPSILON = 0.035
 
 function copyPoint(position: XzPoint): XzPoint {
@@ -102,9 +103,13 @@ function endpointsTouch(left: ComposedRoad, right: ComposedRoad): boolean {
   )))
 }
 
-function roadTouchesPoint(road: ComposedRoad, position: XzPoint): boolean {
+function roadTouchesPoint(
+  road: ComposedRoad,
+  position: XzPoint,
+  epsilon = ROAD_ENDPOINT_EPSILON,
+): boolean {
   return [road.points[0], road.points[road.points.length - 1]].some((endpoint) => (
-    Math.hypot(endpoint.x - position.x, endpoint.z - position.z) <= ROAD_ENDPOINT_EPSILON
+    Math.hypot(endpoint.x - position.x, endpoint.z - position.z) <= epsilon
   ))
 }
 
@@ -151,7 +156,10 @@ function inspectRoadNetwork(
     }
   }
 
-  const campRoads = roads.filter((road) => !invalidRoadIds.has(road.id) && roadTouchesPoint(road, layout.campfirePosition))
+  const campRoads = roads.filter((road) => (
+    !invalidRoadIds.has(road.id)
+    && roadTouchesPoint(road, layout.campfirePosition, ROAD_CAMP_APPROACH_EPSILON)
+  ))
   const reachableRoadIds = new Set(campRoads.map((road) => road.id))
   const queue = [...campRoads]
   while (queue.length > 0) {

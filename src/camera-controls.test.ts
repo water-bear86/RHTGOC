@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { blocksCameraSightline, cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
+import {
+  blocksCameraSightline,
+  cameraQuarterTurnsForRoute,
+  cameraRelativeMove,
+  rotateCameraOffset,
+} from "./camera-controls"
 
 function expectVector(actual: { x: number; z: number }, expected: { x: number; z: number }): void {
   expect(actual.x).toBeCloseTo(expected.x, 6)
@@ -30,6 +35,21 @@ describe("camera controls", () => {
     expectVector(cameraRelativeMove({ x: 1, z: 0 }, { x: 0, z: 10 }, { x: 0, z: 0 }), { x: 1, z: 0 })
     const diagonal = cameraRelativeMove({ x: 1, z: -1 }, { x: 0, z: 10 }, { x: 0, z: 0 })
     expect(Math.hypot(diagonal.x, diagonal.z)).toBeCloseTo(Math.SQRT2, 6)
+  })
+
+  it("opens each generated mission with its first route ahead of the player", () => {
+    const offset = { x: 12, z: 16 }
+    for (const route of [
+      { x: 1, z: 0 },
+      { x: -1, z: 0 },
+      { x: 0, z: 1 },
+      { x: 0, z: -1 },
+    ]) {
+      const heading = cameraQuarterTurnsForRoute(offset, route)
+      const camera = rotateCameraOffset(offset, heading)
+      expect((-camera.x * route.x - camera.z * route.z) / Math.hypot(camera.x, camera.z))
+        .toBeGreaterThan(0.7)
+    }
   })
 
   it("identifies scenery inside the padded camera-to-player corridor", () => {

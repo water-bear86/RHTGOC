@@ -73,7 +73,12 @@ import { createArcheryEquipment } from "./archery-equipment"
 import type { HeroAction } from "./character-visuals"
 import { createCharacterVisual, disposeCharacterVisual, poseCharacterVisual } from "./character-assets"
 import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, normalizedHeroActionProgress } from "./character-animation"
-import { blocksCameraSightline, cameraRelativeMove, rotateCameraOffset } from "./camera-controls"
+import {
+  blocksCameraSightline,
+  cameraQuarterTurnsForRoute,
+  cameraRelativeMove,
+  rotateCameraOffset,
+} from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
 import { regionCellIndexAt, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } from "./region-map"
@@ -953,7 +958,9 @@ function rebuildComposedWorld(layout: RegionalMissionLayout, force = false): voi
   const key = [layout.campfirePosition, layout.objectivePosition, ...layout.crossingPositions].map(pointKey).join("|")
   if (!force && key === composedWorldLayoutKey) return
   const composed = composeSherwoodWorld(layout)
-  const nextRoadView = createProceduralRoads(composed.roads)
+  const nextRoadView = createProceduralRoads(composed.roads, {
+    trailheadClearing: layout.campfirePosition,
+  })
   let nextSettlementView: THREE.Group
   try {
     nextSettlementView = createSettlementWorld(composed, {
@@ -1749,6 +1756,15 @@ function applyRegionalLayout(layout: RegionalMissionLayout): void {
     reinforcementSignalPosition: { ...layout.reinforcementSignalPosition },
     disguisePosition: { ...layout.disguisePosition },
     playerSpawns: layout.playerSpawns.map((position) => ({ ...position })),
+  }
+  const openingRoad = composeSherwoodWorld(layout).roads
+    .find((road) => road.id === "camp-village-road")
+  if (openingRoad) {
+    const openingTarget = openingRoad.points[0]
+    cameraQuarterTurns = cameraQuarterTurnsForRoute(BASE_CAMERA_OFFSET, {
+      x: openingTarget.x - layout.campfirePosition.x,
+      z: openingTarget.z - layout.campfirePosition.z,
+    })
   }
   positionMissionCampfire(layout.campfirePosition)
   cartView.position.set(layout.objectivePosition.x, sherwoodHeightAt(layout.objectivePosition.x, layout.objectivePosition.z), layout.objectivePosition.z)

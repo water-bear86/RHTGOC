@@ -45,6 +45,8 @@ export interface ComposedRoad {
   width: number
   points: Array<{ x: number; z: number }>
   passIds?: string[]
+  taperStart?: boolean
+  taperEnd?: boolean
 }
 
 export interface ComposedWorld {
@@ -502,7 +504,7 @@ function chooseSettlementSite(
 ): TopologyPoint {
   const eligible = SHERWOOD_SETTLEMENT_SITES.filter((site) => !used.has(site.id)
     && SHERWOOD_MISSION_STATIC_OBSTACLES.every((obstacle) => !isPointInsideSherwoodObstacle(site.center, obstacle, SETTLEMENT_ROAD_APPROACH_CLEARANCE))
-    && anchors.every((anchor) => Math.hypot(site.center.x - anchor.x, site.center.z - anchor.z) > 12.5))
+    && anchors.every((anchor) => Math.hypot(site.center.x - anchor.x, site.center.z - anchor.z) > 24))
   const candidates = eligible.length > 0 ? eligible : SHERWOOD_SETTLEMENT_SITES.filter((site) => !used.has(site.id)
     && SHERWOOD_MISSION_STATIC_OBSTACLES.every((obstacle) => !isPointInsideSherwoodObstacle(site.center, obstacle, SETTLEMENT_ROAD_APPROACH_CLEARANCE)))
   const sorted = [...candidates].sort((left, right) => {
@@ -527,14 +529,45 @@ export function composeSherwoodWorld(layout: RegionalMissionLayout): ComposedWor
     x: (villageCenter.x + sheriffCenter.x) / 2,
     z: (villageCenter.z + sheriffCenter.z) / 2,
   }, anchors, usedSites, true)
+  const incomingLength = Math.max(
+    0.001,
+    Math.hypot(
+      villageCenter.x - layout.campfirePosition.x,
+      villageCenter.z - layout.campfirePosition.z,
+    ),
+  )
+  const incomingDirection = {
+    x: (villageCenter.x - layout.campfirePosition.x) / incomingLength,
+    z: (villageCenter.z - layout.campfirePosition.z) / incomingLength,
+  }
   const orderedCrossings = [...layout.crossingPositions].sort((left, right) => {
     const score = (point: { x: number; z: number }): number => (
-      Math.hypot(villageCenter.x - point.x, villageCenter.z - point.z)
-      + Math.hypot(sheriffCenter.x - point.x, sheriffCenter.z - point.z)
+      Math.hypot(sheriffCenter.x - point.x, sheriffCenter.z - point.z)
+      + (1 - (
+        (point.x - villageCenter.x) / Math.max(0.001, Math.hypot(point.x - villageCenter.x, point.z - villageCenter.z))
+          * incomingDirection.x
+        + (point.z - villageCenter.z) / Math.max(0.001, Math.hypot(point.x - villageCenter.x, point.z - villageCenter.z))
+          * incomingDirection.z
+      )) * 26
     )
     return score(left) - score(right)
   })
   const [primaryCrossing, secondaryCrossing] = orderedCrossings
+  const openingDirectionLength = Math.max(
+    0.001,
+    Math.hypot(
+      villageCenter.x - layout.campfirePosition.x,
+      villageCenter.z - layout.campfirePosition.z,
+    ),
+  )
+  const openingDirection = {
+    x: (villageCenter.x - layout.campfirePosition.x) / openingDirectionLength,
+    z: (villageCenter.z - layout.campfirePosition.z) / openingDirectionLength,
+  }
+  const campApproach = {
+    x: layout.campfirePosition.x + openingDirection.x * 2.8,
+    z: layout.campfirePosition.z + openingDirection.z * 2.8,
+  }
   const routingContext: RoadRoutingContext = {
     layout,
     obstacles: [...SHERWOOD_MISSION_STATIC_OBSTACLES, ...createSherwoodRiverObstacles(layout)],
@@ -547,13 +580,13 @@ export function composeSherwoodWorld(layout: RegionalMissionLayout): ComposedWor
     ],
   }
   const roads = [
-    curvedRoad("camp-village-road", layout.campfirePosition, villageCenter, 3.2, routingContext),
+    curvedRoad("camp-village-road", campApproach, villageCenter, 3.4, routingContext),
     curvedRoad("village-ford-road", villageCenter, primaryCrossing, 3.4, routingContext),
     curvedRoad("sheriff-ford-road", primaryCrossing, sheriffCenter, 3.4, routingContext),
-    curvedRoad("post-objective-road", sheriffCenter, layout.objectivePosition, 3.2, routingContext),
-    curvedRoad("camp-hamlet-track", layout.campfirePosition, hamletCenter, 2.15, routingContext),
+    { ...curvedRoad("post-objective-road", sheriffCenter, layout.objectivePosition, 3.2, routingContext), taperEnd: true },
+    curvedRoad("village-hamlet-track", villageCenter, hamletCenter, 2.15, routingContext),
     curvedRoad("hamlet-ford-track", hamletCenter, secondaryCrossing, 2.15, routingContext),
-    curvedRoad("far-ford-objective-track", secondaryCrossing, layout.objectivePosition, 2.15, routingContext),
+    curvedRoad("far-ford-post-track", secondaryCrossing, sheriffCenter, 2.15, routingContext),
   ]
   const settlements = [
     createSettlement("greenwood-village", "forest-village", villageCenter, 6, roads),

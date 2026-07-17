@@ -20,16 +20,17 @@ describe("Sherwood world composer", () => {
     expect(first.settlements).toHaveLength(3)
     expect(first.buildingCount).toBeGreaterThanOrEqual(10)
     expect(first.roads).toHaveLength(7)
-    expect(first.roads.every((road) => road.points.length >= 8)).toBe(true)
+    expect(first.roads.every((road) => road.points.length >= 2)).toBe(true)
+    expect(first.roads.filter((road) => road.points.length >= 8).length).toBeGreaterThanOrEqual(6)
     expect(first.roads.some((road) => (road.passIds?.length ?? 0) > 0)).toBe(true)
     expect(first.roads.map(({ id }) => id)).toEqual([
       "camp-village-road",
       "village-ford-road",
       "sheriff-ford-road",
       "post-objective-road",
-      "camp-hamlet-track",
+      "village-hamlet-track",
       "hamlet-ford-track",
-      "far-ford-objective-track",
+      "far-ford-post-track",
     ])
   })
 
@@ -43,10 +44,20 @@ describe("Sherwood world composer", () => {
       connections.set(start, (connections.get(start) ?? new Set()).add(end))
       connections.set(end, (connections.get(end) ?? new Set()).add(start))
     }
-    const camp = endpointKey(layout.campfirePosition)
     const objective = endpointKey(layout.objectivePosition)
-    expect(connections.get(camp)?.size).toBe(2)
-    expect(connections.get(objective)?.size).toBe(2)
+    const degrees = [...connections.values()].map((neighbors) => neighbors.size)
+    expect(degrees.filter((degree) => degree === 3)).toHaveLength(2)
+    expect(connections.get(objective)?.size).toBe(1)
+    const nearestRoadStart = world.roads
+      .flatMap((road) => [road.points[0], road.points[road.points.length - 1]])
+      .sort((left, right) => (
+        Math.hypot(left.x - layout.campfirePosition.x, left.z - layout.campfirePosition.z)
+        - Math.hypot(right.x - layout.campfirePosition.x, right.z - layout.campfirePosition.z)
+      ))[0]
+    expect(Math.hypot(
+      nearestRoadStart.x - layout.campfirePosition.x,
+      nearestRoadStart.z - layout.campfirePosition.z,
+    )).toBeCloseTo(2.8)
   })
 
   it("arranges settlement buildings as legible street fronts", () => {
@@ -66,8 +77,8 @@ describe("Sherwood world composer", () => {
   it("keeps substantial buildings away from the exact mission anchors", () => {
     const world = composeSherwoodWorld(layout)
     for (const building of world.settlements.flatMap((settlement) => settlement.buildings)) {
-      expect(Math.hypot(building.position.x - layout.campfirePosition.x, building.position.z - layout.campfirePosition.z)).toBeGreaterThan(4)
-      expect(Math.hypot(building.position.x - layout.objectivePosition.x, building.position.z - layout.objectivePosition.z)).toBeGreaterThan(4)
+      expect(Math.hypot(building.position.x - layout.campfirePosition.x, building.position.z - layout.campfirePosition.z)).toBeGreaterThan(10)
+      expect(Math.hypot(building.position.x - layout.objectivePosition.x, building.position.z - layout.objectivePosition.z)).toBeGreaterThan(10)
     }
     for (const settlement of world.settlements) {
       expect(SHERWOOD_SETTLEMENT_SITES.some((site) => site.center.x === settlement.center.x && site.center.z === settlement.center.z)).toBe(true)
