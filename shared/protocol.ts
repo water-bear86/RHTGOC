@@ -20,7 +20,7 @@ export const LoadoutIdSchema = z.enum(["balanced", "smoke"])
 export type LoadoutId = z.infer<typeof LoadoutIdSchema>
 export const ContributionTypeSchema = z.enum(["supplies", "intelligence", "snare-kit", "safe-house"])
 export type ContributionType = z.infer<typeof ContributionTypeSchema>
-export const PlayerActionSchema = z.enum(["interact", "shoot", "signature", "rescue", "transfer_loot"])
+export const PlayerActionSchema = z.enum(["interact", "stealth", "shoot", "signature", "rescue", "transfer_loot"])
 export type PlayerAction = z.infer<typeof PlayerActionSchema>
 
 const DisplayNameSchema = z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9 _-]+$/)
@@ -141,6 +141,7 @@ export interface RoomPlayer {
   loadoutId: LoadoutId
   ready: boolean
   connected: boolean
+  stealth: boolean
   bandRole: "leader" | "member" | null
   bandInvitePending: boolean
   arrows: number
@@ -247,6 +248,9 @@ export interface MissionSnapshot {
   cycle: number
   elapsedSeconds: number
   objectiveDiscovered: boolean
+  objectiveGateDiscovered: boolean
+  objectiveGateKeyCollected: boolean
+  objectiveGateLocked: boolean
   searchPressure: number
   parSeconds: number
   heat: number
@@ -379,7 +383,7 @@ export type ServerMessage =
   | { type: "chat_message"; message: ChatMessage }
   | { type: "chat_error"; channel: "band" | "camp"; code: ChatErrorCode; message: string; retryAfterMs?: number }
   | { type: "action_result"; requestId: number; action: PlayerAction; accepted: boolean }
-  | { type: "snapshot"; tick: number; experiments: RoomExperimentAssignment[]; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "arrows" | "loot" | "captureFor" | "bowCooldown" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount" | "bowAction">>; mission: MissionSnapshot }
+  | { type: "snapshot"; tick: number; experiments: RoomExperimentAssignment[]; players: Array<Pick<RoomPlayer, "id" | "position" | "lastInputSequence" | "arrows" | "loot" | "captureFor" | "bowCooldown" | "signatureCooldown" | "protectionScore" | "crowdControl" | "heavyCarryPeak" | "trapHits" | "sabotageCount" | "stealth" | "bowAction">>; mission: MissionSnapshot }
   | { type: "pong"; clientTime: number; serverTime: number }
   | { type: "error"; code: "INVALID_MESSAGE" | "VERSION_MISMATCH" | "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROLE_FULL" | "MISSION_STARTED" | "NOT_JOINED" | "FORBIDDEN"; message: string; buildId?: string }
 

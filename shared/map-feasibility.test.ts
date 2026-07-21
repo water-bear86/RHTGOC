@@ -18,7 +18,7 @@ describe("regional map feasibility contract", () => {
     expect(result).toEqual({
       feasible: true,
       diagnostics: [],
-      checkedPositions: 17,
+      checkedPositions: 69,
       checkedRoadSegments: expect.any(Number),
     })
     expect(result.checkedRoadSegments).toBeGreaterThan(100)

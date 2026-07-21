@@ -1,4 +1,4 @@
-import type { BandContribution, BowActionSnapshot, CharacterId, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionKind, MissionLootCache, MissionPreparation, MissionResult, MissionSnapshot, MissionTrap, PingKind, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import type { BandContribution, BowActionSnapshot, CharacterId, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionKind, MissionLootCache, MissionPreparation, MissionResult, MissionSnapshot, MissionTrap, PingKind, PlayerAction, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
@@ -37,6 +37,7 @@ export interface MissionPlayer {
   characterId: CharacterId
   loadoutId: LoadoutId
   connected: boolean
+  stealth: boolean
   position: { x: number; z: number }
   arrows: number
   loot: number
@@ -134,6 +135,9 @@ export class Mission {
   cycle = 1
   elapsedSeconds = 0
   objectiveDiscovered = false
+  objectiveGateDiscovered = false
+  objectiveGateKeyCollected = false
+  objectiveGateLocked = false
   searchPressure = 0
   ambushStuns = 0
   peakHeat = 0
@@ -185,6 +189,7 @@ export class Mission {
     const regional = regionalizeFeasibleMissionDefinition(baseDefinition, this.seed)
     this.definition = regional.definition
     this.layout = regional.layout
+    this.objectiveGateLocked = this.layout.objectiveStockadeEnabled
     this.exploredCellIndices.add(this.layout.campfireCell.index)
     const definition = this.definition
     const rotation = options.rotation ?? null
@@ -271,17 +276,25 @@ export class Mission {
     return true
   }
 
-  action(playerId: string, action: "interact" | "shoot" | "signature" | "rescue" | "transfer_loot", targetPlayerId?: string): boolean {
+  action(playerId: string, action: PlayerAction, targetPlayerId?: string): boolean {
     const player = this.players.get(playerId)
     if (!player || this.status !== "active" || !player.connected || player.captureFor > 0 || player.captured) return false
+    if (action === "stealth") {
+      player.stealth = !player.stealth
+      if (player.stealth) this.cancelPlayerActions(player.id)
+      return true
+    }
     if (action === "interact") return this.interact(player)
     if (action === "shoot") {
       if ((this.signatureActionEndsAtTick.get(player.id) ?? 0) > this.tick) return false
-      return this.beginBowDraw(player)
+      const accepted = this.beginBowDraw(player)
+      if (accepted) player.stealth = false
+      return accepted
     }
     if (action === "signature") {
       if (player.bowAction) return false
       const accepted = this.signature(player)
+      if (accepted) player.stealth = false
       if (accepted) this.signatureActionEndsAtTick.set(player.id, this.tick + SIGNATURE_ACTION_TICKS)
       return accepted
     }
@@ -382,7 +395,7 @@ export class Mission {
         const lootPenalty = player.characterId === "little-john"
           ? Math.max(0.82, 1 - player.loot / 1_100)
           : Math.max(0.68, 1 - player.loot / 600)
-        const movement = roleSpeed * lootPenalty * dt
+        const movement = roleSpeed * lootPenalty * (player.stealth ? 0.6 : 1) * dt
         displacement = {
           x: (player.input.x / moveLength) * movement,
           z: (player.input.z / moveLength) * movement,
@@ -392,6 +405,7 @@ export class Mission {
       const resolved = resolveSherwoodCombinedMovement(playerOrigin, displacement, {
         worldBounds: this.definition.rules.worldBounds,
         layout: this.layout,
+        objectiveGateLocked: this.objectiveGateLocked,
         circleBlockers: activeGuardPositions(this.guards),
         circleSeparation: SHERWOOD_GUARD_SEPARATION,
       })
@@ -432,6 +446,10 @@ export class Mission {
         objectiveCell: { ...this.layout.objectiveCell, center: { ...this.layout.objectiveCell.center } },
         campfirePosition: { ...this.layout.campfirePosition },
         objectivePosition: { ...this.layout.objectivePosition },
+        objectiveStockadeEnabled: this.layout.objectiveStockadeEnabled,
+        objectiveGatePosition: { ...this.layout.objectiveGatePosition },
+        objectiveGateKeyPosition: { ...this.layout.objectiveGateKeyPosition },
+        objectiveGateRotation: this.layout.objectiveGateRotation,
         crossingPositions: this.layout.crossingPositions.map((position) => ({ ...position })) as RegionalMissionLayout["crossingPositions"],
         guardPositions: this.layout.guardPositions.map((position) => ({ ...position })),
         bowCachePositions: this.layout.bowCachePositions.map((position) => ({ ...position })),
@@ -447,6 +465,9 @@ export class Mission {
       cycle: this.cycle,
       elapsedSeconds: this.elapsedSeconds,
       objectiveDiscovered: this.objectiveDiscovered,
+      objectiveGateDiscovered: this.objectiveGateDiscovered,
+      objectiveGateKeyCollected: this.objectiveGateKeyCollected,
+      objectiveGateLocked: this.objectiveGateLocked,
       searchPressure: this.searchPressure,
       parSeconds: this.definition.mastery.parSeconds,
       heat: this.heat,
@@ -516,6 +537,24 @@ export class Mission {
       this.record("cache_looted", player.id, undefined, "bow-cache")
       return true
     }
+    if (this.layout.objectiveStockadeEnabled) {
+      if (
+        this.objectiveGateDiscovered
+        && !this.objectiveGateKeyCollected
+        && distance(player.position, this.layout.objectiveGateKeyPosition) < 2.8
+      ) {
+        this.objectiveGateKeyCollected = true
+        this.record("cache_looted", player.id, undefined, "sheriff-key")
+        return true
+      }
+      if (this.objectiveGateLocked && distance(player.position, this.layout.objectiveGatePosition) < 3.1) {
+        this.objectiveGateDiscovered = true
+        if (!this.objectiveGateKeyCollected) return true
+        this.objectiveGateLocked = false
+        this.record("lock_breached", player.id, 1, "sheriff-key")
+        return true
+      }
+    }
     if (this.missionKind === "prison-wagon") return this.interactPrisonWagon(player)
     if (this.missionKind === "storehouse") return this.interactStorehouse(player)
     if (player.characterId === "much" && !this.signalSabotaged && this.phase !== "extraction" && distance(player.position, this.definition.spawns.reinforcementSignal) < 3.2) {
@@ -527,6 +566,7 @@ export class Mission {
       return true
     }
     if (distance(player.position, this.definition.spawns.cart) < 3) {
+      if (this.objectiveGateLocked) return false
       if (this.phase !== "robbery" || this.cartCoin === 0) return false
       if (this.escortBlocksInteraction(player, this.definition.spawns.cart)) return false
       const stolen = this.cartCoin
@@ -538,6 +578,7 @@ export class Mission {
       this.cartCoin = 0
       this.cartRefill = 28
       this.heat = 100
+      player.stealth = false
       this.record("cart_robbed", player.id, stolen)
       this.setPhase("pursuit", player.id)
       return true
@@ -981,7 +1022,14 @@ export class Mission {
     }
     const detectionRange = this.heat > 8 ? SHERWOOD_GUARD_ALERT_RANGE : SHERWOOD_GUARD_PROXIMITY_RANGE
     const target = players
-      .filter((player) => distance(player.position, guard.position) < (player.veilFor > 0 ? 2.4 : detectionRange))
+      .filter((player) => {
+        const playerDetectionRange = player.veilFor > 0
+          ? 2.4
+          : player.stealth
+            ? Math.max(2.4, detectionRange * 0.58)
+            : detectionRange
+        return distance(player.position, guard.position) < playerDetectionRange
+      })
       .sort((a, b) => distance(a.position, guard.position) - distance(b.position, guard.position))[0]
     if (target) {
       const newlyAlerted = guard.alertFor <= 0
@@ -1002,13 +1050,17 @@ export class Mission {
       const pursuitPosition = target?.position ?? guard.lastKnownPosition!
       const roleSpeed = target?.characterId === "marian" ? 6.75 : target?.characterId === "little-john" ? 5.9 : 6.2
       const targetVelocity = target
-        ? { x: target.input.x * roleSpeed, z: target.input.z * roleSpeed }
+        ? {
+            x: target.input.x * roleSpeed * (target.stealth ? 0.6 : 1),
+            z: target.input.z * roleSpeed * (target.stealth ? 0.6 : 1),
+          }
         : { x: 0, z: 0 }
       const intercept = guardPursuitTarget(guard.position, guard.id, pursuitPosition, targetVelocity)
       this.moveGuardToward(guard, intercept, 3.45 + this.heat * 0.009 - disruption, dt, players)
       if (target && distance(target.position, guard.position) < 1.25 && target.invulnerableFor === 0 && target.captureFor === 0 && guard.reactionFor <= 0) {
         target.captureFor = OUTLAW_CAPTURE_SECONDS
         target.invulnerableFor = 2
+        target.stealth = false
         this.heat = Math.min(100, this.heat + 15)
         target.input = { x: 0, z: 0 }
         this.record("player_seized", target.id, OUTLAW_CAPTURE_SECONDS)
@@ -1030,6 +1082,7 @@ export class Mission {
       worldBounds: this.definition.rules.worldBounds,
       moverRadius: 0.35,
       layout: this.layout,
+      objectiveGateLocked: this.objectiveGateLocked,
       circleBlockers: players.map((player) => player.position),
       circleSeparation: SHERWOOD_GUARD_SEPARATION,
     })

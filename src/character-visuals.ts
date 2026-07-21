@@ -57,6 +57,7 @@ export interface CharacterPose {
   action?: HeroAction
   actionProgress?: number
   downed?: boolean
+  stealth?: boolean
   motionScale?: number
 }
 
@@ -619,6 +620,7 @@ export function poseHeroCharacter(root: THREE.Group, pose: CharacterPose): void 
     action: pose.action,
     actionProgress: pose.actionProgress,
     downed: pose.downed,
+    stealth: pose.stealth,
     motionScale: pose.motionScale,
   })
   rig.bodyRoot.position.y = rig.groundOffset + sample.bodyY

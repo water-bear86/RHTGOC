@@ -16,6 +16,7 @@ function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer
     characterId,
     loadoutId: "balanced",
     connected: true,
+    stealth: false,
     position: { x: -8, z: 7 },
     arrows: characterId === "robin" ? 6 : characterId === "little-john" ? 3 : 4,
     loot: 0,
@@ -45,6 +46,12 @@ function stunImmediateEscort(mission: Mission, objective = mission.cartPosition)
   for (const guard of mission.guards) {
     if (Math.hypot(guard.position.x - objective.x, guard.position.z - objective.z) <= SHERWOOD_ESCORT_BLOCK_RADIUS) guard.stunnedFor = 30
   }
+}
+
+function unlockObjectiveStockade(mission: Mission): void {
+  mission.objectiveGateDiscovered = true
+  mission.objectiveGateKeyCollected = true
+  mission.objectiveGateLocked = false
 }
 
 function advanceMissionTicks(mission: Mission, count: number, dt = 1 / 20): void {
@@ -101,6 +108,7 @@ describe("authoritative mission", () => {
     const robin = player()
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]), definition)
     mission.phase = "robbery"
+    unlockObjectiveStockade(mission)
     robin.position = { ...mission.definition.spawns.cart }
     stunImmediateEscort(mission)
     expect(mission.action(robin.id, "interact")).toBe(true)
@@ -278,10 +286,33 @@ describe("authoritative mission", () => {
     expect(mission.action(robin.id, "interact")).toBe(false)
   })
 
+  it("requires the shared Sheriff's key before opening the objective stockade", () => {
+    const robin = player()
+    const mission = new Mission("LOCK22", new Map([[robin.id, robin]]))
+
+    robin.position = { ...mission.layout.objectiveGatePosition }
+    expect(mission.action(robin.id, "interact")).toBe(true)
+    expect(mission.snapshot()).toMatchObject({
+      objectiveGateDiscovered: true,
+      objectiveGateKeyCollected: false,
+      objectiveGateLocked: true,
+    })
+
+    robin.position = { ...mission.layout.objectiveGateKeyPosition }
+    expect(mission.action(robin.id, "interact")).toBe(true)
+    expect(mission.events.at(-1)).toMatchObject({ type: "cache_looted", playerId: robin.id, detail: "sheriff-key" })
+
+    robin.position = { ...mission.layout.objectiveGatePosition }
+    expect(mission.action(robin.id, "interact")).toBe(true)
+    expect(mission.snapshot().objectiveGateLocked).toBe(false)
+    expect(mission.events.at(-1)).toMatchObject({ type: "lock_breached", playerId: robin.id, detail: "sheriff-key" })
+  })
+
   it("records robbery, extraction, and one idempotent completion", () => {
     const robin = player()
     const mission = new Mission("ABC234", new Map([[robin.id, robin]]))
     mission.phase = "robbery"
+    unlockObjectiveStockade(mission)
     robin.position = { ...mission.definition.spawns.cart }
     expect(mission.action(robin.id, "interact")).toBe(false)
     expect(mission.events.at(-1)).toMatchObject({ type: "escort_blocking", playerId: robin.id, value: 3, detail: "tax-cart" })
@@ -566,6 +597,7 @@ describe("authoritative mission", () => {
     expect(mission.action(robin.id, "shoot")).toBe(true)
     advanceMissionTicks(mission, BOW_DRAW_TICKS)
     expect(mission.phase).toBe("robbery")
+    unlockObjectiveStockade(mission)
     robin.position = { ...mission.definition.spawns.cart }
     expect(mission.action(robin.id, "interact")).toBe(false)
     expect(mission.events.at(-1)?.type).toBe("escort_blocking")
@@ -592,7 +624,7 @@ describe("authoritative mission", () => {
     mission.update(0.05)
     expect(mission.entryRoute).toBe("river")
     expect(mission.guards.length).toBeGreaterThanOrEqual(12)
-    expect(mission.guards.length).toBeLessThanOrEqual(21)
+    expect(mission.guards.length).toBeLessThanOrEqual(24)
     expect(mission.guards.length % 3).toBe(0)
   })
 
@@ -611,6 +643,7 @@ describe("authoritative mission", () => {
     const marian = player("marian", "marian")
     const mission = new Mission("ABC234", new Map([[robin.id, robin], [marian.id, marian]]))
     mission.phase = "robbery"
+    unlockObjectiveStockade(mission)
     robin.position = { ...mission.definition.spawns.cart }
     stunImmediateEscort(mission)
     mission.action(robin.id, "interact")

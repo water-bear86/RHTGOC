@@ -19,6 +19,10 @@ export interface RegionalMissionLayout {
   objectiveCell: RegionCell
   campfirePosition: { x: number; z: number }
   objectivePosition: { x: number; z: number }
+  objectiveStockadeEnabled: boolean
+  objectiveGatePosition: { x: number; z: number }
+  objectiveGateKeyPosition: { x: number; z: number }
+  objectiveGateRotation: number
   crossingPositions: [{ x: number; z: number }, { x: number; z: number }]
   guardPositions: Array<{ x: number; z: number }>
   bowCachePositions: Array<{ x: number; z: number }>
@@ -164,6 +168,25 @@ export function regionalizeMissionDefinition(base: MissionDefinition, seed: numb
   const { campfireCell, objectiveCell } = chooseAnchorCells(anchorCells, variant, random)
   const campfirePosition = jittered(campfireCell, random)
   const objectivePosition = jittered(objectiveCell, random)
+  const objectiveStockadeEnabled = base.scenario === undefined
+  const approachLength = Math.max(
+    0.001,
+    Math.hypot(campfirePosition.x - objectivePosition.x, campfirePosition.z - objectivePosition.z),
+  )
+  const objectiveApproach = {
+    x: (campfirePosition.x - objectivePosition.x) / approachLength,
+    z: (campfirePosition.z - objectivePosition.z) / approachLength,
+  }
+  const objectiveGateRotation = Math.atan2(objectiveApproach.x, objectiveApproach.z)
+  const objectiveGatePosition = {
+    x: objectivePosition.x + objectiveApproach.x * 5.5,
+    z: objectivePosition.z + objectiveApproach.z * 5.5,
+  }
+  const keySide = seed % 2 === 0 ? 1 : -1
+  const objectiveGateKeyPosition = {
+    x: objectivePosition.x + objectiveApproach.x * 7.5 - objectiveApproach.z * 2.5 * keySide,
+    z: objectivePosition.z + objectiveApproach.z * 7.5 + objectiveApproach.x * 2.5 * keySide,
+  }
   const crossingBands = [-42, -26, -10, 10, 26, 42]
   const firstCrossingIndex = Math.floor(random() * (crossingBands.length - 2))
   const secondCandidates = crossingBands.filter((_, index) => Math.abs(index - firstCrossingIndex) >= 2)
@@ -192,6 +215,7 @@ export function regionalizeMissionDefinition(base: MissionDefinition, seed: numb
     : [{ ...objectivePosition }]
   const guardPosts = [
     ...sheriffLootPositions,
+    ...(objectiveStockadeEnabled ? [objectiveGateKeyPosition] : []),
     { x: crossingPositions[0].x + 4.8, z: crossingPositions[0].z + 1.8 },
     { x: crossingPositions[1].x - 4.8, z: crossingPositions[1].z - 1.8 },
     { x: (campfirePosition.x + objectivePosition.x) / 2 + 3, z: (campfirePosition.z + objectivePosition.z) / 2 - 3 },
@@ -254,6 +278,10 @@ export function regionalizeMissionDefinition(base: MissionDefinition, seed: numb
     objectiveCell: cloneCell(objectiveCell),
     campfirePosition: { ...campfirePosition },
     objectivePosition: { ...objectivePosition },
+    objectiveStockadeEnabled,
+    objectiveGatePosition: { ...objectiveGatePosition },
+    objectiveGateKeyPosition: { ...objectiveGateKeyPosition },
+    objectiveGateRotation,
     crossingPositions: crossingPositions.map((position) => ({ ...position })) as RegionalMissionLayout["crossingPositions"],
     guardPositions: definition.spawns.guards.map((guard) => ({ ...guard.position })),
     bowCachePositions: bowCachePositions.map((position) => ({ ...position })),

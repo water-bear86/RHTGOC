@@ -66,11 +66,15 @@ export interface GameState {
     invulnerableFor: number
     signatureCooldown: number
     veilFor: number
+    stealth: boolean
   }
   guards: GuardState[]
   traps: Array<{ id: number; position: Vec2; remaining: number }>
   delivered: number
   objectiveDiscovered: boolean
+  objectiveGateDiscovered: boolean
+  objectiveGateKeyCollected: boolean
+  objectiveGateLocked: boolean
   searchPressure: number
   heat: number
   cartCoin: number
@@ -132,11 +136,15 @@ export function createInitialState(characterId: CharacterId = "robin", seed = st
       invulnerableFor: 0,
       signatureCooldown: 0,
       veilFor: 0,
+      stealth: false,
     },
     guards: regional.definition.spawns.guards.map((guard) => createGuardState(guard.id, guard.position)),
     traps: [],
     delivered: 0,
     objectiveDiscovered: false,
+    objectiveGateDiscovered: false,
+    objectiveGateKeyCollected: false,
+    objectiveGateLocked: regional.layout.objectiveStockadeEnabled,
     searchPressure: 0,
     heat: 0,
     cartCoin: 120,
@@ -170,7 +178,13 @@ function moveToward(position: Vec2, target: Vec2, speed: number, dt: number): vo
   }
 }
 
-export function updateSimulation(state: GameState, input: InputState, dt: number): string[] {
+export function updateSimulation(
+  state: GameState,
+  input: InputState,
+  dt: number,
+  movementSpeedMultiplier = 1,
+  threatPersistenceMultiplier = 1,
+): string[] {
   if (state.won || state.lost) {
     state.bowAction = null
     state.signatureActionRemaining = 0
@@ -213,7 +227,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
     const lootPenalty = player.characterId === "little-john"
       ? Math.max(0.82, 1 - player.loot / 1_100)
       : Math.max(0.68, 1 - player.loot / 600)
-    const movement = speed * lootPenalty * dt
+    const movement = speed * lootPenalty * (player.stealth ? 0.6 : 1) * dt * movementSpeedMultiplier
     playerDisplacement = {
       x: (movementInput.x / moveLength) * movement,
       z: (movementInput.z / moveLength) * movement,
@@ -224,6 +238,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   const resolvedPlayerPosition = resolveSherwoodCombinedMovement(playerOrigin, playerDisplacement, {
     worldBounds: state.layout.worldBounds,
     layout: state.layout,
+    objectiveGateLocked: state.objectiveGateLocked,
     circleBlockers: activeGuardPositions(state.guards),
     circleSeparation: SHERWOOD_GUARD_SEPARATION,
   })
@@ -255,15 +270,17 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
   const hiddenInWoods = Math.abs(player.position.x) > 13 || Math.abs(player.position.z) > 13
   const marianBonus = player.characterId === "marian" ? 1.3 : 1
   const veilBonus = player.veilFor > 0 ? 2.4 : 1
-  const heatDecay = (hiddenInWoods && nearestGuard > 7 ? 9 : 1.4) * marianBonus * veilBonus
+  const stealthBonus = player.stealth && nearestGuard > 6 ? 1.35 : 1
+  const heatDecay = (hiddenInWoods && nearestGuard > 7 ? 9 : 1.4) * marianBonus * veilBonus * stealthBonus
   state.heat = Math.max(0, state.heat - heatDecay * dt)
   if (!state.objectiveDiscovered && state.searchPressure > 0) state.heat = Math.max(state.heat, state.searchPressure * 18)
   state.stats.peakHeat = Math.max(state.stats.peakHeat, state.heat)
 
   for (const guard of state.guards) {
     guard.stunnedFor = Math.max(0, guard.stunnedFor - dt)
-    guard.alertFor = Math.max(0, guard.alertFor - dt)
-    guard.reactionFor = Math.max(0, (guard.reactionFor ?? 0) - dt)
+    const threatDecay = dt * threatPersistenceMultiplier
+    guard.alertFor = Math.max(0, guard.alertFor - threatDecay)
+    guard.reactionFor = Math.max(0, (guard.reactionFor ?? 0) - threatDecay)
     if (guard.stunnedFor > 0) continue
     const trapIndex = state.traps.findIndex((trap) => distance(trap.position, guard.position) < 1.35)
     if (trapIndex >= 0) {
@@ -278,11 +295,14 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
 
     const guardOrigin = { ...guard.position }
     const guardDistance = distance(guard.position, player.position)
+    const baseDetectionRange = state.heat > 8
+      ? SHERWOOD_GUARD_ALERT_RANGE
+      : SHERWOOD_GUARD_PROXIMITY_RANGE
     const detectionRange = player.veilFor > 0
       ? 2.4
-      : state.heat > 8
-        ? SHERWOOD_GUARD_ALERT_RANGE
-        : SHERWOOD_GUARD_PROXIMITY_RANGE
+      : player.stealth
+        ? Math.max(2.4, baseDetectionRange * 0.58)
+        : baseDetectionRange
     const hasSight = guardDistance < detectionRange
     if (hasSight) {
       const newlyAlerted = guard.alertFor <= 0
@@ -314,6 +334,7 @@ export function updateSimulation(state: GameState, input: InputState, dt: number
       worldBounds: state.layout.worldBounds,
       moverRadius: 0.35,
       layout: state.layout,
+      objectiveGateLocked: state.objectiveGateLocked,
       circleBlockers: [player.position],
       circleSeparation: SHERWOOD_GUARD_SEPARATION,
     })
@@ -340,13 +361,31 @@ export function interact(state: GameState): string {
     state.player.arrows = maxArrows
     return "bow-cache"
   }
+  if (state.layout.objectiveStockadeEnabled) {
+    if (
+      state.objectiveGateDiscovered
+      && !state.objectiveGateKeyCollected
+      && distance(state.player.position, state.layout.objectiveGateKeyPosition) < 2.8
+    ) {
+      state.objectiveGateKeyCollected = true
+      return "gate-key"
+    }
+    if (state.objectiveGateLocked && distance(state.player.position, state.layout.objectiveGatePosition) < 3.1) {
+      state.objectiveGateDiscovered = true
+      if (!state.objectiveGateKeyCollected) return "gate-locked"
+      state.objectiveGateLocked = false
+      return "gate-unlocked"
+    }
+  }
   if (distance(state.player.position, state.layout.objectivePosition) < 3) {
+    if (state.objectiveGateLocked) return "gate-locked"
     if (state.cartCoin === 0) return "cart-empty"
     if (activeEscortCount(state.guards, state.layout.objectivePosition) > 0) return "escort-blocking"
     state.player.loot += state.cartCoin
     state.cartCoin = 0
     state.cartRefill = 28
     state.heat = 100
+    state.player.stealth = false
     state.stats.peakHeat = 100
     state.stats.robberies += 1
     return "robbed-cart"
@@ -373,6 +412,16 @@ export function interact(state: GameState): string {
     return "delivered"
   }
   return "none"
+}
+
+export function toggleStealth(state: GameState): boolean {
+  if (state.won || state.lost) return state.player.stealth
+  state.player.stealth = !state.player.stealth
+  if (state.player.stealth) {
+    state.bowAction = null
+    state.signatureActionRemaining = 0
+  }
+  return state.player.stealth
 }
 
 function nearestBowTarget(state: GameState): number | null {
@@ -520,7 +569,20 @@ export function calculateMastery(state: GameState): MasteryResult {
 }
 
 export function getContextPrompt(state: GameState): string {
+  if (
+    state.objectiveGateDiscovered
+    && !state.objectiveGateKeyCollected
+    && distance(state.player.position, state.layout.objectiveGateKeyPosition) < 2.8
+  ) return "E  TAKE THE SHERIFF'S KEY"
+  if (state.objectiveGateLocked && distance(state.player.position, state.layout.objectiveGatePosition) < 3.1) {
+    return !state.objectiveGateDiscovered
+      ? "E  INSPECT THE CHAINED GATE"
+      : state.objectiveGateKeyCollected
+      ? "E  UNLOCK THE STOCKADE"
+      : "LOCKED · FIND THE SHERIFF'S KEY"
+  }
   if (distance(state.player.position, state.layout.objectivePosition) < 3) {
+    if (state.objectiveGateLocked) return "THE CART IS SECURED BEHIND THE LOCKED GATE"
     if (state.cartCoin > 0 && activeEscortCount(state.guards, state.layout.objectivePosition) > 0) {
       return "ESCORT BLOCKING CART · STUN THEM FIRST"
     }
@@ -529,10 +591,15 @@ export function getContextPrompt(state: GameState): string {
   if (distance(state.player.position, state.layout.campfirePosition) < 3.2) {
     return state.player.loot > 0 ? "E  GIVE COIN TO THE VILLAGE" : "E  RESTOCK ARROWS"
   }
-  if (state.heat > 20) return "Lose the guards in the deep woods"
-  return state.player.loot > 0
+  if (state.heat > 20) return `${state.player.stealth ? "SNEAKING · " : ""}Lose the guards in the deep woods`
+  const prompt = state.player.loot > 0
     ? "Carry the coin back to the village fire"
+    : state.objectiveGateLocked && state.objectiveGateKeyCollected
+      ? "Return to the stockade and unlock the gate"
+      : state.objectiveGateDiscovered && !state.objectiveGateKeyCollected
+        ? "Steal the Sheriff's key from the guarded post"
     : state.objectiveDiscovered
       ? "Close on the Sheriff's tax cart"
       : "Search the 25 Sherwood sectors before the Sheriff reinforces"
+  return state.player.stealth ? `SNEAKING · ${prompt}` : prompt
 }

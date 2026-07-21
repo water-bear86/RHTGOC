@@ -27,7 +27,7 @@ describe("5x5 regional mission layout", () => {
       expect(layout.crossingPositions).toHaveLength(2)
       expect(Math.abs(layout.crossingPositions[0].z - layout.crossingPositions[1].z)).toBeGreaterThan(15)
       expect(layout.guardPositions.length).toBeGreaterThanOrEqual(12)
-      expect(layout.guardPositions.length).toBeLessThanOrEqual(21)
+      expect(layout.guardPositions.length).toBeLessThanOrEqual(24)
       expect(layout.guardPositions.length % 3).toBe(0)
       expect(layout.bowCachePositions).toHaveLength(4)
     }
@@ -73,7 +73,7 @@ describe("5x5 regional mission layout", () => {
       const sheriffLoot = regional.definition.scenario?.kind === "storehouse"
         ? regional.definition.scenario.lootCaches.map((cache) => cache.position)
         : [regional.layout.objectivePosition]
-      const expectedGuardPosts = sheriffLoot.length + 3
+      const expectedGuardPosts = sheriffLoot.length + 3 + Number(regional.layout.objectiveStockadeEnabled)
       expect(regional.definition.id).toBe(mission.id)
       expect(regional.definition.contentHash).toBe(mission.contentHash)
       expect(regional.definition.rules.worldBounds).toBe(SHERWOOD_REGIONAL_BOUNDS)

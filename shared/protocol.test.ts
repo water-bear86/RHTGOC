@@ -4,8 +4,8 @@ import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "./prot
 const handshake = { version: PROTOCOL_VERSION, buildId: "test-build", productAnalytics: true } as const
 
 describe("Merry Band protocol", () => {
-  it("requires the authoritative bow-action snapshot protocol", () => {
-    expect(PROTOCOL_VERSION).toBe(16)
+  it("requires the authoritative stealth-and-stockade snapshot protocol", () => {
+    expect(PROTOCOL_VERSION).toBe(17)
   })
 
   it("carries authoritative bow cooldown seconds in mission snapshots", () => {
@@ -67,6 +67,10 @@ describe("Merry Band protocol", () => {
   })
 
   it("accepts bounded cooperative intents and rejects unknown ping kinds", () => {
+    expect(parseClientMessage({ type: "action", action: "stealth" })).toEqual({
+      type: "action",
+      action: "stealth",
+    })
     expect(parseClientMessage({ type: "action", action: "rescue", targetPlayerId: "f7870cde-771f-4d25-aa85-85c20c862a49" })).toEqual({
       type: "action",
       action: "rescue",

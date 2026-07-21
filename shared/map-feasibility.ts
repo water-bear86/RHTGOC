@@ -239,6 +239,37 @@ export function validateRegionalMissionFeasibility(regional: RegionalizedMission
 
   checkPosition({ subject: "campfire", position: layout.campfirePosition }, "anchor_out_of_bounds", "anchor_blocked")
   checkPosition({ subject: "objective", position: layout.objectivePosition }, "anchor_out_of_bounds", "anchor_blocked")
+  if (layout.objectiveStockadeEnabled) {
+    const cosine = Math.cos(layout.objectiveGateRotation)
+    const sine = Math.sin(layout.objectiveGateRotation)
+    const inStockadeFrame = (x: number, z: number): { x: number; z: number } => ({
+      x: layout.objectivePosition.x + cosine * x + sine * z,
+      z: layout.objectivePosition.z - sine * x + cosine * z,
+    })
+    const perimeter = [
+      ...Array.from({ length: 15 }, (_, index) => inStockadeFrame(-7 + index, -5.5)),
+      ...Array.from({ length: 15 }, (_, index) => inStockadeFrame(-7 + index, 5.5)),
+      ...Array.from({ length: 10 }, (_, index) => inStockadeFrame(-7, -4.5 + index)),
+      ...Array.from({ length: 10 }, (_, index) => inStockadeFrame(7, -4.5 + index)),
+    ]
+    perimeter.forEach((position, index) => {
+      checkPosition(
+        { subject: `objective-stockade:${index}`, position },
+        "interaction_out_of_bounds",
+        "interaction_blocked",
+      )
+    })
+    checkPosition(
+      { subject: "objective-gate", position: layout.objectiveGatePosition },
+      "interaction_out_of_bounds",
+      "interaction_blocked",
+    )
+    checkPosition(
+      { subject: "objective-gate-key", position: layout.objectiveGateKeyPosition },
+      "interaction_out_of_bounds",
+      "interaction_blocked",
+    )
+  }
   definition.spawns.players.forEach((position, index) => {
     checkPosition({ subject: `player:${index}`, position }, "unsafe_spawn", "unsafe_spawn")
   })

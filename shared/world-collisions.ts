@@ -7,6 +7,7 @@ import {
   SHERWOOD_RIDGE_ROCK_OBSTACLES,
   SHERWOOD_TREE_OBSTACLES,
   VILLAGE_COTTAGE_OBSTACLE,
+  createSherwoodObjectiveStockadeObstacles,
   createSherwoodRiverObstacles,
   selectSherwoodRidgeRockObstaclesForRoads,
 } from "./world-obstacles"
@@ -112,6 +113,7 @@ export interface SherwoodCombinedMovementOptions {
   worldBounds?: number | XzWorldBounds
   moverRadius?: number
   layout?: RegionalMissionLayout
+  objectiveGateLocked?: boolean
   circleBlockers: readonly XzPoint[]
   circleSeparation: number
 }
@@ -475,7 +477,13 @@ export function resolveSherwoodCombinedMovement(
   const midpoint = { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 }
   const staticColliders = staticCollidersForLayout(options.layout)
   const colliders = options.layout
-    ? [...staticColliders, ...createSherwoodRiverColliders(options.layout), ...createSherwoodSettlementColliders(options.layout), ...createSherwoodTopologyColliders(options.layout)]
+    ? [
+        ...staticColliders,
+        ...createSherwoodRiverColliders(options.layout),
+        ...createSherwoodSettlementColliders(options.layout),
+        ...createSherwoodTopologyColliders(options.layout),
+        ...createSherwoodObjectiveStockadeObstacles(options.layout, options.objectiveGateLocked ?? true),
+      ]
     : staticColliders
   const circleBlockers = options.circleBlockers.filter((blocker) => Number.isFinite(blocker.x) && Number.isFinite(blocker.z))
   const safeStart = clampPoint({

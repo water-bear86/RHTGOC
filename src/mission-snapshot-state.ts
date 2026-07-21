@@ -33,6 +33,10 @@ function regionalMissionLayoutsEqual(left: RegionalMissionLayout, right: Regiona
     && regionCellsEqual(left.objectiveCell, right.objectiveCell)
     && positionsEqual(left.campfirePosition, right.campfirePosition)
     && positionsEqual(left.objectivePosition, right.objectivePosition)
+    && left.objectiveStockadeEnabled === right.objectiveStockadeEnabled
+    && positionsEqual(left.objectiveGatePosition, right.objectiveGatePosition)
+    && positionsEqual(left.objectiveGateKeyPosition, right.objectiveGateKeyPosition)
+    && left.objectiveGateRotation === right.objectiveGateRotation
     && positionListsEqual(left.crossingPositions, right.crossingPositions)
     && positionListsEqual(left.guardPositions, right.guardPositions)
     && positionListsEqual(left.bowCachePositions, right.bowCachePositions)

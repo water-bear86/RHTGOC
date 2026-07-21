@@ -12,11 +12,32 @@ import {
 } from "../shared/guard-rules"
 import { SHERWOOD_PLAYER_RADIUS, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
 import { BOW_DRAW_SECONDS, BOW_TOTAL_SECONDS, SIGNATURE_ACTION_SECONDS } from "../shared/archery"
-import { CART_POSITION, DELIVERY_TARGET, VILLAGE_POSITION, acquireBowTarget, activateSignature, beginSoloBowDraw, calculateMastery, createInitialState, getContextPrompt, interact, stepSoloBowAction, updateSimulation } from "./simulation"
+import { CART_POSITION, DELIVERY_TARGET, VILLAGE_POSITION, acquireBowTarget, activateSignature, beginSoloBowDraw, calculateMastery, createInitialState, getContextPrompt, interact, stepSoloBowAction, toggleStealth, updateSimulation } from "./simulation"
 
 describe("Sherwood simulation", () => {
+  it("scouts the chained gate, steals its guarded key, and unlocks the stockade", () => {
+    const state = createInitialState()
+    state.player.position = { ...state.layout.objectiveGatePosition }
+    expect(getContextPrompt(state)).toBe("E  INSPECT THE CHAINED GATE")
+    expect(interact(state)).toBe("gate-locked")
+    expect(state.objectiveGateDiscovered).toBe(true)
+
+    state.player.position = { ...state.layout.objectiveGateKeyPosition }
+    expect(getContextPrompt(state)).toBe("E  TAKE THE SHERIFF'S KEY")
+    expect(interact(state)).toBe("gate-key")
+    expect(state.objectiveGateKeyCollected).toBe(true)
+
+    state.player.position = { ...state.layout.objectiveGatePosition }
+    expect(getContextPrompt(state)).toBe("E  UNLOCK THE STOCKADE")
+    expect(interact(state)).toBe("gate-unlocked")
+    expect(state.objectiveGateLocked).toBe(false)
+  })
+
   it("requires the immediate escort to be cleared before robbing the tax cart", () => {
     const state = createInitialState()
+    state.objectiveGateDiscovered = true
+    state.objectiveGateKeyCollected = true
+    state.objectiveGateLocked = false
     state.player.position = { ...CART_POSITION }
     expect(getContextPrompt(state)).toBe("ESCORT BLOCKING CART · STUN THEM FIRST")
     expect(interact(state)).toBe("escort-blocking")
@@ -26,6 +47,16 @@ describe("Sherwood simulation", () => {
     expect(interact(state)).toBe("robbed-cart")
     expect(state.player.loot).toBe(120)
     expect(state.heat).toBe(100)
+  })
+
+  it("enters stealth for every hero and cancels a committed bow draw", () => {
+    const state = createInitialState()
+    state.player.position = { ...state.guards[0].position }
+    expect(beginSoloBowDraw(state, { x: 0, z: 0 })).toBe("started")
+    expect(toggleStealth(state)).toBe(true)
+    expect(state.player.stealth).toBe(true)
+    expect(state.bowAction).toBeNull()
+    expect(toggleStealth(state)).toBe(false)
   })
 
   it("delivers stolen coin and wins at the target", () => {

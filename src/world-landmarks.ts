@@ -1,6 +1,12 @@
 import * as THREE from "three"
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"
 import type { RegionalMissionLayout } from "../shared/regional-layout"
 import type { ComposedWorld } from "../shared/world-composer"
+import {
+  SHERWOOD_OBJECTIVE_GATE_HALF_WIDTH,
+  SHERWOOD_OBJECTIVE_STOCKADE_HALF_DEPTH,
+  SHERWOOD_OBJECTIVE_STOCKADE_HALF_WIDTH,
+} from "../shared/world-obstacles"
 import { SHERWOOD_SETTLEMENT_SITES } from "../shared/world-topology"
 import { createStylizedBuildingVisual, disposeStylizedBuildingVisuals } from "./building-visuals"
 import { createToonMaterial } from "./toon-materials"
@@ -10,6 +16,8 @@ import { createNatureVariantInstances, type NatureCatalog } from "./nature-asset
 export interface SherwoodLandmarks {
   group: THREE.Group
   windmillRotor: THREE.Group
+  objectiveGate: THREE.Group | null
+  objectiveKey: THREE.Group | null
   farmPosition: Readonly<{ x: number; z: number }>
   stoneCirclePosition: Readonly<{ x: number; z: number }>
   wheatCount: number
@@ -28,6 +36,19 @@ function material(color: number): THREE.MeshToonMaterial {
 
 function mesh(name: string, geometry: THREE.BufferGeometry, color: number): THREE.Mesh {
   const result = new THREE.Mesh(geometry, material(color))
+  result.name = name
+  result.castShadow = true
+  result.receiveShadow = true
+  return result
+}
+
+function instancedMesh(
+  name: string,
+  geometry: THREE.BufferGeometry,
+  color: number,
+  count: number,
+): THREE.InstancedMesh {
+  const result = new THREE.InstancedMesh(geometry, material(color), count)
   result.name = name
   result.castShadow = true
   result.receiveShadow = true
@@ -189,6 +210,153 @@ function addFence(
   parent.add(fence)
 }
 
+interface StockadeSpanPlacement {
+  x: number
+  z: number
+  length: number
+  rotation: number
+}
+
+function createStockadeWalls(spans: readonly StockadeSpanPlacement[]): THREE.Group {
+  const group = new THREE.Group()
+  group.name = "StockadeWalls"
+  const postCounts = spans.map(({ length }) => Math.max(2, Math.ceil(length / 0.72)) + 1)
+  const posts = instancedMesh(
+    "StockadePosts",
+    new THREE.CylinderGeometry(0.17, 0.2, 2.35, 5),
+    0x5a3822,
+    postCounts.reduce((sum, count) => sum + count, 0),
+  )
+  const rails = instancedMesh(
+    "StockadeRails",
+    new THREE.BoxGeometry(1, 0.16, 0.18),
+    0x3f291d,
+    spans.length * 2,
+  )
+  const matrix = new THREE.Matrix4()
+  const position = new THREE.Vector3()
+  const rotation = new THREE.Quaternion()
+  const scale = new THREE.Vector3()
+  let postInstance = 0
+  let railInstance = 0
+
+  spans.forEach((span, spanIndex) => {
+    const postCount = postCounts[spanIndex]
+    const cosine = Math.cos(span.rotation)
+    const sine = Math.sin(span.rotation)
+    for (let index = 0; index < postCount; index += 1) {
+      const localX = (index / (postCount - 1) - 0.5) * span.length
+      position.set(
+        span.x + cosine * localX,
+        1.12 + (index % 3) * 0.035,
+        span.z - sine * localX,
+      )
+      rotation.setFromEuler(new THREE.Euler(0, span.rotation + index * 0.47, 0))
+      scale.set(1, 1, 1)
+      matrix.compose(position, rotation, scale)
+      posts.setMatrixAt(postInstance, matrix)
+      postInstance += 1
+    }
+    for (const y of [0.55, 1.45]) {
+      position.set(span.x, y, span.z)
+      rotation.setFromEuler(new THREE.Euler(0, span.rotation, 0))
+      scale.set(span.length, 1, 1)
+      matrix.compose(position, rotation, scale)
+      rails.setMatrixAt(railInstance, matrix)
+      railInstance += 1
+    }
+  })
+  posts.instanceMatrix.needsUpdate = true
+  rails.instanceMatrix.needsUpdate = true
+  group.add(posts, rails)
+  return group
+}
+
+function createObjectiveStockade(layout: RegionalMissionLayout): {
+  group: THREE.Group
+  gate: THREE.Group
+  key: THREE.Group
+} {
+  const group = new THREE.Group()
+  group.name = "SheriffsTaxStockade"
+  group.position.set(
+    layout.objectivePosition.x,
+    sherwoodHeightAt(layout.objectivePosition.x, layout.objectivePosition.z),
+    layout.objectivePosition.z,
+  )
+  group.rotation.y = layout.objectiveGateRotation
+  const halfWidth = SHERWOOD_OBJECTIVE_STOCKADE_HALF_WIDTH
+  const halfDepth = SHERWOOD_OBJECTIVE_STOCKADE_HALF_DEPTH
+  const gateHalfWidth = SHERWOOD_OBJECTIVE_GATE_HALF_WIDTH
+  const frontSegmentLength = halfWidth - gateHalfWidth
+  group.add(createStockadeWalls([
+    { x: 0, z: -halfDepth, length: halfWidth * 2, rotation: 0 },
+    { x: -halfWidth, z: 0, length: halfDepth * 2, rotation: Math.PI / 2 },
+    { x: halfWidth, z: 0, length: halfDepth * 2, rotation: Math.PI / 2 },
+    { x: -(halfWidth + gateHalfWidth) / 2, z: halfDepth, length: frontSegmentLength, rotation: 0 },
+    { x: (halfWidth + gateHalfWidth) / 2, z: halfDepth, length: frontSegmentLength, rotation: 0 },
+  ]))
+
+  const gate = new THREE.Group()
+  gate.name = "StockadeGateHinge"
+  gate.position.set(-gateHalfWidth, 0, halfDepth)
+  const gatePlanks = instancedMesh(
+    "StockadeGatePlanks",
+    new THREE.BoxGeometry(0.54, 2.15, 0.2),
+    0x6a4226,
+    5,
+  )
+  const gateBraces = instancedMesh(
+    "StockadeGateBraces",
+    new THREE.BoxGeometry(3, 0.15, 0.24),
+    0x3c281d,
+    2,
+  )
+  const gateMatrix = new THREE.Matrix4()
+  for (let index = 0; index < 5; index += 1) {
+    gateMatrix.makeTranslation(0.3 + index * 0.6, 1.05 + (index % 2) * 0.04, 0)
+    gatePlanks.setMatrixAt(index, gateMatrix)
+  }
+  ;[0.52, 1.52].forEach((y, index) => {
+    gateMatrix.makeTranslation(gateHalfWidth, y, 0)
+    gateBraces.setMatrixAt(index, gateMatrix)
+  })
+  gatePlanks.instanceMatrix.needsUpdate = true
+  gateBraces.instanceMatrix.needsUpdate = true
+  const chain = mesh("StockadeGateChain", new THREE.TorusGeometry(0.24, 0.045, 6, 14), 0x8b806c)
+  chain.position.set(gateHalfWidth, 1.12, 0.16)
+  gate.add(gatePlanks, gateBraces, chain)
+  group.add(gate)
+
+  const cosine = Math.cos(layout.objectiveGateRotation)
+  const sine = Math.sin(layout.objectiveGateRotation)
+  const keyDx = layout.objectiveGateKeyPosition.x - layout.objectivePosition.x
+  const keyDz = layout.objectiveGateKeyPosition.z - layout.objectivePosition.z
+  const key = new THREE.Group()
+  key.name = "SheriffsGateKey"
+  key.position.set(
+    cosine * keyDx - sine * keyDz,
+    sherwoodHeightAt(layout.objectiveGateKeyPosition.x, layout.objectiveGateKeyPosition.z) - group.position.y,
+    sine * keyDx + cosine * keyDz,
+  )
+  const post = mesh("GateKeyPost", new THREE.CylinderGeometry(0.16, 0.2, 1.8, 6), 0x4c3020)
+  post.position.y = 0.9
+  const pennant = mesh("GateKeyPennant", new THREE.BoxGeometry(0.72, 0.48, 0.05), 0x8f2f23)
+  pennant.position.set(0.42, 1.52, 0)
+  const keyParts = [
+    new THREE.TorusGeometry(0.2, 0.055, 7, 18).translate(0, 1.16, 0.22),
+    new THREE.BoxGeometry(0.08, 0.48, 0.08).translate(0, 0.88, 0.22),
+    new THREE.BoxGeometry(0.2, 0.08, 0.08).translate(0.07, 0.66, 0.22),
+  ]
+  const keyGeometry = mergeGeometries(keyParts)
+  keyParts.forEach((geometry) => geometry.dispose())
+  if (!keyGeometry) throw new Error("Unable to build Sheriff's gate key")
+  const keyMetal = mesh("GateKey", keyGeometry, 0xd3a23d)
+  key.add(post, pennant, keyMetal)
+  group.add(key)
+  return { group, gate, key }
+}
+
 function createWheatField(frame: TerrainFrame, natureCatalog?: NatureCatalog): { group: THREE.Group; count: number } {
   const group = new THREE.Group()
   group.name = "GoldenWheatField"
@@ -282,6 +450,10 @@ export function createSherwoodLandmarks(
 ): SherwoodLandmarks {
   const group = new THREE.Group()
   group.name = "SherwoodLandmarks"
+  const objectiveStockade = layout.objectiveStockadeEnabled
+    ? createObjectiveStockade(layout)
+    : null
+  if (objectiveStockade) group.add(objectiveStockade.group)
   const farmPosition = chooseFarmPosition(layout, options.world)
   const farm = new THREE.Group()
   farm.name = "WindmillFarm"
@@ -331,6 +503,8 @@ export function createSherwoodLandmarks(
   return {
     group,
     windmillRotor: rotor,
+    objectiveGate: objectiveStockade?.gate ?? null,
+    objectiveKey: objectiveStockade?.key ?? null,
     farmPosition,
     stoneCirclePosition,
     wheatCount,

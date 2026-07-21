@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
-import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MerryBandState, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
+import { MAX_ROOM_PLAYERS, RECONNECT_GRACE_MS, type BandContribution, type CharacterId, type ContributionType, type LastMissionResult, type LoadoutId, type MerryBandState, type PlayerAction, type RescueOffer, type RoomPlayer, type ServerMessage, type VillageState } from "../shared/protocol"
 import { normalizeChatText, type ChatErrorCode, type ChatMessage, type ChatReportReason } from "../shared/chat"
 import { Mission } from "./mission"
 import { getMissionDefinition } from "../shared/mission-catalog"
@@ -180,6 +180,7 @@ export class Room {
       loadoutId: "balanced",
       ready: false,
       connected: true,
+      stealth: false,
       bandRole: authUserId ? this.bandMemberRoles.get(authUserId) ?? null : null,
       bandInvitePending: false,
       arrows: maxArrows(characterId),
@@ -546,7 +547,7 @@ export class Room {
     this.mission?.setInput(playerId, sequence, move)
   }
 
-  action(playerId: string, action: "interact" | "shoot" | "signature" | "rescue" | "transfer_loot", targetPlayerId?: string): boolean {
+  action(playerId: string, action: PlayerAction, targetPlayerId?: string): boolean {
     return this.mission?.action(playerId, action, targetPlayerId) ?? false
   }
 
@@ -766,6 +767,7 @@ export class Room {
       loadoutId: player.loadoutId,
       ready: player.ready,
       connected: player.connected,
+      stealth: player.stealth,
       bandRole: player.bandRole,
       bandInvitePending: player.bandInvitePending,
       arrows: player.arrows,
@@ -938,7 +940,7 @@ export class Room {
       type: "snapshot",
       tick: this.tick,
       experiments: this.experimentAssignments.map((assignment) => ({ ...assignment, config: { ...assignment.config } })),
-      players: [...this.players.values()].map(({ id, position, lastInputSequence, arrows, loot, captureFor, bowCooldown, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount, bowAction }) => ({ id, position, lastInputSequence, arrows, loot, captureFor, bowCooldown, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount, bowAction: bowAction ? { ...bowAction } : null })),
+      players: [...this.players.values()].map(({ id, position, lastInputSequence, arrows, loot, captureFor, bowCooldown, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount, stealth, bowAction }) => ({ id, position, lastInputSequence, arrows, loot, captureFor, bowCooldown, signatureCooldown, protectionScore, crowdControl, heavyCarryPeak, trapHits, sabotageCount, stealth, bowAction: bowAction ? { ...bowAction } : null })),
       mission: this.mission.snapshot(),
     })
   }
@@ -973,6 +975,7 @@ export class Room {
     player.bowAction = null
     player.invulnerableFor = 0
     player.veilFor = 0
+    player.stealth = false
     player.rescueCount = 0
     player.transferCount = 0
     player.totalTransferred = 0

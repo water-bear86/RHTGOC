@@ -1,7 +1,7 @@
 export const GAME_ACTIONS = [
   "moveUp", "moveDown", "moveLeft", "moveRight",
   "cameraLeft", "cameraRight",
-  "interact", "fire", "signature", "rescue", "transferLoot",
+  "interact", "stealth", "fire", "signature", "rescue", "transferLoot",
   "pingDanger", "pingTarget", "pingRoute", "pingLoot", "pingRegroup",
 ] as const
 
@@ -27,6 +27,7 @@ export const ACTION_LABELS: Record<GameAction, string> = {
   cameraLeft: "Rotate camera left",
   cameraRight: "Rotate camera right",
   interact: "Interact / give",
+  stealth: "Toggle stealth",
   fire: "Loose arrow",
   signature: "Signature",
   rescue: "Free seized outlaw",
@@ -47,6 +48,7 @@ export const DEFAULT_INPUT_SETTINGS: InputSettings = {
     cameraLeft: "KeyZ",
     cameraRight: "KeyX",
     interact: "KeyE",
+    stealth: "KeyC",
     fire: "Space",
     signature: "KeyQ",
     rescue: "KeyR",
@@ -61,6 +63,7 @@ export const DEFAULT_INPUT_SETTINGS: InputSettings = {
     cameraLeft: 10,
     cameraRight: 11,
     interact: 0,
+    stealth: 13,
     fire: 1,
     signature: 2,
     rescue: 3,

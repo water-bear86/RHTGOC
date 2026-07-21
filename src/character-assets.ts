@@ -34,6 +34,7 @@ interface AuthoredHeroRuntime {
   bowSignature: boolean
   activeState: AuthoredAnimationState | null
   lastElapsed: number | null
+  baseModelY: number
 }
 
 interface AuthoredBowStringMorph {
@@ -249,7 +250,37 @@ function sampleOneShot(runtime: AuthoredHeroRuntime, pose: CharacterPose): void 
   action.paused = true
 }
 
+function clearAuthoredStealthPose(runtime: AuthoredHeroRuntime): void {
+  runtime.model.traverse((object) => {
+    const previous = Number(object.userData.sherwoodStealthRotationX ?? 0)
+    if (previous !== 0) object.rotation.x -= previous
+    object.userData.sherwoodStealthRotationX = 0
+  })
+}
+
+function applyAuthoredStealthPose(runtime: AuthoredHeroRuntime, pose: CharacterPose): void {
+  if (!pose.stealth) return
+  const rotateX = (boneName: string, amount: number): void => {
+    const bone = runtime.model.getObjectByName(boneName)
+    if (!bone) return
+    bone.rotation.x += amount
+    bone.userData.sherwoodStealthRotationX = amount
+  }
+  rotateX("hips", 0.18)
+  rotateX("spine", 0.18)
+  rotateX("chest", 0.2)
+  rotateX("head", -0.22)
+  rotateX("upperleg.l", 0.4)
+  rotateX("upperleg.r", 0.4)
+  rotateX("lowerleg.l", -0.72)
+  rotateX("lowerleg.r", -0.72)
+  rotateX("upperarm.l", -0.12)
+  rotateX("upperarm.r", -0.12)
+}
+
 function poseAuthoredHero(runtime: AuthoredHeroRuntime, pose: CharacterPose): void {
+  clearAuthoredStealthPose(runtime)
+  runtime.model.position.y = runtime.baseModelY + (pose.stealth ? -0.18 : 0)
   runtime.model.visible = !pose.downed
   if (pose.downed) {
     setBowStringDraw(runtime, 0)
@@ -268,6 +299,7 @@ function poseAuthoredHero(runtime: AuthoredHeroRuntime, pose: CharacterPose): vo
       activeAction.time = Math.max(0, pose.elapsed) % activeAction.getClip().duration
     }
     runtime.mixer.update(0)
+    applyAuthoredStealthPose(runtime, pose)
     runtime.lastElapsed = pose.elapsed
     setBowStringDraw(
       runtime,
@@ -280,6 +312,7 @@ function poseAuthoredHero(runtime: AuthoredHeroRuntime, pose: CharacterPose): vo
   // Mixer time must keep moving so crossfade weights complete even when a
   // reduced-motion pose freezes the looping clip's local time.
   runtime.mixer.update(delta)
+  applyAuthoredStealthPose(runtime, pose)
   setBowStringDraw(
     runtime,
     bowDrawForPose(runtime, pose),
@@ -317,6 +350,7 @@ async function attachAuthoredHero(root: THREE.Group, runtime: CharacterVisualRun
       bowSignature: definition.bowSignature,
       activeState: null,
       lastElapsed: null,
+      baseModelY: model.position.y,
     }
     runtime.authored = authored
     root.add(model)

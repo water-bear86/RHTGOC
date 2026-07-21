@@ -52,6 +52,86 @@ export const SHERWOOD_STATIC_OBSTACLES: readonly SherwoodObstacle[] = Object.fre
 /** Mission maps use generated settlements; the fixed cottage belongs only to the public camp hub. */
 export const SHERWOOD_MISSION_STATIC_OBSTACLES: readonly SherwoodObstacle[] = SHERWOOD_TREE_OBSTACLES
 
+export const SHERWOOD_OBJECTIVE_STOCKADE_HALF_WIDTH = 7
+export const SHERWOOD_OBJECTIVE_STOCKADE_HALF_DEPTH = 5.5
+export const SHERWOOD_OBJECTIVE_GATE_HALF_WIDTH = 1.5
+const SHERWOOD_STOCKADE_WALL_HALF_THICKNESS = 0.28
+
+function objectiveStockadePoint(
+  layout: RegionalMissionLayout,
+  localX: number,
+  localZ: number,
+): { x: number; z: number } {
+  const cosine = Math.cos(layout.objectiveGateRotation)
+  const sine = Math.sin(layout.objectiveGateRotation)
+  return {
+    x: layout.objectivePosition.x + cosine * localX + sine * localZ,
+    z: layout.objectivePosition.z - sine * localX + cosine * localZ,
+  }
+}
+
+/**
+ * Builds one shared collision contract for the tax-cart palisade. The four
+ * fixed walls remain solid after entry; only the hinged gate collider drops.
+ */
+export function createSherwoodObjectiveStockadeObstacles(
+  layout: RegionalMissionLayout,
+  gateLocked: boolean,
+): SherwoodObstacle[] {
+  if (!layout.objectiveStockadeEnabled) return []
+  const halfWidth = SHERWOOD_OBJECTIVE_STOCKADE_HALF_WIDTH
+  const halfDepth = SHERWOOD_OBJECTIVE_STOCKADE_HALF_DEPTH
+  const gateHalfWidth = SHERWOOD_OBJECTIVE_GATE_HALF_WIDTH
+  const frontSegmentHalfWidth = (halfWidth - gateHalfWidth) / 2
+  const frontSegmentCenter = (halfWidth + gateHalfWidth) / 2
+  const obstacle = (
+    id: string,
+    localX: number,
+    localZ: number,
+    halfExtents: { x: number; z: number },
+  ): SherwoodObstacle => ({
+    id,
+    center: objectiveStockadePoint(layout, localX, localZ),
+    halfExtents,
+    rotation: layout.objectiveGateRotation,
+  })
+  const walls = [
+    obstacle("objective-stockade-back", 0, -halfDepth, {
+      x: halfWidth,
+      z: SHERWOOD_STOCKADE_WALL_HALF_THICKNESS,
+    }),
+    obstacle("objective-stockade-left", -halfWidth, 0, {
+      x: SHERWOOD_STOCKADE_WALL_HALF_THICKNESS,
+      z: halfDepth,
+    }),
+    obstacle("objective-stockade-right", halfWidth, 0, {
+      x: SHERWOOD_STOCKADE_WALL_HALF_THICKNESS,
+      z: halfDepth,
+    }),
+    obstacle("objective-stockade-front-left", -frontSegmentCenter, halfDepth, {
+      x: frontSegmentHalfWidth,
+      z: SHERWOOD_STOCKADE_WALL_HALF_THICKNESS,
+    }),
+    obstacle("objective-stockade-front-right", frontSegmentCenter, halfDepth, {
+      x: frontSegmentHalfWidth,
+      z: SHERWOOD_STOCKADE_WALL_HALF_THICKNESS,
+    }),
+  ]
+  if (!gateLocked) return walls
+  return [
+    ...walls,
+    {
+      id: "objective-stockade-gate",
+      center: { ...layout.objectiveGatePosition },
+      halfExtents: {
+        x: gateHalfWidth,
+        z: SHERWOOD_STOCKADE_WALL_HALF_THICKNESS + 0.06,
+      },
+      rotation: layout.objectiveGateRotation,
+    },
+  ]
+}
+
 export interface SherwoodRoadCorridor {
   width: number
   points: readonly { x: number; z: number }[]

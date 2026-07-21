@@ -11,6 +11,7 @@ export interface HeroAnimationInput {
   /** Normalized time in the current action. Main should supply this from its action start time. */
   actionProgress?: number
   downed?: boolean
+  stealth?: boolean
   motionScale?: number
 }
 
@@ -208,6 +209,23 @@ function applyDownedPose(sample: HeroAnimationSample, profile: MotionProfile): v
   sample.showVolleyArrow = false
 }
 
+function applyStealthPose(sample: HeroAnimationSample, moving: boolean): void {
+  sample.bodyY -= 0.24
+  sample.pelvis.x += 0.32
+  sample.torso.x += 0.38
+  sample.head.x -= 0.26
+  sample.leftLeg.x -= 0.34
+  sample.rightLeg.x -= 0.34
+  sample.leftShin.x += 0.72
+  sample.rightShin.x += 0.72
+  sample.leftArm.x *= moving ? 0.5 : 0.25
+  sample.rightArm.x *= moving ? 0.5 : 0.25
+  sample.leftForearm.x -= 0.18
+  sample.rightForearm.x -= 0.18
+  sample.capePitch -= 0.18
+  sample.capeRoll *= 0.45
+}
+
 export function sampleHeroAnimation(input: HeroAnimationInput): HeroAnimationSample {
   const profile = MOTION_PROFILES[input.characterId]
   const motionScale = clamp01(input.motionScale ?? 1)
@@ -221,8 +239,9 @@ export function sampleHeroAnimation(input: HeroAnimationInput): HeroAnimationSam
     : action === "attack"
       ? heroBowActionEnvelope(progress)
       : heroActionEnvelope(progress)
+  const stealthStride = input.stealth ? 0.55 : 1
   const walk = input.moving && !input.downed
-    ? Math.sin(safeElapsed * profile.cadence) * profile.stride * motionScale
+    ? Math.sin(safeElapsed * profile.cadence * (input.stealth ? 0.72 : 1)) * profile.stride * stealthStride * motionScale
     : 0
   const breathe = Math.sin(safeElapsed * 2.6) * 0.022 * motionScale
   const gaitComposure = input.characterId === "marian" ? 0.68 : 1
@@ -258,6 +277,7 @@ export function sampleHeroAnimation(input: HeroAnimationInput): HeroAnimationSam
   else if (action === "signature" && input.characterId === "little-john") applyJohnSweep(sample, actionAmount, progress)
   else if (action === "signature") applyMuchSnare(sample, actionAmount)
 
+  if (input.stealth && !input.downed) applyStealthPose(sample, input.moving)
   if (input.downed) applyDownedPose(sample, profile)
   return sample
 }
