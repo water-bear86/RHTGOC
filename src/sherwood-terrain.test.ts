@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import * as THREE from "three"
 import { SHERWOOD_PASSES, SHERWOOD_RIDGE_SEGMENTS, SHERWOOD_SETTLEMENT_SITES } from "../shared/world-topology"
 import { SHERWOOD_REGIONAL_BOUNDS } from "../shared/regional-layout"
 import {
@@ -6,6 +7,7 @@ import {
   SHERWOOD_BRIDGE_ROTATION,
   SHERWOOD_BRIDGE_WIDTH,
   SHERWOOD_VISUAL_TERRAIN_SIZE,
+  SHERWOOD_VISUAL_TERRAIN_SEGMENTS,
   createSherwoodTerrain,
   sherwoodFootprintGroundY,
   sherwoodHeightAt,
@@ -31,6 +33,21 @@ describe("Sherwood terrain", () => {
     expect(SHERWOOD_VISUAL_TERRAIN_SIZE / 2).toBeGreaterThan(SHERWOOD_REGIONAL_BOUNDS + 20)
     expect(bounds.min.x).toBeLessThan(-SHERWOOD_REGIONAL_BOUNDS)
     expect(bounds.max.x).toBeGreaterThan(SHERWOOD_REGIONAL_BOUNDS)
+    expect(terrain.geometry.getAttribute("position").count).toBe((SHERWOOD_VISUAL_TERRAIN_SEGMENTS + 1) ** 2)
+  })
+
+  it("uses the same triangle height for visible ground and grounded objects", () => {
+    const terrain = createSherwoodTerrain()
+    const point = { x: -27.37, z: 18.62 }
+    const raycaster = new THREE.Raycaster(
+      new THREE.Vector3(point.x, 20, point.z),
+      new THREE.Vector3(0, -1, 0),
+    )
+    terrain.updateMatrixWorld(true)
+    const hit = raycaster.intersectObject(terrain, false)[0]
+
+    expect(hit).toBeTruthy()
+    expect(hit.point.y).toBeCloseTo(sherwoodHeightAt(point.x, point.z), 5)
   })
 
   it("grounds a rotated footprint at its highest terrain sample", () => {

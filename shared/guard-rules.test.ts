@@ -8,6 +8,7 @@ import {
   SHERWOOD_VOLLEY_INCAPACITATION_SECONDS,
   activeEscortCount,
   activeGuardPositions,
+  guardDetectionRange,
   guardPatrolProfile,
   guardPursuitTarget,
   initialGuardPatrolAngle,
@@ -62,6 +63,13 @@ describe("shared guard rules", () => {
     expect(SHERWOOD_SWEEP_INCAPACITATION_SECONDS).toBeGreaterThan(SHERWOOD_VOLLEY_INCAPACITATION_SECONDS)
     expect(SHERWOOD_SNARE_INCAPACITATION_SECONDS).toBeGreaterThan(SHERWOOD_SWEEP_INCAPACITATION_SECONDS)
     expect(SHERWOOD_GUARD_ALERT_MEMORY_SECONDS).toBeGreaterThan(5)
+  })
+
+  it("keeps calm recognition local even when the wider Sheriff response is active", () => {
+    expect(guardDetectionRange(0, false, false)).toBeLessThan(7)
+    expect(guardDetectionRange(1, false, false)).toBeGreaterThan(guardDetectionRange(0, false, false))
+    expect(guardDetectionRange(1, true, false)).toBeLessThan(guardDetectionRange(1, false, false))
+    expect(guardDetectionRange(1, false, true)).toBe(2.4)
   })
 
   it("assigns stable left, centre, and right lanes around a moving target", () => {

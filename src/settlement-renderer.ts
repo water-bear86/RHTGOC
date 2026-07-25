@@ -22,19 +22,6 @@ export interface SettlementWorldOptions {
   castShadow?: boolean
 }
 
-const settlementGreenShape = new THREE.Shape([
-  new THREE.Vector2(-0.94, -0.18),
-  new THREE.Vector2(-0.78, -0.74),
-  new THREE.Vector2(-0.18, -1),
-  new THREE.Vector2(0.5, -0.84),
-  new THREE.Vector2(1, -0.3),
-  new THREE.Vector2(0.88, 0.38),
-  new THREE.Vector2(0.54, 0.92),
-  new THREE.Vector2(-0.12, 0.96),
-  new THREE.Vector2(-0.72, 0.7),
-])
-const settlementGreenGeometry = new THREE.ShapeGeometry(settlementGreenShape)
-settlementGreenGeometry.rotateX(-Math.PI / 2)
 const ridgeGeometry = new THREE.DodecahedronGeometry(1, 0)
 const sharedSettlementMaterial = createToonMaterial({ color: 0xffffff })
 
@@ -113,35 +100,6 @@ function instanced(
   result.computeBoundingBox()
   result.computeBoundingSphere()
   return result
-}
-
-function createSettlementSquares(world: ComposedWorld): THREE.InstancedMesh {
-  const matrices = world.settlements.map((settlement, index) => (
-    new THREE.Matrix4().compose(
-      new THREE.Vector3(
-        settlement.center.x,
-        sherwoodFootprintGroundY(
-          settlement.center.x,
-          settlement.center.z,
-          3.6,
-          2.65,
-          settlement.streetHeading,
-        ) + 0.035,
-        settlement.center.z,
-      ),
-      new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        settlement.streetHeading,
-      ),
-      new THREE.Vector3(3.6 + (index % 2) * 0.2, 1, 2.65),
-    )
-  ))
-  const colors = world.settlements.map((settlement) => (
-    settlement.kind === "sheriff-post" ? 0x6d5942
-      : settlement.kind === "outlaw-hamlet" ? 0x4c5b38
-        : 0x586a40
-  ))
-  return instanced("SettlementGreenInstances", settlementGreenGeometry, matrices, colors, false)
 }
 
 function createBlindSpots(world: ComposedWorld, castShadow: boolean): THREE.Group {
@@ -227,7 +185,6 @@ export function createSettlementWorld(
   }
 
   group.add(
-    createSettlementSquares(world),
     createStylizedBuildingBatch(proceduralBuildings, { castShadow }),
     createBlindSpots(world, castShadow),
   )

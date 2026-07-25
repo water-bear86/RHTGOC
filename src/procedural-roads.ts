@@ -12,6 +12,9 @@ interface ProceduralRoadOptions {
   trailheadClearing?: RoadPoint
 }
 
+const ROAD_LONGITUDINAL_SAMPLE_SPACING = 0.65
+const ROAD_LATERAL_SAMPLE_SPACING = 0.65
+
 function smoothRoadPoints(points: readonly RoadPoint[]): RoadPoint[] {
   if (points.length < 3) return points.map((point) => ({ ...point }))
   const smoothed: RoadPoint[] = [{ ...points[0] }]
@@ -25,6 +28,25 @@ function smoothRoadPoints(points: readonly RoadPoint[]): RoadPoint[] {
   }
   smoothed.push({ ...points[points.length - 1] })
   return smoothed
+}
+
+function resampleRoadPoints(points: readonly RoadPoint[]): RoadPoint[] {
+  if (points.length < 2) return points.map((point) => ({ ...point }))
+  const sampled: RoadPoint[] = [{ ...points[0] }]
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1]
+    const end = points[index]
+    const length = Math.hypot(end.x - start.x, end.z - start.z)
+    const steps = Math.max(1, Math.ceil(length / ROAD_LONGITUDINAL_SAMPLE_SPACING))
+    for (let step = 1; step <= steps; step += 1) {
+      const amount = step / steps
+      sampled.push({
+        x: start.x + (end.x - start.x) * amount,
+        z: start.z + (end.z - start.z) * amount,
+      })
+    }
+  }
+  return sampled
 }
 
 function cumulativeDistances(points: readonly RoadPoint[]): number[] {
@@ -47,9 +69,12 @@ function roadGeometry(road: ComposedRoad, width: number, lift: number): THREE.Bu
   const positions: number[] = []
   const uvs: number[] = []
   const indices: number[] = []
-  const points = smoothRoadPoints(road.points)
+  const points = resampleRoadPoints(smoothRoadPoints(road.points))
   const distances = cumulativeDistances(points)
   const totalDistance = distances[distances.length - 1]
+  let lateralSegments = Math.max(2, Math.ceil(width / ROAD_LATERAL_SAMPLE_SPACING))
+  if (lateralSegments % 2 !== 0) lateralSegments += 1
+  const verticesPerRow = lateralSegments + 1
   points.forEach((point, index) => {
     const previous = points[Math.max(0, index - 1)]
     const next = points[Math.min(points.length - 1, index + 1)]
@@ -63,17 +88,24 @@ function roadGeometry(road: ComposedRoad, width: number, lift: number): THREE.Bu
       ? 0.42 + smoothstep((totalDistance - distances[index]) / 5.5) * 0.58
       : 1
     const pointWidth = width * Math.min(startTaper, endTaper)
-    const nx = -dz / length * pointWidth / 2
-    const nz = dx / length * pointWidth / 2
-    for (const side of [-1, 1]) {
-      const x = point.x + nx * side
-      const z = point.z + nz * side
+    const nx = -dz / length
+    const nz = dx / length
+    for (let lateralIndex = 0; lateralIndex <= lateralSegments; lateralIndex += 1) {
+      const lateralAmount = lateralIndex / lateralSegments
+      const offset = (lateralAmount - 0.5) * pointWidth
+      const x = point.x + nx * offset
+      const z = point.z + nz * offset
       positions.push(x, sherwoodHeightAt(x, z) + lift, z)
-      uvs.push(index / Math.max(1, points.length - 1), side < 0 ? 0 : 1)
+      uvs.push(distances[index] / Math.max(0.001, totalDistance), lateralAmount)
     }
     if (index < points.length - 1) {
-      const base = index * 2
-      indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2)
+      const row = index * verticesPerRow
+      const nextRow = row + verticesPerRow
+      for (let lateralIndex = 0; lateralIndex < lateralSegments; lateralIndex += 1) {
+        const current = row + lateralIndex
+        const next = nextRow + lateralIndex
+        indices.push(current, current + 1, next, current + 1, next + 1, next)
+      }
     }
   })
   const geometry = new THREE.BufferGeometry()
@@ -82,20 +114,46 @@ function roadGeometry(road: ComposedRoad, width: number, lift: number): THREE.Bu
   geometry.setIndex(indices)
   geometry.computeVertexNormals()
   geometry.computeBoundingSphere()
+  geometry.userData = {
+    roadCrossSections: points.length,
+    roadVerticesPerCrossSection: verticesPerRow,
+  }
   return geometry
 }
 
 function clearingGeometry(center: RoadPoint, radius: number, lift: number): THREE.BufferGeometry {
-  const segments = 24
-  const positions = [center.x, sherwoodHeightAt(center.x, center.z) + lift, center.z]
+  const segments = 32
+  const rings = Math.max(4, Math.ceil(radius / ROAD_LATERAL_SAMPLE_SPACING))
+  const positions: number[] = [center.x, sherwoodHeightAt(center.x, center.z) + lift, center.z]
   const indices: number[] = []
-  for (let index = 0; index <= segments; index += 1) {
-    const angle = index / segments * Math.PI * 2
-    const edgeRadius = radius * (1 + Math.sin(angle * 3 + 0.8) * 0.045 + Math.sin(angle * 7) * 0.025)
-    const x = center.x + Math.cos(angle) * edgeRadius
-    const z = center.z + Math.sin(angle) * edgeRadius
-    positions.push(x, sherwoodHeightAt(x, z) + lift, z)
-    if (index < segments) indices.push(0, index + 2, index + 1)
+  for (let ring = 1; ring <= rings; ring += 1) {
+    const ringAmount = ring / rings
+    for (let segment = 0; segment < segments; segment += 1) {
+      const angle = segment / segments * Math.PI * 2
+      const irregularity = 1 + Math.sin(angle * 3 + 0.8) * 0.045 + Math.sin(angle * 7) * 0.025
+      const ringRadius = radius * ringAmount * irregularity
+      const x = center.x + Math.cos(angle) * ringRadius
+      const z = center.z + Math.sin(angle) * ringRadius
+      positions.push(x, sherwoodHeightAt(x, z) + lift, z)
+    }
+  }
+  for (let segment = 0; segment < segments; segment += 1) {
+    indices.push(0, 1 + (segment + 1) % segments, 1 + segment)
+  }
+  for (let ring = 1; ring < rings; ring += 1) {
+    const row = 1 + (ring - 1) * segments
+    const nextRow = row + segments
+    for (let segment = 0; segment < segments; segment += 1) {
+      const nextSegment = (segment + 1) % segments
+      indices.push(
+        row + segment,
+        row + nextSegment,
+        nextRow + segment,
+        row + nextSegment,
+        nextRow + nextSegment,
+        nextRow + segment,
+      )
+    }
   }
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
@@ -111,9 +169,9 @@ export function createProceduralRoads(
 ): THREE.Group {
   const group = new THREE.Group()
   group.name = "SherwoodProceduralRoads"
-  const shoulderMaterial = createToonMaterial({ color: 0x4e5135 })
-  const majorPathMaterial = createToonMaterial({ color: 0x75613f })
-  const trackMaterial = createToonMaterial({ color: 0x5f5b3d })
+  const shoulderMaterial = createToonMaterial({ color: 0x4e5135, polygonOffset: true, polygonOffsetFactor: -1 })
+  const majorPathMaterial = createToonMaterial({ color: 0x75613f, polygonOffset: true, polygonOffsetFactor: -2 })
+  const trackMaterial = createToonMaterial({ color: 0x5f5b3d, polygonOffset: true, polygonOffsetFactor: -2 })
   if (options.trailheadClearing) {
     const shoulder = new THREE.Mesh(
       clearingGeometry(options.trailheadClearing, 3.25, 0.09),

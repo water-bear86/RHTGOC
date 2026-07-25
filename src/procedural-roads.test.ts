@@ -11,6 +11,8 @@ describe("procedural road renderer", () => {
     const normals = road.geometry.getAttribute("normal")
     expect(Array.from({ length: normals.count }, (_, index) => normals.getY(index))
       .every((normalY) => normalY > 0)).toBe(true)
+    expect(road.geometry.userData.roadCrossSections).toBeGreaterThan(20)
+    expect(road.geometry.userData.roadVerticesPerCrossSection).toBeGreaterThan(4)
   })
 
   it("tapers authored trailheads instead of ending in a blunt rectangle", () => {
@@ -22,13 +24,15 @@ describe("procedural road renderer", () => {
     }])
     const road = group.getObjectByName("Road_trailhead") as THREE.Mesh
     const positions = road.geometry.getAttribute("position")
+    const verticesPerRow = road.geometry.userData.roadVerticesPerCrossSection as number
+    const crossSections = road.geometry.userData.roadCrossSections as number
     const widthAt = (pointIndex: number): number => Math.hypot(
-      positions.getX(pointIndex * 2 + 1) - positions.getX(pointIndex * 2),
-      positions.getZ(pointIndex * 2 + 1) - positions.getZ(pointIndex * 2),
+      positions.getX(pointIndex * verticesPerRow + verticesPerRow - 1) - positions.getX(pointIndex * verticesPerRow),
+      positions.getZ(pointIndex * verticesPerRow + verticesPerRow - 1) - positions.getZ(pointIndex * verticesPerRow),
     )
     expect(widthAt(0)).toBeGreaterThan(1.2)
-    expect(widthAt(0)).toBeLessThan(widthAt(2))
-    expect(widthAt(road.geometry.getAttribute("position").count / 2 - 1)).toBeCloseTo(3)
+    expect(widthAt(0)).toBeLessThan(widthAt(Math.floor(crossSections / 2)))
+    expect(widthAt(crossSections - 1)).toBeCloseTo(3)
   })
 
   it("joins the opening road to an irregular camp clearing", () => {
@@ -46,5 +50,6 @@ describe("procedural road renderer", () => {
     const normals = clearing.geometry.getAttribute("normal")
     expect(Array.from({ length: normals.count }, (_, index) => normals.getY(index))
       .every((normalY) => normalY > 0)).toBe(true)
+    expect(clearing.geometry.getAttribute("position").count).toBeGreaterThan(150)
   })
 })

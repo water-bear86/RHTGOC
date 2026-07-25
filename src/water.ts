@@ -7,16 +7,20 @@ export interface SherwoodWater {
   update: (elapsedSeconds: number, motionScale: number) => void
 }
 
+export const SHERWOOD_RIVER_VISUAL_WIDTH = SHERWOOD_RIVER_HALF_WIDTH * 2 - 0.6
+
 const vertexShader = /* glsl */ `
   uniform float uTime;
   uniform float uMotion;
   varying vec3 vWorldPosition;
   varying float vWave;
+  varying float vAcross;
 
   void main() {
     vec3 displaced = position;
     float along = position.y;
     float across = position.x;
+    vAcross = across;
     float waveA = sin(along * 0.82 + uTime * 1.35);
     float waveB = sin(along * 1.75 - across * 2.4 - uTime * 0.9);
     float waveC = cos(across * 4.2 + uTime * 1.7);
@@ -33,6 +37,7 @@ const fragmentShader = /* glsl */ `
   uniform float uMotion;
   varying vec3 vWorldPosition;
   varying float vWave;
+  varying float vAcross;
 
   void main() {
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
@@ -46,20 +51,20 @@ const fragmentShader = /* glsl */ `
     vec3 color = mix(deepWater, skyReflection, 0.25 + fresnel * 0.62);
     color += vec3(0.22, 0.48, 0.46) * ripples * (0.10 + 0.22 * uMotion);
     color += vec3(1.0, 0.88, 0.52) * movingGlint * 0.48 * uMotion;
-    gl_FragColor = vec4(color, 0.92 + fresnel * 0.06);
+    float edgeDistance = abs(vAcross) / ${SHERWOOD_RIVER_VISUAL_WIDTH.toFixed(3)} * 2.0;
+    float edgeFade = 1.0 - smoothstep(0.82, 1.0, edgeDistance);
+    gl_FragColor = vec4(color, (0.90 + fresnel * 0.06) * edgeFade);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
 `
-
-export const SHERWOOD_RIVER_VISUAL_WIDTH = SHERWOOD_RIVER_HALF_WIDTH * 2 - 0.6
 
 export function createSherwoodWater(length = 138): SherwoodWater {
   const group = new THREE.Group()
   group.name = "SherwoodRiver"
 
   const bed = new THREE.Mesh(
-    new THREE.PlaneGeometry(SHERWOOD_RIVER_VISUAL_WIDTH + 0.25, length),
+    new THREE.PlaneGeometry(SHERWOOD_RIVER_VISUAL_WIDTH * 0.72, length),
     new THREE.MeshToonMaterial({ color: 0x234d55 }),
   )
   bed.position.z = -0.035

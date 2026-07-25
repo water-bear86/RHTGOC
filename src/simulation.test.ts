@@ -11,7 +11,7 @@ import {
   stepGuardPatrol,
 } from "../shared/guard-rules"
 import { SHERWOOD_PLAYER_RADIUS, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
-import { BOW_DRAW_SECONDS, BOW_TOTAL_SECONDS, SIGNATURE_ACTION_SECONDS } from "../shared/archery"
+import { BOW_DRAW_SECONDS, BOW_RANGE, BOW_TOTAL_SECONDS, SIGNATURE_ACTION_SECONDS } from "../shared/archery"
 import { CART_POSITION, DELIVERY_TARGET, VILLAGE_POSITION, acquireBowTarget, activateSignature, beginSoloBowDraw, calculateMastery, createInitialState, getContextPrompt, interact, stepSoloBowAction, toggleStealth, updateSimulation } from "./simulation"
 
 describe("Sherwood simulation", () => {
@@ -150,6 +150,15 @@ describe("Sherwood simulation", () => {
     expect(state.bowAction).toBeNull()
   })
 
+  it("acquires a henchman before Robin enters calm recognition range", () => {
+    const state = createInitialState()
+    state.guards.splice(1)
+    state.player.position = { x: -30, z: -30 }
+    state.guards[0].position = { x: state.player.position.x + BOW_RANGE - 0.25, z: state.player.position.z }
+
+    expect(acquireBowTarget(state)).toBe(state.guards[0].id)
+  })
+
   it("telegraphs a close guard before the capture window opens", () => {
     const state = createInitialState()
     state.objectiveDiscovered = true
@@ -275,8 +284,32 @@ describe("Sherwood simulation", () => {
     state.player.position = { x: -40, z: -40 }
     state.player.veilFor = 10
     updateSimulation(state, { move: { x: 0, z: 0 } }, 0.25)
-    expect(state.guards[1].position).not.toEqual(before)
+    expect(state.guards[1].position).toEqual(before)
     expect(state.guards[1].alertFor).toBeGreaterThan(0)
+    updateSimulation(state, { move: { x: 0, z: 0 } }, SHERWOOD_GUARD_REACTION_SECONDS + 0.1)
+    expect(state.guards[1].position).not.toEqual(before)
+  })
+
+  it("does not give every calm guard long-range sight just because search heat is high", () => {
+    const state = createInitialState()
+    state.objectiveDiscovered = true
+    state.heat = 100
+    state.player.position = { x: -30, z: -30 }
+    state.player.invulnerableFor = 10
+    state.guards = [{
+      id: 0,
+      position: { x: -20, z: -30 },
+      home: { x: -20, z: -30 },
+      patrolAngle: 0,
+      stunnedFor: 0,
+      alertFor: 0,
+      lastKnownPosition: null,
+    }]
+
+    updateSimulation(state, { move: { x: 0, z: 0 } }, 0.1)
+
+    expect(state.guards[0].alertFor).toBe(0)
+    expect(state.guards[0].lastKnownPosition).toBeNull()
   })
 
   it("lets a wrong 5x5 search route strengthen the Sheriff before discovery", () => {

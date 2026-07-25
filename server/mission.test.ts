@@ -8,7 +8,7 @@ import { PRISON_WAGON_MISSION, ROYAL_STOREHOUSE_MISSION } from "../shared/missio
 import { SHERWOOD_ESCORT_BLOCK_RADIUS, SHERWOOD_GUARD_SEPARATION, initialGuardPatrolAngle, stepGuardPatrol } from "../shared/guard-rules"
 import { SHERWOOD_PLAYER_RADIUS, VILLAGE_COTTAGE_COLLIDER, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
 import { createInitialState, updateSimulation } from "../src/simulation"
-import { BOW_DRAW_TICKS, BOW_RECOVERY_TICKS, BOW_TOTAL_TICKS, SIGNATURE_ACTION_TICKS } from "../shared/archery"
+import { BOW_DRAW_TICKS, BOW_RANGE, BOW_RECOVERY_TICKS, BOW_TOTAL_TICKS, SIGNATURE_ACTION_TICKS } from "../shared/archery"
 
 function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer {
   return {
@@ -161,6 +161,16 @@ describe("authoritative mission", () => {
     expect(mission.setInput(robin.id, 1, { x: 1, z: 0 }, 100)).toBe(true)
     mission.update(1 / 20)
     expect(robin.bowAction?.phase).toBe("recovery")
+  })
+
+  it("accepts an authoritative shot from the expanded bow range", () => {
+    const robin = player()
+    const mission = new Mission("BOW-RANGE", new Map([[robin.id, robin]]))
+    mission.guards.splice(1)
+    robin.position = { x: -30, z: -30 }
+    mission.guards[0].position = { x: robin.position.x + BOW_RANGE - 0.25, z: robin.position.z }
+
+    expect(mission.action(robin.id, "shoot")).toBe(true)
   })
 
   it("cancels a drawing shot on accepted movement without spending or alerting", () => {
@@ -422,6 +432,25 @@ describe("authoritative mission", () => {
 
     expect(guard.patrolAngle).toBeCloseTo(expected.angle, 8)
     expect(Math.hypot(guard.position.x - guard.home.x, guard.position.z - guard.home.z)).toBeLessThanOrEqual(expected.moveSpeed * 0.25 + 0.0001)
+  })
+
+  it("keeps distant guards calm even when global heat is high", () => {
+    const robin = player()
+    const mission = new Mission("CALM-SIGHT", new Map([[robin.id, robin]]))
+    mission.objectiveDiscovered = true
+    mission.heat = 100
+    mission.guards.splice(1)
+    robin.position = { x: -30, z: -30 }
+    robin.invulnerableFor = 10
+    mission.guards[0].position = { x: -20, z: -30 }
+    mission.guards[0].home = { ...mission.guards[0].position }
+    mission.guards[0].alertFor = 0
+    mission.guards[0].lastKnownPosition = null
+
+    mission.update(0.1)
+
+    expect(mission.guards[0].alertFor).toBe(0)
+    expect(mission.guards[0].lastKnownPosition).toBeNull()
   })
 
   it("requires proximity for rescue and loot transfer and scores support", () => {

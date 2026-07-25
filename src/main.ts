@@ -104,6 +104,7 @@ import {
   sherwoodWalkableHeightAt,
 } from "./sherwood-terrain"
 import { createProceduralRoads } from "./procedural-roads"
+import { placeObjectOnSherwoodTerrain } from "./terrain-grounding"
 import { createSettlementWorld, disposeSettlementWorld } from "./settlement-renderer"
 import { createMedievalPropLayout } from "./world-prop-layout"
 import { animateObjectiveMarker, createObjectiveMarker, setObjectiveMarkerLabel } from "./objective-marker"
@@ -1103,22 +1104,9 @@ function rebuildComposedWorld(layout: RegionalMissionLayout, force = false): voi
   rebuildMedievalProps()
 }
 
-function addRoadSegment(start: { x: number; z: number }, end: { x: number; z: number }): void {
-  const dx = end.x - start.x
-  const dz = end.z - start.z
-  const length = Math.hypot(dx, dz)
-  if (length < 0.5) return
-  const points = Array.from({ length: 7 }, (_, index) => {
-    const t = index / 6
-    return { x: start.x + dx * t, z: start.z + dz * t }
-  })
-  crossingInfrastructure.add(createProceduralRoads([{ id: `mission-approach-${start.x}-${start.z}`, width: 3.8, points }]))
-}
-
 function rebuildCrossingInfrastructure(layout: RegionalMissionLayout): void {
   disposeOwnedMeshResources(crossingInfrastructure)
   crossingInfrastructure.clear()
-  const riverNormal = { x: Math.cos(0.1), z: Math.sin(0.1) }
   for (const crossing of layout.crossingPositions) {
     const crossingView = new THREE.Group()
     crossingView.name = `SherwoodBridge:${crossing.x}:${crossing.z}`
@@ -1136,12 +1124,6 @@ function rebuildCrossingInfrastructure(layout: RegionalMissionLayout): void {
       crossingView.add(plank)
     }
     crossingInfrastructure.add(crossingView)
-  }
-  for (const origin of [layout.campfirePosition, layout.objectivePosition]) {
-    const nearest = [...layout.crossingPositions].sort((left, right) => Math.hypot(origin.x - left.x, origin.z - left.z) - Math.hypot(origin.x - right.x, origin.z - right.z))[0]
-    const side = origin.x + 0.1 * origin.z - 1 >= 0 ? 1 : -1
-    const bankApproach = { x: nearest.x + riverNormal.x * side * 4.6, z: nearest.z + riverNormal.z * side * 4.6 }
-    addRoadSegment(origin, bankApproach)
   }
 }
 
@@ -1197,9 +1179,7 @@ function rebuildBowCaches(layout: RegionalMissionLayout): void {
       const largestDimension = Math.max(0.001, bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z)
       chest.scale.setScalar(1.65 / largestDimension)
       chest.updateMatrixWorld(true)
-      const grounded = new THREE.Box3().setFromObject(chest)
-      chest.position.set(position.x, sherwoodHeightAt(position.x, position.z) - grounded.min.y, position.z)
-      chest.rotation.y = index * 1.3
+      placeObjectOnSherwoodTerrain(chest, position.x, position.z, index * 1.3)
       chest.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return
         child.castShadow = true
@@ -3115,8 +3095,12 @@ function createLootCacheView(cache: MissionLootCache): THREE.Group {
     const authored = authoredSource.clone(true) as THREE.Group
     authored.name = `MissionLootCache:${cache.kind}`
     authored.userData.sherwoodSharedGeometry = true
-    authored.position.set(cache.position.x, sherwoodHeightAt(cache.position.x, cache.position.z), cache.position.z)
-    authored.rotation.y = cache.kind === "intel" ? Math.PI / 5 : cache.kind === "ledger" ? -Math.PI / 6 : 0
+    placeObjectOnSherwoodTerrain(
+      authored,
+      cache.position.x,
+      cache.position.z,
+      cache.kind === "intel" ? Math.PI / 5 : cache.kind === "ledger" ? -Math.PI / 6 : 0,
+    )
     authored.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return
       child.castShadow = true
@@ -3993,6 +3977,13 @@ function renderChatChrome(statusOverride?: string): void {
   }
   const anyAvailable = chatState.isAvailable("band") || chatState.isAvailable("camp")
   chatButton.classList.toggle("hidden", !anyAvailable || inPublicHub)
+  const playComposerVisible = anyAvailable && !inPublicHub
+  const playChannel = contextualChatChannel()
+  quickChatForm.classList.toggle("hidden", !playComposerVisible)
+  quickChatInput.disabled = !roomConnected || !chatState.isAvailable(playChannel)
+  quickChatChannel.textContent = playChannel.toUpperCase()
+  quickChatInput.placeholder = playChannel === "camp" ? "Message this camp" : "Message your band"
+  if (!playComposerVisible || quickChatInput.disabled) quickChatActiveChannel = null
   for (const tab of chatTabs) {
     const channel = tab.dataset.chatChannel as ChatChannel
     tab.disabled = !chatState.isAvailable(channel)
@@ -4117,8 +4108,6 @@ function openQuickChat(): void {
   quickChatActiveChannel = channel
   quickChatChannel.textContent = channel.toUpperCase()
   quickChatInput.placeholder = channel === "camp" ? "Message this camp" : "Message your band"
-  quickChatInput.value = ""
-  quickChatForm.classList.remove("hidden")
   renderChatPeek()
   stopGameplayForChat()
   queueMicrotask(() => quickChatInput.focus())
@@ -4129,7 +4118,8 @@ function closeQuickChat(restoreFocus = true): void {
   quickChatComposing = false
   quickChatCompositionEndedAt = -Infinity
   quickChatInput.value = ""
-  quickChatForm.classList.add("hidden")
+  quickChatInput.blur()
+  renderChatChrome()
   renderChatPeek()
   if (restoreFocus && running) queueMicrotask(() => renderer.domElement.focus())
 }
@@ -5246,8 +5236,24 @@ chatLog.addEventListener("scroll", () => {
 })
 quickChatForm.addEventListener("submit", (event) => {
   event.preventDefault()
-  if (quickChatComposing || performance.now() - quickChatCompositionEndedAt < 40 || !quickChatActiveChannel) return
-  if (sendChatInput(quickChatInput, quickChatActiveChannel)) closeQuickChat()
+  if (quickChatComposing || performance.now() - quickChatCompositionEndedAt < 40) return
+  const channel = quickChatActiveChannel ?? contextualChatChannel()
+  if (!chatState.isAvailable(channel) || !roomConnected) return
+  if (sendChatInput(quickChatInput, channel)) {
+    chatState.markRead(channel)
+    renderChatChrome()
+    quickChatInput.focus()
+  }
+})
+quickChatInput.addEventListener("focus", () => {
+  const channel = contextualChatChannel()
+  if (!chatState.isAvailable(channel) || !roomConnected) return
+  quickChatActiveChannel = channel
+  stopGameplayForChat()
+})
+quickChatInput.addEventListener("blur", () => {
+  quickChatActiveChannel = null
+  quickChatComposing = false
 })
 quickChatInput.addEventListener("compositionstart", () => { quickChatComposing = true; quickChatCompositionEndedAt = -Infinity })
 quickChatInput.addEventListener("compositionend", () => { quickChatComposing = false; quickChatCompositionEndedAt = performance.now() })

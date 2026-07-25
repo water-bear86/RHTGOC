@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import * as THREE from "three"
 import { SHERWOOD_RIVER_HALF_WIDTH } from "../shared/world-obstacles"
 import { SHERWOOD_RIVER_VISUAL_WIDTH, createSherwoodWater } from "./water"
 
@@ -10,6 +11,9 @@ describe("Sherwood water surface", () => {
     expect(water.surface.material.transparent).toBe(true)
     expect(water.surface.material.depthWrite).toBe(false)
     expect(water.surface.geometry.getAttribute("position").count).toBeGreaterThan(1_000)
+    const bed = water.group.getObjectByName("RiverBed") as THREE.Mesh<THREE.PlaneGeometry>
+    expect(bed.geometry.parameters.width).toBeLessThan(SHERWOOD_RIVER_VISUAL_WIDTH)
+    expect(water.surface.material.fragmentShader).toContain("edgeFade")
     expect(SHERWOOD_RIVER_VISUAL_WIDTH).toBeLessThan(SHERWOOD_RIVER_HALF_WIDTH * 2)
   })
 

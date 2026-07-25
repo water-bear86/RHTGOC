@@ -2,9 +2,7 @@ import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import {
   SHERWOOD_ARROW_INCAPACITATION_SECONDS,
   SHERWOOD_GUARD_ALERT_MEMORY_SECONDS,
-  SHERWOOD_GUARD_ALERT_RANGE,
   SHERWOOD_GUARD_COORDINATION_RADIUS,
-  SHERWOOD_GUARD_PROXIMITY_RANGE,
   SHERWOOD_GUARD_REACTION_SECONDS,
   SHERWOOD_GUARD_SEPARATION,
   SHERWOOD_SNARE_INCAPACITATION_SECONDS,
@@ -12,6 +10,7 @@ import {
   SHERWOOD_VOLLEY_INCAPACITATION_SECONDS,
   activeEscortCount,
   activeGuardPositions,
+  guardDetectionRange,
   guardPursuitTarget,
   initialGuardPatrolAngle,
   stepGuardPatrol,
@@ -295,14 +294,7 @@ export function updateSimulation(
 
     const guardOrigin = { ...guard.position }
     const guardDistance = distance(guard.position, player.position)
-    const baseDetectionRange = state.heat > 8
-      ? SHERWOOD_GUARD_ALERT_RANGE
-      : SHERWOOD_GUARD_PROXIMITY_RANGE
-    const detectionRange = player.veilFor > 0
-      ? 2.4
-      : player.stealth
-        ? Math.max(2.4, baseDetectionRange * 0.58)
-        : baseDetectionRange
+    const detectionRange = guardDetectionRange(guard.alertFor, player.stealth, player.veilFor > 0)
     const hasSight = guardDistance < detectionRange
     if (hasSight) {
       const newlyAlerted = guard.alertFor <= 0
@@ -321,7 +313,9 @@ export function updateSimulation(
     if (hasSight || (guard.alertFor > 0 && guard.lastKnownPosition)) {
       const target = hasSight ? player.position : guard.lastKnownPosition!
       const pursuitTarget = guardPursuitTarget(guard.position, guard.id, target, hasSight ? playerVelocity : { x: 0, z: 0 })
-      moveToward(guard.position, pursuitTarget, 3.45 + state.heat * 0.009, dt)
+      if ((guard.reactionFor ?? 0) <= 0) {
+        moveToward(guard.position, pursuitTarget, 3.45 + state.heat * 0.009, dt)
+      }
     } else {
       const patrol = stepGuardPatrol(guard.home, guard.id, guard.patrolAngle, dt)
       guard.patrolAngle = patrol.angle

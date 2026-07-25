@@ -5,9 +5,7 @@ import type { SheriffRotation } from "../shared/sheriff-rotation"
 import {
   SHERWOOD_ARROW_INCAPACITATION_SECONDS,
   SHERWOOD_GUARD_ALERT_MEMORY_SECONDS,
-  SHERWOOD_GUARD_ALERT_RANGE,
   SHERWOOD_GUARD_COORDINATION_RADIUS,
-  SHERWOOD_GUARD_PROXIMITY_RANGE,
   SHERWOOD_GUARD_REACTION_SECONDS,
   SHERWOOD_GUARD_SEPARATION,
   SHERWOOD_SNARE_INCAPACITATION_SECONDS,
@@ -15,6 +13,7 @@ import {
   SHERWOOD_VOLLEY_INCAPACITATION_SECONDS,
   activeEscortCount,
   activeGuardPositions,
+  guardDetectionRange,
   guardPursuitTarget,
   initialGuardPatrolAngle,
   stepGuardPatrol,
@@ -1020,14 +1019,9 @@ export class Mission {
       this.record("trap_triggered", trap.ownerId, guard.id, `trap:${trap.id}`)
       return
     }
-    const detectionRange = this.heat > 8 ? SHERWOOD_GUARD_ALERT_RANGE : SHERWOOD_GUARD_PROXIMITY_RANGE
     const target = players
       .filter((player) => {
-        const playerDetectionRange = player.veilFor > 0
-          ? 2.4
-          : player.stealth
-            ? Math.max(2.4, detectionRange * 0.58)
-            : detectionRange
+        const playerDetectionRange = guardDetectionRange(guard.alertFor, player.stealth, player.veilFor > 0)
         return distance(player.position, guard.position) < playerDetectionRange
       })
       .sort((a, b) => distance(a.position, guard.position) - distance(b.position, guard.position))[0]
@@ -1056,7 +1050,9 @@ export class Mission {
           }
         : { x: 0, z: 0 }
       const intercept = guardPursuitTarget(guard.position, guard.id, pursuitPosition, targetVelocity)
-      this.moveGuardToward(guard, intercept, 3.45 + this.heat * 0.009 - disruption, dt, players)
+      if (guard.reactionFor <= 0) {
+        this.moveGuardToward(guard, intercept, 3.45 + this.heat * 0.009 - disruption, dt, players)
+      }
       if (target && distance(target.position, guard.position) < 1.25 && target.invulnerableFor === 0 && target.captureFor === 0 && guard.reactionFor <= 0) {
         target.captureFor = OUTLAW_CAPTURE_SECONDS
         target.invulnerableFor = 2

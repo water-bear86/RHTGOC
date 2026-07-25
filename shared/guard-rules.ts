@@ -38,13 +38,13 @@ export const SHERWOOD_SWEEP_INCAPACITATION_SECONDS = 12
 export const SHERWOOD_SNARE_INCAPACITATION_SECONDS = 13
 
 /** Guards can spot a calm outlaw only at close range, then see farther once alerted. */
-export const SHERWOOD_GUARD_PROXIMITY_RANGE = 7.5
-export const SHERWOOD_GUARD_ALERT_RANGE = 24
+export const SHERWOOD_GUARD_PROXIMITY_RANGE = 6.5
+export const SHERWOOD_GUARD_ALERT_RANGE = 17
 
 /** Alerted guards remember and share the last sighting instead of instantly resetting. */
 export const SHERWOOD_GUARD_ALERT_MEMORY_SECONDS = 6.5
-export const SHERWOOD_GUARD_COORDINATION_RADIUS = 15
-export const SHERWOOD_GUARD_REACTION_SECONDS = 0.85
+export const SHERWOOD_GUARD_COORDINATION_RADIUS = 10
+export const SHERWOOD_GUARD_REACTION_SECONDS = 1.35
 
 /** Active guards inside this radius must be dealt with before an objective can be taken. */
 export const SHERWOOD_ESCORT_BLOCK_RADIUS = 4.25
@@ -56,6 +56,13 @@ const TAU = Math.PI * 2
 
 function stableGuardId(id: number): number {
   return Number.isFinite(id) ? Math.abs(Math.trunc(id)) : 0
+}
+
+/** Heat does not grant omniscient sight: only a guard with a live alert gets extended awareness. */
+export function guardDetectionRange(alertFor: number, stealth: boolean, veiled: boolean): number {
+  if (veiled) return 2.4
+  const baseRange = alertFor > 0 ? SHERWOOD_GUARD_ALERT_RANGE : SHERWOOD_GUARD_PROXIMITY_RANGE
+  return stealth ? Math.max(2.4, baseRange * 0.58) : baseRange
 }
 
 /**
