@@ -41,12 +41,15 @@ export interface LeaderboardFilters {
 
 export interface LeaderboardSeason { slug: string; name: string }
 
-const STORAGE_KEY = "sherwood-rebellion:leaderboard:v1"
+// Solo Season Zero was retuned from a five-cart endurance run to a one-cart
+// heist. Keep offline scores in a fresh pool so unlike rulesets never rank
+// against each other.
+const STORAGE_KEY = "sherwood-rebellion:leaderboard:v2"
 
 const exampleEntries: LeaderboardEntry[] = [
-  { id: "seed-1", playerName: "Oakheart", characterId: "marian", score: 8240, grade: "S", missionSeconds: 92, delivered: 360, verified: false, createdAt: "2026-07-10T00:00:00.000Z" },
-  { id: "seed-2", playerName: "Greenmantle", characterId: "robin", score: 7710, grade: "A", missionSeconds: 118, delivered: 360, verified: false, createdAt: "2026-07-10T00:00:00.000Z" },
-  { id: "seed-3", playerName: "Foxglove", characterId: "marian", score: 6980, grade: "B", missionSeconds: 147, delivered: 360, verified: false, createdAt: "2026-07-10T00:00:00.000Z" },
+  { id: "seed-1", playerName: "Oakheart", characterId: "marian", score: 8240, grade: "S", missionSeconds: 92, delivered: 120, verified: false, createdAt: "2026-07-25T00:00:00.000Z" },
+  { id: "seed-2", playerName: "Greenmantle", characterId: "robin", score: 7710, grade: "A", missionSeconds: 118, delivered: 120, verified: false, createdAt: "2026-07-25T00:00:00.000Z" },
+  { id: "seed-3", playerName: "Foxglove", characterId: "marian", score: 6980, grade: "B", missionSeconds: 147, delivered: 120, verified: false, createdAt: "2026-07-25T00:00:00.000Z" },
 ]
 
 function localEntries(): LeaderboardEntry[] {

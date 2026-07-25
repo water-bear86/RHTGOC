@@ -8,6 +8,7 @@ import {
   beginSoloBowDraw,
   calculateMastery,
   DELIVERY_TARGET,
+  SOLO_CAPTURE_SECONDS,
   createInitialState,
   getContextPrompt,
   interact,
@@ -2244,7 +2245,7 @@ function startSoloMission(): void {
   soloMissionSurgeElapsedThisRun = 0
   resultSubmitted = false
   missionTarget = DELIVERY_TARGET
-  objectiveElement.textContent = "Search Sherwood for the Sheriff's shipment"
+  objectiveElement.textContent = "Search new Sherwood sectors for the Sheriff's shipment"
   missionModifiers.textContent = `${state.layout.variant.replaceAll("-", " ").toUpperCase()} · MAP ${state.layout.seed.toString(16).toUpperCase()}`
   clock.getDelta()
   showToast(isMobileSpectator() ? "SPECTATOR VIEW · FOLLOW THE HEIST" : "MOVE WITH WASD OR CLICK · STAND STILL + SPACE TO FIRE")
@@ -4456,6 +4457,15 @@ async function openLeaderboard(): Promise<void> {
   }
 }
 
+function compassGuidance(origin: Vec2, target: Vec2): string {
+  const dx = target.x - origin.x
+  const dz = target.z - origin.z
+  const distance = Math.round(Math.hypot(dx, dz))
+  const angle = (Math.atan2(dx, -dz) * 180 / Math.PI + 360) % 360
+  const bearing = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(angle / 45) % 8]
+  return `${bearing} ${distance}m`
+}
+
 function updateUI(): void {
   arrowsElement.textContent = String(state.player.arrows)
   const rescueMission = latestMissionSnapshot?.missionKind === "prison-wagon"
@@ -4464,19 +4474,25 @@ function updateUI(): void {
   signatureElement.textContent = state.player.signatureCooldown > 0 ? `${Math.ceil(state.player.signatureCooldown)}s` : "READY"
   arrowsElement.parentElement?.classList.toggle("critical", state.player.arrows === 0)
   signatureElement.parentElement?.classList.toggle("ready", state.player.signatureCooldown <= 0)
-  heatElement.style.width = `${state.heat}%`
   const activeGuards = state.guards.filter((guard) => guard.stunnedFor <= 0)
   const downGuards = state.guards.length - activeGuards.length
   const threatLevel = getSoloThreatLevel()
   const inSoloMission = isSoloMissionActive()
+  const soloCaptureActive = inSoloMission && state.captureProgress > 0
+  const soloCapturePercent = soloCaptureActive
+    ? Math.max(0, Math.min(100, state.captureProgress / SOLO_CAPTURE_SECONDS * 100))
+    : 0
   const surgeActive = inSoloMission && soloMissionSurgeRemaining > 0
-  document.body.classList.toggle("solo-mission-alert", inSoloMission && (surgeActive || threatLevel !== "hidden" || localCaptureFor > 0))
-  document.body.classList.toggle("solo-mission-surge", inSoloMission && surgeActive)
-  document.body.classList.toggle("solo-mission-search", inSoloMission && threatLevel === "suspicious")
-  document.body.classList.toggle("solo-mission-spot", inSoloMission && threatLevel === "spotted")
-  document.body.classList.toggle("solo-mission-hunt", inSoloMission && threatLevel === "hunted" && !surgeActive)
-  document.body.classList.toggle("solo-mission-calm", inSoloMission && threatLevel === "hidden" && localCaptureFor <= 0)
-  threatStateElement.textContent = surgeActive
+  heatElement.style.width = `${soloCaptureActive ? soloCapturePercent : state.heat}%`
+  document.body.classList.toggle("solo-mission-alert", inSoloMission && (soloCaptureActive || surgeActive || threatLevel !== "hidden"))
+  document.body.classList.toggle("solo-mission-surge", inSoloMission && surgeActive && !soloCaptureActive)
+  document.body.classList.toggle("solo-mission-search", inSoloMission && threatLevel === "suspicious" && !soloCaptureActive)
+  document.body.classList.toggle("solo-mission-spot", inSoloMission && threatLevel === "spotted" && !soloCaptureActive)
+  document.body.classList.toggle("solo-mission-hunt", inSoloMission && (soloCaptureActive || (threatLevel === "hunted" && !surgeActive)))
+  document.body.classList.toggle("solo-mission-calm", inSoloMission && threatLevel === "hidden" && !soloCaptureActive)
+  threatStateElement.textContent = soloCaptureActive
+    ? "SHERIFF'S GRIP"
+    : surgeActive
     ? getSoloSurgeStatusLabel()
     : threatLevel === "hunted"
       ? "HUNTED"
@@ -4485,12 +4501,20 @@ function updateUI(): void {
       : threatLevel === "suspicious"
         ? "SEARCHING"
         : "HIDDEN"
-  guardPressureElement.textContent = surgeActive
+  guardPressureElement.textContent = soloCaptureActive
+    ? `BREAK CONTACT · ${Math.round(soloCapturePercent)}% CAUGHT`
+    : surgeActive
     ? `${activeGuards.length} UP · ${downGuards} DOWN · SURGE ${Math.max(1, Math.ceil(soloMissionSurgeRemaining))}S`
     : `${activeGuards.length} UP · ${downGuards} DOWN`
-  heatWrap.dataset.level = threatLevel
-  heatWrap.setAttribute("aria-valuenow", String(Math.max(0, Math.min(100, Math.round(state.heat)))))
-  heatWrap.setAttribute("aria-valuetext", `${threatStateElement.textContent}. ${activeGuards.length} guards active, ${downGuards} down.`)
+  heatWrap.dataset.level = soloCaptureActive ? "hunted" : threatLevel
+  heatWrap.setAttribute("aria-label", soloCaptureActive ? "Sheriff grip" : "Sheriff pursuit")
+  heatWrap.setAttribute("aria-valuenow", String(Math.round(soloCaptureActive ? soloCapturePercent : Math.max(0, Math.min(100, state.heat)))))
+  heatWrap.setAttribute(
+    "aria-valuetext",
+    soloCaptureActive
+      ? `Sheriff's grip ${Math.round(soloCapturePercent)} percent. Break contact before capture.`
+      : `${threatStateElement.textContent}. ${activeGuards.length} guards active, ${downGuards} down.`,
+  )
   heatWrap.classList.toggle("visible", !inHub)
   progressElement.style.width = `${Math.min(100, (state.delivered / missionTarget) * 100)}%`
   renderRegionMap()
@@ -4510,6 +4534,8 @@ function updateUI(): void {
       ? `${keyLabel(inputSettings.keyboard.interact)}  CUT THE SHERIFF'S REINFORCEMENT SIGNAL`
     : localCaptureFor > 0
       ? `SEIZED · ${Math.ceil(localCaptureFor)}s for a teammate to free you`
+    : soloCaptureActive
+      ? "BREAK CONTACT · GET CLEAR OF THE GUARDS"
     : surgeActive
       ? `${getSoloSurgeStatusLabel()} · KEEP RUNNING, KEEP LOW`
     : multiplayerActive
@@ -4530,15 +4556,19 @@ function updateUI(): void {
       : missionObjective
     return
   }
-  if (state.player.loot > 0) objectiveElement.textContent = surgeActive
-    ? `PANIC SURGE · RETURN THE COIN HOME`
-    : "Return the coin to the village"
-  else if (state.heat > 10) objectiveElement.textContent = "Disappear into the deep woods"
-  else objectiveElement.textContent = state.delivered > 0
-    ? "Strike the tax cart again"
-    : state.objectiveDiscovered
-      ? `Close on the Sheriff's shipment · ${bearing} ${objectiveDistance}m`
-      : "Search all 25 Sherwood sectors"
+  if (state.player.loot > 0) {
+    objectiveElement.textContent = `Return the coin to the village fire · ${compassGuidance(state.player.position, state.layout.campfirePosition)}`
+  } else if (!state.objectiveDiscovered) {
+    objectiveElement.textContent = "Search new Sherwood sectors for the shipment"
+  } else if (state.objectiveGateLocked && !state.objectiveGateDiscovered) {
+    objectiveElement.textContent = `Reach the Sheriff's locked stockade · ${compassGuidance(state.player.position, state.layout.objectiveGatePosition)}`
+  } else if (state.objectiveGateLocked && !state.objectiveGateKeyCollected) {
+    objectiveElement.textContent = `Take the Sheriff's stockade key · ${compassGuidance(state.player.position, state.layout.objectiveGateKeyPosition)}`
+  } else if (state.objectiveGateLocked) {
+    objectiveElement.textContent = `Return to the stockade and unlock the gate · ${compassGuidance(state.player.position, state.layout.objectiveGatePosition)}`
+  } else {
+    objectiveElement.textContent = `Stun the cart escort, then rob the shipment · ${bearing} ${objectiveDistance}m`
+  }
 }
 
 function renderRegionMapGrid(grid: HTMLElement, cells: readonly RegionMapCellState[], pings: readonly WorldPing[]): number {
@@ -4633,9 +4663,22 @@ function showEnding(won: boolean): void {
   const surgeCopy = soloMissionSurgeElapsedThisRun > 0
     ? ` · ${Math.round(soloMissionSurgeElapsedThisRun)}s PANIC SURGE`
     : ""
+  const lossStage = state.player.loot > 0
+    ? "carrying the coin home"
+    : !state.objectiveDiscovered
+      ? "searching new sectors"
+      : state.objectiveGateLocked && !state.objectiveGateDiscovered
+        ? "closing on the stockade"
+        : state.objectiveGateLocked && !state.objectiveGateKeyCollected
+          ? "hunting the stockade key"
+          : state.objectiveGateLocked
+            ? "returning to unlock the stockade"
+            : "breaking the cart escort"
+  const sectorsSearched = new Set(state.exploredCellIndices).size
+  const coinRecovered = state.delivered + state.player.loot
   introCopy.textContent = won
     ? `${state.delivered} crown coin reached the people. Mastery grade ${mastery.grade} · ${mastery.score.toLocaleString()} points · ${Math.round(state.stats.elapsedSeconds)} seconds${surgeCopy}.`
-    : `The guards caught ${characterName(state.player.characterId)}. Grade ${mastery.grade} · ${mastery.score.toLocaleString()} points. Change your route and time your signature.`
+    : `The guards caught ${characterName(state.player.characterId)} while ${lossStage}. ${sectorsSearched} sector${sectorsSearched === 1 ? "" : "s"} searched · ${coinRecovered} coin recovered · ${state.delivered} returned. Grade ${mastery.grade} · ${mastery.score.toLocaleString()} points.`
   startButton.innerHTML = "PLAY AGAIN <span>→</span>"
   introControls.textContent = "RETURN TO SHERWOOD AND TRY A NEW ROUTE"
   intro.classList.add("ending")
@@ -4701,6 +4744,9 @@ function syncViews(elapsed: number, dt: number): void {
       })
   }
   const objectiveDiscovered = latestMissionSnapshot?.objectiveDiscovered ?? state.objectiveDiscovered
+  const objectiveGateLocked = latestMissionSnapshot?.objectiveGateLocked ?? state.objectiveGateLocked
+  const objectiveGateDiscovered = latestMissionSnapshot?.objectiveGateDiscovered ?? state.objectiveGateDiscovered
+  const objectiveGateKeyCollected = latestMissionSnapshot?.objectiveGateKeyCollected ?? state.objectiveGateKeyCollected
   const objectiveStillActive = multiplayerActive
     ? latestMissionSnapshot !== null && ["scout", "ambush", "robbery"].includes(latestMissionSnapshot.phase)
     : state.cartCoin > 0 && state.player.loot === 0 && !state.won && !state.lost
@@ -4710,22 +4756,31 @@ function syncViews(elapsed: number, dt: number): void {
     && intro.classList.contains("closed")
     && objectiveDiscovered
     && objectiveStillActive
-  const objectiveLabel = !multiplayerActive || latestMissionSnapshot?.missionKind === "tax-cart"
-    ? "SHERIFF'S CART"
+  const objectiveLabel = !multiplayerActive && objectiveGateLocked
+    ? !objectiveGateDiscovered
+      ? "SHERIFF'S STOCKADE"
+      : !objectiveGateKeyCollected
+        ? "SHERIFF'S KEY"
+        : "STOCKADE GATE"
+    : !multiplayerActive || latestMissionSnapshot?.missionKind === "tax-cart"
+      ? "SHERIFF'S CART"
     : latestMissionSnapshot?.missionKind === "prison-wagon"
       ? "PRISON WAGON"
       : "NOTTINGHAM LEDGER"
   const objectivePosition = latestMissionSnapshot
     ? missionObjectivePosition(latestMissionSnapshot)
-    : state.layout.objectivePosition
+    : objectiveGateLocked
+      ? !objectiveGateDiscovered
+        ? state.layout.objectiveGatePosition
+        : !objectiveGateKeyCollected
+          ? state.layout.objectiveGateKeyPosition
+          : state.layout.objectiveGatePosition
+      : state.layout.objectivePosition
   setObjectiveMarkerLabel(objectiveMarker, objectiveLabel)
   objectiveBeacon.visible = objectiveVisible
   objectiveBeacon.position.set(objectivePosition.x, sherwoodHeightAt(objectivePosition.x, objectivePosition.z) + Math.sin(elapsed * 2) * 0.12, objectivePosition.z)
   animateObjectiveMarker(objectiveMarker, elapsed, renderProfile.motionScale)
   if (windmillRotor) windmillRotor.rotation.z = elapsed * 0.32 * renderProfile.motionScale
-  const objectiveGateLocked = latestMissionSnapshot?.objectiveGateLocked ?? state.objectiveGateLocked
-  const objectiveGateDiscovered = latestMissionSnapshot?.objectiveGateDiscovered ?? state.objectiveGateDiscovered
-  const objectiveGateKeyCollected = latestMissionSnapshot?.objectiveGateKeyCollected ?? state.objectiveGateKeyCollected
   if (objectiveGateView) {
     const targetRotation = objectiveGateLocked ? 0 : -1.32
     objectiveGateView.rotation.y += (targetRotation - objectiveGateView.rotation.y) * (1 - Math.pow(0.002, dt))
@@ -4999,6 +5054,12 @@ function animate(): void {
         audioDirector.playCue("action.bow-release")
         audioDirector.playCue("action.arrow-impact")
         showToast("Guard stunned")
+      }
+      if (event === "capture-started") {
+        showToast("SHERIFF'S GRIP — BREAK CONTACT", { channel: "threat", priority: "critical", cue: "action.player-hit" })
+      }
+      if (event === "capture-escaped") {
+        showToast("GRIP BROKEN — KEEP MOVING", { channel: "threat", priority: "important", cue: "ui.confirm" })
       }
       if (event === "player-captured") {
         showToast("THE SHERIFF CAPTURED YOU", { channel: "threat", priority: "critical", cue: "action.player-hit" })

@@ -7,14 +7,31 @@ import {
   SHERWOOD_SNARE_INCAPACITATION_SECONDS,
   SHERWOOD_SWEEP_INCAPACITATION_SECONDS,
   SHERWOOD_VOLLEY_INCAPACITATION_SECONDS,
+  activeEscortCount,
   initialGuardPatrolAngle,
   stepGuardPatrol,
 } from "../shared/guard-rules"
 import { SHERWOOD_PLAYER_RADIUS, isSherwoodPlayerPositionBlocked } from "../shared/world-collisions"
 import { BOW_DRAW_SECONDS, BOW_RANGE, BOW_TOTAL_SECONDS, SIGNATURE_ACTION_SECONDS } from "../shared/archery"
-import { CART_POSITION, DELIVERY_TARGET, VILLAGE_POSITION, acquireBowTarget, activateSignature, beginSoloBowDraw, calculateMastery, createInitialState, getContextPrompt, interact, stepSoloBowAction, toggleStealth, updateSimulation } from "./simulation"
+import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
+import { regionCellIndexAt } from "../shared/regional-layout"
+import { CART_POSITION, DELIVERY_TARGET, SOLO_CAPTURE_SECONDS, acquireBowTarget, activateSignature, beginSoloBowDraw, calculateMastery, createInitialState, getContextPrompt, interact, stepSoloBowAction, toggleStealth, updateSimulation } from "./simulation"
 
 describe("Sherwood simulation", () => {
+  it("sets one full People's Purse cart as the solo delivery target", () => {
+    expect(DELIVERY_TARGET).toBe(PEOPLES_PURSE_MISSION.rewards.baseCartValue)
+    expect(DELIVERY_TARGET).toBe(120)
+  })
+
+  it.each(["solo-default", 277])("keeps two objective escorts and caps the remaining solo posts (%s)", (seed) => {
+    const state = createInitialState("robin", typeof seed === "number" ? seed : undefined)
+    expect(state.guards.length).toBeGreaterThanOrEqual(6)
+    expect(state.guards.length).toBeLessThanOrEqual(10)
+    expect(state.guards.slice(0, 2).map((guard) => guard.id)).toEqual([0, 1])
+    expect(state.guards.slice(2).every((guard) => guard.id % 3 === 0)).toBe(true)
+    expect(activeEscortCount(state.guards, state.layout.objectivePosition)).toBe(2)
+  })
+
   it("scouts the chained gate, steals its guarded key, and unlocks the stockade", () => {
     const state = createInitialState()
     state.player.position = { ...state.layout.objectiveGatePosition }
@@ -59,14 +76,29 @@ describe("Sherwood simulation", () => {
     expect(toggleStealth(state)).toBe(false)
   })
 
-  it("delivers stolen coin and wins at the target", () => {
+  it("completes one gate, combat, robbery, and delivery interaction chain without injected loot", () => {
     const state = createInitialState()
-    state.player.position = { ...VILLAGE_POSITION }
-    state.guards[0].position = { ...VILLAGE_POSITION }
-    expect(beginSoloBowDraw(state, { x: 0, z: 0 })).toBe("started")
-    state.player.loot = DELIVERY_TARGET
+    state.player.position = { ...state.layout.objectiveGatePosition }
+    expect(interact(state)).toBe("gate-locked")
+    state.player.position = { ...state.layout.objectiveGateKeyPosition }
+    expect(interact(state)).toBe("gate-key")
+    state.player.position = { ...state.layout.objectiveGatePosition }
+    expect(interact(state)).toBe("gate-unlocked")
+
+    state.player.position = { ...state.layout.objectivePosition }
+    const volley = activateSignature(state)
+    expect(volley.event).toBe("robin-volley")
+    expect(volley.guardIds).toHaveLength(2)
+    expect(activeEscortCount(state.guards, state.layout.objectivePosition)).toBe(0)
+    expect(interact(state)).toBe("robbed-cart")
+    expect(state.player.loot).toBe(PEOPLES_PURSE_MISSION.rewards.baseCartValue)
+    expect(state.delivered).toBe(0)
+
+    state.player.position = { ...state.layout.campfirePosition }
     expect(interact(state)).toBe("won")
     expect(state.won).toBe(true)
+    expect(state.player.loot).toBe(0)
+    expect(state.delivered).toBe(DELIVERY_TARGET)
     expect(state.bowAction).toBeNull()
   })
 
@@ -159,7 +191,7 @@ describe("Sherwood simulation", () => {
     expect(acquireBowTarget(state)).toBe(state.guards[0].id)
   })
 
-  it("telegraphs a close guard before the capture window opens", () => {
+  it("telegraphs a close guard before starting the two-second capture window", () => {
     const state = createInitialState()
     state.objectiveDiscovered = true
     state.player.position = { x: -30, z: -30 }
@@ -171,7 +203,68 @@ describe("Sherwood simulation", () => {
     expect(state.guards[0].alertFor).toBeGreaterThan(0)
 
     const captureEvents = updateSimulation(state, { move: { x: 0, z: 0 } }, 0.02)
-    expect(captureEvents).toContain("lost")
+    expect(captureEvents).toContain("capture-started")
+    expect(captureEvents).not.toContain("lost")
+    expect(state.captureProgress).toBeCloseTo(0.02)
+  })
+
+  it("counts simultaneous guard contact once per tick and quickly clears a brief capture", () => {
+    const state = createInitialState()
+    state.objectiveDiscovered = true
+    state.player.position = { x: -30, z: -30 }
+    state.guards = [0, 1].map((id) => ({
+      id,
+      position: { x: -29, z: -30 },
+      home: { x: -29, z: -30 },
+      patrolAngle: 0,
+      stunnedFor: 0,
+      alertFor: SHERWOOD_GUARD_ALERT_MEMORY_SECONDS,
+      lastKnownPosition: { ...state.player.position },
+      reactionFor: 0,
+    }))
+
+    const contactEvents = updateSimulation(state, { move: { x: 0, z: 0 } }, 0.25)
+    expect(contactEvents).toContain("capture-started")
+    expect(state.captureProgress).toBeCloseTo(0.25)
+    expect(state.lost).toBe(false)
+
+    for (const guard of state.guards) {
+      guard.position = { x: 40, z: 40 }
+      guard.home = { ...guard.position }
+      guard.alertFor = 0
+      guard.lastKnownPosition = null
+    }
+    expect(updateSimulation(state, { move: { x: 0, z: 0 } }, 0.05)).not.toContain("lost")
+    expect(state.captureProgress).toBeCloseTo(0.1)
+    expect(updateSimulation(state, { move: { x: 0, z: 0 } }, 0.05)).toContain("capture-escaped")
+    expect(state.captureProgress).toBe(0)
+    expect(state.lost).toBe(false)
+  })
+
+  it("loses only after two continuous seconds of guard contact", () => {
+    const state = createInitialState()
+    state.objectiveDiscovered = true
+    state.player.position = { x: -30, z: -30 }
+    state.guards = [{
+      id: 0,
+      position: { x: -29, z: -30 },
+      home: { x: -29, z: -30 },
+      patrolAngle: 0,
+      stunnedFor: 0,
+      alertFor: SHERWOOD_GUARD_ALERT_MEMORY_SECONDS,
+      lastKnownPosition: { ...state.player.position },
+      reactionFor: 0,
+    }]
+
+    for (let tick = 0; tick < 7; tick += 1) {
+      expect(updateSimulation(state, { move: { x: 0, z: 0 } }, 0.25)).not.toContain("lost")
+    }
+    expect(state.captureProgress).toBeCloseTo(SOLO_CAPTURE_SECONDS - 0.25)
+    const finalEvents = updateSimulation(state, { move: { x: 0, z: 0 } }, 0.25)
+    expect(finalEvents).toContain("player-captured")
+    expect(finalEvents).toContain("lost")
+    expect(state.captureProgress).toBe(SOLO_CAPTURE_SECONDS)
+    expect(state.lost).toBe(true)
   })
 
   it("does not let a signature replace an in-progress bow draw", () => {
@@ -312,16 +405,50 @@ describe("Sherwood simulation", () => {
     expect(state.guards[0].lastKnownPosition).toBeNull()
   })
 
-  it("lets a wrong 5x5 search route strengthen the Sheriff before discovery", () => {
+  it("discovers the objective anywhere inside its target sector", () => {
     const state = createInitialState("marian", 42)
-    state.player.position = { ...state.layout.campfirePosition }
-    const events = updateSimulation(state, { move: { x: 0, z: 0 } }, 66)
-    expect(state.searchPressure).toBe(1)
-    expect(state.heat).toBeGreaterThan(0)
-    expect(events).toContain("search-reinforced")
-    state.player.position = { ...state.layout.objectivePosition }
-    expect(updateSimulation(state, { move: { x: 0, z: 0 } }, 0.05)).toContain("objective-found")
+    const center = state.layout.objectiveCell.center
+    state.player.position = {
+      x: center.x + (state.layout.objectivePosition.x >= center.x ? -12 : 12),
+      z: center.z + (state.layout.objectivePosition.z >= center.z ? -12 : 12),
+    }
+    expect(regionCellIndexAt(state.player.position)).toBe(state.layout.objectiveCell.index)
+    expect(Math.hypot(
+      state.player.position.x - state.layout.objectivePosition.x,
+      state.player.position.z - state.layout.objectivePosition.z,
+    )).toBeGreaterThan(13)
+    expect(updateSimulation(state, { move: { x: 0, z: 0 } }, 0)).toContain("objective-found")
     expect(state.objectiveDiscovered).toBe(true)
+  })
+
+  it.each([
+    [89.999, 0],
+    [90, 1],
+    [119.999, 1],
+    [120, 2],
+    [149.999, 2],
+    [150, 3],
+  ])("applies search pressure at the 90/120/150 second thresholds (%ss)", (elapsedSeconds, expectedPressure) => {
+    const state = createInitialState("marian", 42)
+    state.player.invulnerableFor = 1_000
+    updateSimulation(state, { move: { x: 0, z: 0 } }, elapsedSeconds)
+    expect(state.searchPressure).toBe(expectedPressure)
+  })
+
+  it("keeps mission guidance visible under heat and prioritizes a live capture warning", () => {
+    const state = createInitialState()
+    state.player.position = {
+      x: state.layout.campfirePosition.x + 8,
+      z: state.layout.campfirePosition.z,
+    }
+    state.heat = 100
+    expect(getContextPrompt(state)).toBe("Search new Sherwood sectors for the Sheriff's shipment")
+
+    state.player.loot = DELIVERY_TARGET
+    expect(getContextPrompt(state)).toBe("Carry the coin back to the village fire")
+
+    state.captureProgress = SOLO_CAPTURE_SECONDS / 2
+    expect(getContextPrompt(state)).toBe("BREAK CONTACT · CAPTURE 50%")
   })
 
   it("makes Maid Marian a faster playable scout with a pursuit-breaking veil", () => {
@@ -384,7 +511,7 @@ describe("Sherwood simulation", () => {
     state.delivered = DELIVERY_TARGET
     state.stats.elapsedSeconds = 90
     const result = calculateMastery(state)
-    expect(result.generosity).toBe(DELIVERY_TARGET * 12)
+    expect(result.generosity).toBe(PEOPLES_PURSE_MISSION.rewards.deliveryTarget * 12)
     expect(result.score).toBeGreaterThan(7000)
     expect(["S", "A"]).toContain(result.grade)
   })

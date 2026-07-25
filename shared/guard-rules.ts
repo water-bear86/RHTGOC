@@ -26,16 +26,16 @@ export interface GuardPatrolStep {
 }
 
 /** A normal arrow should buy enough time to make a deliberate objective play. */
-export const SHERWOOD_ARROW_INCAPACITATION_SECONDS = 8
+export const SHERWOOD_ARROW_INCAPACITATION_SECONDS = 10
 
 /** Robin's committed twin shot trades breadth for a slightly longer opening. */
-export const SHERWOOD_VOLLEY_INCAPACITATION_SECONDS = 9
+export const SHERWOOD_VOLLEY_INCAPACITATION_SECONDS = 12
 
-/** Little John owns the strongest crowd-control window in the Merry Band. */
-export const SHERWOOD_SWEEP_INCAPACITATION_SECONDS = 12
+/** Little John's sweep keeps a clearly longer crowd-control window than Robin's volley. */
+export const SHERWOOD_SWEEP_INCAPACITATION_SECONDS = 14
 
-/** Much's prepared snare is the longest single-guard control tool. */
-export const SHERWOOD_SNARE_INCAPACITATION_SECONDS = 13
+/** Much's prepared snare remains the longest single-guard control tool. */
+export const SHERWOOD_SNARE_INCAPACITATION_SECONDS = 15
 
 /** Guards can spot a calm outlaw only at close range, then see farther once alerted. */
 export const SHERWOOD_GUARD_PROXIMITY_RANGE = 6.5

@@ -3,6 +3,7 @@ import {
   ARCHERY_TICK_RATE,
   BOW_DRAW_TICKS,
   BOW_MOVEMENT_EPSILON,
+  BOW_RANGE,
   BOW_RECOVERY_TICKS,
   BOW_TOTAL_TICKS,
   SIGNATURE_ACTION_SECONDS,
@@ -20,6 +21,10 @@ describe("shared archery timing", () => {
     expect(BOW_TOTAL_TICKS).toBe(20)
     expect(SIGNATURE_ACTION_SECONDS).toBe(0.9)
     expect(SIGNATURE_ACTION_TICKS).toBe(18)
+  })
+
+  it("publishes the intended combat range", () => {
+    expect(BOW_RANGE).toBe(14)
   })
 
   it("changes phase at the exact release tick and ends at the exact total tick", () => {

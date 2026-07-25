@@ -87,11 +87,11 @@ export const CHARACTER_LESSONS: Readonly<Record<CharacterId, TutorialLesson>> = 
 export const MISSION_LESSONS: Readonly<Record<MissionKind, TutorialLesson>> = Object.freeze({
   "tax-cart": Object.freeze({
     moduleId: "mission:tax-cart",
-    revision: 1,
+    revision: 2,
     eyebrow: "MISSION LESSON · THE PEOPLE'S PURSE",
-    title: "Find it, stop it, rob it, disappear",
-    body: "Search the generated sectors until the tax cart is truly discovered. Scatter its escort, take the crown's coin, then choose an escape and return the taxes to the village fire.",
-    points: Object.freeze(["Unsearched sectors contain no guaranteed clue.", "Interact robs the cart only after its escort is controlled.", "Breaking pursuit before delivery keeps the carrier alive."]),
+    title: "Find it, stop it, rob it, bring it home",
+    body: "Enter new sectors until the Sheriff's shipment is revealed. If the cart sits inside a stockade, inspect its gate and take the Sheriff's key from its guarded post. Scatter the escort, rob the cart, then return its coin to the village fire.",
+    points: Object.freeze(["Entering the shipment's sector reveals it—Sherwood does not require a full-map search.", "A locked stockade must be inspected, keyed, and opened before the cart can be robbed.", "In solo play, one cart and one return wins the round."]),
     visual: "mission",
   }),
   "prison-wagon": Object.freeze({

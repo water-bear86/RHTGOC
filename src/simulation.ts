@@ -75,6 +75,7 @@ export interface GameState {
   objectiveGateKeyCollected: boolean
   objectiveGateLocked: boolean
   searchPressure: number
+  captureProgress: number
   heat: number
   cartCoin: number
   cartRefill: number
@@ -101,7 +102,11 @@ export interface InputState {
 const DEFAULT_SOLO_MISSION = regionalizeFeasibleMissionDefinition(PEOPLES_PURSE_MISSION, stableSeed("solo-default"))
 export const CART_POSITION: Vec2 = { ...DEFAULT_SOLO_MISSION.layout.objectivePosition }
 export const VILLAGE_POSITION: Vec2 = { ...DEFAULT_SOLO_MISSION.layout.campfirePosition }
-export const DELIVERY_TARGET = PEOPLES_PURSE_MISSION.rewards.deliveryTarget
+export const DELIVERY_TARGET = PEOPLES_PURSE_MISSION.rewards.baseCartValue
+export const SOLO_CAPTURE_SECONDS = 2
+
+const SOLO_CAPTURE_DECAY_PER_SECOND = 3
+const SOLO_SEARCH_PRESSURE_THRESHOLDS = [90, 120, 150] as const
 
 const distance = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z)
 
@@ -124,6 +129,13 @@ export function getMaxArrows(characterId: CharacterId): number {
 
 export function createInitialState(characterId: CharacterId = "robin", seed = stableSeed("solo-default")): GameState {
   const regional = regionalizeFeasibleMissionDefinition(PEOPLES_PURSE_MISSION, seed)
+  const soloGuards = regional.definition.spawns.guards
+    .filter((_guard, index) => {
+      const postIndex = Math.floor(index / 3)
+      const guardIndex = index % 3
+      return postIndex === 0 ? guardIndex < 2 : guardIndex === 0
+    })
+    .slice(0, 10)
   return {
     layout: regional.layout,
     exploredCellIndices: [regional.layout.campfireCell.index],
@@ -137,7 +149,7 @@ export function createInitialState(characterId: CharacterId = "robin", seed = st
       veilFor: 0,
       stealth: false,
     },
-    guards: regional.definition.spawns.guards.map((guard) => createGuardState(guard.id, guard.position)),
+    guards: soloGuards.map((guard) => createGuardState(guard.id, guard.position)),
     traps: [],
     delivered: 0,
     objectiveDiscovered: false,
@@ -145,8 +157,9 @@ export function createInitialState(characterId: CharacterId = "robin", seed = st
     objectiveGateKeyCollected: false,
     objectiveGateLocked: regional.layout.objectiveStockadeEnabled,
     searchPressure: 0,
+    captureProgress: 0,
     heat: 0,
-    cartCoin: 120,
+    cartCoin: PEOPLES_PURSE_MISSION.rewards.baseCartValue,
     cartRefill: 0,
     bowCooldown: 0,
     bowAction: null,
@@ -196,11 +209,16 @@ export function updateSimulation(
   if (!state.exploredCellIndices.includes(currentCell)) state.exploredCellIndices.push(currentCell)
 
   if (!state.objectiveDiscovered) {
-    if (distance(player.position, state.layout.objectivePosition) < 13) {
+    if (
+      currentCell === state.layout.objectiveCell.index
+      || distance(player.position, state.layout.objectivePosition) < 13
+    ) {
       state.objectiveDiscovered = true
       events.push("objective-found")
     } else {
-      const nextPressure = Math.min(3, Math.floor(Math.max(0, state.stats.elapsedSeconds - 45) / 20))
+      const nextPressure = SOLO_SEARCH_PRESSURE_THRESHOLDS
+        .filter((threshold) => state.stats.elapsedSeconds >= threshold)
+        .length
       while (state.searchPressure < nextPressure) {
         state.searchPressure += 1
         state.heat = Math.min(100, state.heat + 18)
@@ -243,6 +261,18 @@ export function updateSimulation(
   })
   player.position.x = resolvedPlayerPosition.x
   player.position.z = resolvedPlayerPosition.z
+  const enteredCell = regionCellIndexAt(player.position)
+  if (!state.exploredCellIndices.includes(enteredCell)) state.exploredCellIndices.push(enteredCell)
+  if (
+    !state.objectiveDiscovered
+    && (
+      enteredCell === state.layout.objectiveCell.index
+      || distance(player.position, state.layout.objectivePosition) < 13
+    )
+  ) {
+    state.objectiveDiscovered = true
+    events.push("objective-found")
+  }
   const playerVelocity = dt > 0
     ? {
         x: (player.position.x - playerOrigin.x) / dt,
@@ -275,6 +305,7 @@ export function updateSimulation(
   if (!state.objectiveDiscovered && state.searchPressure > 0) state.heat = Math.max(state.heat, state.searchPressure * 18)
   state.stats.peakHeat = Math.max(state.stats.peakHeat, state.heat)
 
+  let guardContact = false
   for (const guard of state.guards) {
     guard.stunnedFor = Math.max(0, guard.stunnedFor - dt)
     const threatDecay = dt * threatPersistenceMultiplier
@@ -334,6 +365,17 @@ export function updateSimulation(
     })
 
     if (distance(guard.position, player.position) < 1.25 && player.invulnerableFor === 0 && (guard.reactionFor ?? 0) <= 0) {
+      guardContact = true
+    }
+  }
+  // A throttled/background frame must never turn one rendered contact into an
+  // instant capture. Normal play still advances this at the real frame delta.
+  const captureTickSeconds = Math.min(0.25, Math.max(0, Number.isFinite(dt) ? dt : 0))
+  if (guardContact) {
+    const captureStarted = state.captureProgress === 0
+    state.captureProgress = Math.min(SOLO_CAPTURE_SECONDS, state.captureProgress + captureTickSeconds)
+    if (captureStarted && state.captureProgress > 0) events.push("capture-started")
+    if (state.captureProgress >= SOLO_CAPTURE_SECONDS) {
       state.stats.damageTaken = 3
       state.heat = Math.min(100, state.heat + 15)
       state.lost = true
@@ -341,6 +383,12 @@ export function updateSimulation(
       state.signatureActionRemaining = 0
       events.push("player-captured", "lost")
     }
+  } else if (state.captureProgress > 0) {
+    state.captureProgress = Math.max(
+      0,
+      state.captureProgress - captureTickSeconds * SOLO_CAPTURE_DECAY_PER_SECOND,
+    )
+    if (state.captureProgress === 0) events.push("capture-escaped")
   }
   if (!cancelsBowDraw) events.push(...stepSoloBowAction(state, input.move, dt))
   return events
@@ -556,13 +604,21 @@ export function calculateMastery(state: GameState): MasteryResult {
   const accuracy = state.stats.shotsFired === 0 ? 1 : state.stats.shotsHit / state.stats.shotsFired
   const precision = Math.round(accuracy * 1200 + Math.max(0, state.player.arrows) * 80)
   const survival = Math.max(0, 1600 - state.stats.damageTaken * 550)
-  const generosity = state.delivered * 12
+  const generosity = Math.round(
+    state.delivered
+      * 12
+      * (PEOPLES_PURSE_MISSION.rewards.deliveryTarget / DELIVERY_TARGET),
+  )
   const score = Math.max(0, speed + precision + survival + generosity)
   const grade = score >= 8200 ? "S" : score >= 7000 ? "A" : score >= 5700 ? "B" : score >= 4300 ? "C" : "D"
   return { score, grade, speed, precision, survival, generosity }
 }
 
 export function getContextPrompt(state: GameState): string {
+  if (state.captureProgress > 0) {
+    const capturePercent = Math.min(100, Math.ceil(state.captureProgress / SOLO_CAPTURE_SECONDS * 100))
+    return `BREAK CONTACT · CAPTURE ${capturePercent}%`
+  }
   if (
     state.objectiveGateDiscovered
     && !state.objectiveGateKeyCollected
@@ -585,7 +641,6 @@ export function getContextPrompt(state: GameState): string {
   if (distance(state.player.position, state.layout.campfirePosition) < 3.2) {
     return state.player.loot > 0 ? "E  GIVE COIN TO THE VILLAGE" : "E  RESTOCK ARROWS"
   }
-  if (state.heat > 20) return `${state.player.stealth ? "SNEAKING · " : ""}Lose the guards in the deep woods`
   const prompt = state.player.loot > 0
     ? "Carry the coin back to the village fire"
     : state.objectiveGateLocked && state.objectiveGateKeyCollected
@@ -594,6 +649,6 @@ export function getContextPrompt(state: GameState): string {
         ? "Steal the Sheriff's key from the guarded post"
     : state.objectiveDiscovered
       ? "Close on the Sheriff's tax cart"
-      : "Search the 25 Sherwood sectors before the Sheriff reinforces"
+      : "Search new Sherwood sectors for the Sheriff's shipment"
   return state.player.stealth ? `SNEAKING · ${prompt}` : prompt
 }
