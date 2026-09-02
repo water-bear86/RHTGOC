@@ -24,6 +24,7 @@ import { GameplayAnalyticsAggregator } from "./gameplay-analytics"
 import { createGameplayAnalyticsStoreFromEnv } from "./gameplay-analytics-store"
 import { createExperimentServiceFromEnv } from "./experiment-service"
 import type { GameplayAnalyticsBatch, GameplayAnalyticsDimension, GameplayAnalyticsEvent } from "../shared/gameplay-analytics"
+import { StartupDependencyTimeoutError, withStartupDeadline } from "./startup"
 
 const port = Number(process.env.PORT ?? 8787)
 const buildId = normalizeBuildId(process.env.BUILD_ID)
@@ -43,6 +44,7 @@ const gameplayAnalyticsEnabled = process.env.GAMEPLAY_ANALYTICS_ENABLED === "tru
 const gameplayAnalyticsStore = gameplayAnalyticsEnabled ? createGameplayAnalyticsStoreFromEnv() : null
 const gameplayAnalytics = gameplayAnalyticsStore ? new GameplayAnalyticsAggregator() : null
 const experimentService = gameplayAnalyticsStore ? createExperimentServiceFromEnv() : null
+const STARTUP_DEPENDENCY_TIMEOUT_MS = 4_000
 const publicOrigin = process.env.PUBLIC_ORIGIN?.replace(/\/$/, "")
 let seasonReady = seasonStore === null
 const telemetry = new Telemetry()
@@ -1429,24 +1431,42 @@ async function pruneChatReportEvidence(): Promise<void> {
 setInterval(() => void pruneChatReportEvidence(), 24 * 60 * 60_000)
 
 async function startServer(): Promise<void> {
-  await pruneChatReportEvidence()
-  if (seasonStore) {
-    const recovered = await seasonStore.loadCurrent()
-    if (recovered) {
-      seasonService.hydrate(recovered.snapshot, recovered.processedEventIds, recovered.lastSequence)
-      structuredLog("season_recovered", { seasonSlug: recovered.snapshot.slug, phase: recovered.snapshot.phase, revision: recovered.snapshot.revision, replayIds: recovered.processedEventIds.length, lastSequence: recovered.lastSequence })
+  const campChatStartup = withStartupDeadline("camp chat retention", pruneChatReportEvidence(), STARTUP_DEPENDENCY_TIMEOUT_MS).catch((error) => {
+    publicCampChatEnabled = false
+    publicHub.setCampChatEnabled(false)
+    if (error instanceof StartupDependencyTimeoutError) {
+      telemetry.increment("chat_report_evidence_prune_failure_total")
+      structuredLog("chat_report_evidence_prune_failed", { reason: "startup-timeout" }, "error")
     }
-    seasonReady = true
-  }
-  if (experimentService) {
+  })
+
+  const seasonStartup = seasonStore ? (async () => {
     try {
-      await experimentService.refresh(Date.now(), true)
-      telemetry.gauge("active_experiment_definitions", experimentService.activeDefinitionCount())
+      const recovered = await withStartupDeadline("season recovery", seasonStore.loadCurrent(), STARTUP_DEPENDENCY_TIMEOUT_MS)
+      if (recovered) {
+        seasonService.hydrate(recovered.snapshot, recovered.processedEventIds, recovered.lastSequence)
+        structuredLog("season_recovered", { seasonSlug: recovered.snapshot.slug, phase: recovered.snapshot.phase, revision: recovered.snapshot.revision, replayIds: recovered.processedEventIds.length, lastSequence: recovered.lastSequence })
+      }
     } catch (error) {
-      telemetry.increment("experiment_refresh_failure_total")
-      structuredLog("experiment_refresh_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+      telemetry.increment("season_recovery_failure_total")
+      structuredLog("season_recovery_failed", { reason: error instanceof StartupDependencyTimeoutError ? "startup-timeout" : "store-rejected" }, "error")
+    } finally {
+      seasonReady = true
     }
-  }
+  })() : Promise.resolve()
+
+  const experimentStartup = experimentService ? withStartupDeadline(
+    "experiment refresh",
+    experimentService.refresh(Date.now(), true),
+    STARTUP_DEPENDENCY_TIMEOUT_MS,
+  ).then(() => {
+    telemetry.gauge("active_experiment_definitions", experimentService.activeDefinitionCount())
+  }).catch((error) => {
+    telemetry.increment("experiment_refresh_failure_total")
+    structuredLog("experiment_refresh_failed", { reason: error instanceof StartupDependencyTimeoutError ? "startup-timeout" : "store-rejected" }, "error")
+  }) : Promise.resolve()
+
+  await Promise.all([campChatStartup, seasonStartup, experimentStartup])
   httpServer.listen(port, "0.0.0.0", () => {
     structuredLog("server_started", {
       port,
