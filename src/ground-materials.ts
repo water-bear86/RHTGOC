@@ -64,7 +64,8 @@ function configureTexture(
   texture.repeat.set(repeat.x, repeat.y)
   texture.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace
   texture.anisotropy = 4
-  texture.needsUpdate = true
+  // TextureLoader marks the texture dirty after image decode. Doing it here
+  // asks WebGL to upload an empty source on every frame during network load.
   return texture
 }
 

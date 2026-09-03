@@ -21,6 +21,8 @@ describe("Sherwood ground materials", () => {
     expect(material.map?.repeat.toArray()).toEqual([32, 32])
     expect(material.map?.colorSpace).toBe(THREE.SRGBColorSpace)
     expect(material.normalMap?.colorSpace).toBe(THREE.NoColorSpace)
+    expect(material.map?.version).toBe(0)
+    expect(material.normalMap?.version).toBe(0)
     expect(material.normalScale.toArray()).toEqual([0.14, 0.14])
     expect(material.emissiveIntensity).toBe(0.42)
     expect(material.gradientMap?.name).toBe("Sherwood soft ground toon ramp")
