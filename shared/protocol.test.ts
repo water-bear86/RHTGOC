@@ -5,7 +5,7 @@ const handshake = { version: PROTOCOL_VERSION, buildId: "test-build", productAna
 
 describe("Merry Band protocol", () => {
   it("requires the authoritative stealth-and-stockade snapshot protocol", () => {
-    expect(PROTOCOL_VERSION).toBe(19)
+    expect(PROTOCOL_VERSION).toBe(20)
   })
 
   it("carries authoritative bow cooldown seconds in mission snapshots", () => {

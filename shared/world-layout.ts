@@ -28,6 +28,7 @@ export function createSherwoodTreeLayout(): readonly SherwoodTreePlacement[] {
   }
   const trees: SherwoodTreePlacement[] = []
   const cells = sherwoodRegionCells()
+  const minimumTreeSpacing = 1.8
 
   const canPlant = (x: number, z: number): boolean => {
     if (Math.abs(x) > SHERWOOD_REGIONAL_BOUNDS - 1 || Math.abs(z) > SHERWOOD_REGIONAL_BOUNDS - 1) return false
@@ -35,7 +36,7 @@ export function createSherwoodTreeLayout(): readonly SherwoodTreePlacement[] {
     if (cells.some((cell) => Math.hypot(x - cell.center.x, z - cell.center.z) < 9.2)) return false
     if (SHERWOOD_PASSES.some((pass) => Math.hypot(x - pass.position.x, z - pass.position.z) < pass.radius + 2.6)) return false
     if (SHERWOOD_SETTLEMENT_SITES.some((site) => Math.hypot(x - site.center.x, z - site.center.z) < site.radius + 1.8)) return false
-    return !trees.some((tree) => Math.hypot(x - tree.x, z - tree.z) < 1.55)
+    return !trees.some((tree) => Math.hypot(x - tree.x, z - tree.z) < minimumTreeSpacing)
   }
 
   for (const [segmentIndex, segment] of SHERWOOD_RIDGE_SEGMENTS.entries()) {
@@ -66,6 +67,19 @@ export function createSherwoodTreeLayout(): readonly SherwoodTreePlacement[] {
       const x = grove.x + Math.cos(angle) * radius
       const z = grove.z + Math.sin(angle) * radius
       if (canPlant(x, z)) trees.push(Object.freeze({ x, z, scale: 0.76 + random() * 0.68 }))
+    }
+  }
+
+  // Ring every potential mission clearing with loose woodland. Keeping the
+  // trunks outside each anchor's protected centre preserves objectives while
+  // filling the broad empty fields between the ridge and boundary groves.
+  for (const cell of cells) {
+    for (let sample = 0; sample < 22; sample += 1) {
+      const angle = ((sample + 0.15 + random() * 0.7) / 22) * Math.PI * 2
+      const radius = 10.4 + random() * 4.8
+      const x = cell.center.x + Math.cos(angle) * radius
+      const z = cell.center.z + Math.sin(angle) * radius
+      if (canPlant(x, z)) trees.push(Object.freeze({ x, z, scale: 0.78 + random() * 0.7 }))
     }
   }
   return Object.freeze(trees)

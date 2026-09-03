@@ -64,18 +64,18 @@ export function createAuthoredTreePlacements(
     const heightFactor = variantName.includes("Stump")
       ? 1.25
       : variantName.includes("Pine")
-        ? 5.8
+        ? 10.8
         : variantName.includes("Dead")
-          ? 4.8
+          ? 9.6
           : variantName.includes("Twisted")
-            ? 5.45
-            : 5.25
+            ? 9.8
+            : 10.4
     return Object.freeze({
       ...placement,
       variantName,
       rotation: positiveModulo(index * 2.399963 + placement.x * 0.173 + placement.z * 0.127, TAU),
       height: placement.scale * heightFactor,
-      visualRadius: placement.scale * (variantName.includes("Stump") ? 0.7 : 1.15),
+      visualRadius: placement.scale * (variantName.includes("Stump") ? 0.7 : 1.35),
     })
   })
 }

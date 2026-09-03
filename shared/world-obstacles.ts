@@ -26,7 +26,7 @@ export const SHERWOOD_TREE_OBSTACLES: readonly SherwoodObstacle[] = Object.freez
   SHERWOOD_TREE_LAYOUT.map((tree, index) => Object.freeze({
     id: `sherwood-tree-${index}`,
     center: Object.freeze({ x: tree.x, z: tree.z }),
-    halfExtents: Object.freeze({ x: 0.3 * tree.scale, z: 0.3 * tree.scale }),
+    halfExtents: Object.freeze({ x: 0.34 * tree.scale, z: 0.34 * tree.scale }),
     rotation: 0,
   })),
 )

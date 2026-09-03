@@ -335,6 +335,14 @@ function sweepAgainstCircle(
   }
 }
 
+function earlierSweepHit(current: SweepHit | null, candidate: SweepHit | null): SweepHit | null {
+  if (!candidate) return current
+  if (!current) return candidate
+  if (candidate.time < current.time) return candidate
+  if (candidate.time > current.time) return current
+  return candidate.colliderId < current.colliderId ? candidate : current
+}
+
 function isCombinedPositionValid(
   point: XzPoint,
   colliders: readonly OrientedRectangleCollider[],
@@ -457,10 +465,10 @@ export function resolveSherwoodPlayerMovement(
 
   for (let pass = 0; pass < colliders.length + 2; pass += 1) {
     if (Math.hypot(remaining.x, remaining.z) < DIRECTION_EPSILON) break
-    const hit = colliders
-      .map((collider) => sweepAgainstCollider(position, remaining, collider, radius))
-      .filter((candidate): candidate is SweepHit => candidate !== null)
-      .sort((left, right) => left.time - right.time || left.colliderId.localeCompare(right.colliderId))[0]
+    let hit: SweepHit | null = null
+    for (const collider of colliders) {
+      hit = earlierSweepHit(hit, sweepAgainstCollider(position, remaining, collider, radius))
+    }
 
     if (!hit) {
       position = { x: position.x + remaining.x, z: position.z + remaining.z }
@@ -550,12 +558,19 @@ export function resolveSherwoodCombinedMovement(
   const passLimit = colliders.length + circleBlockers.length + 4
   for (let pass = 0; pass < passLimit; pass += 1) {
     if (Math.hypot(remaining.x, remaining.z) < DIRECTION_EPSILON) break
-    const hit = [
-      ...colliders.map((collider) => sweepAgainstCollider(position, remaining, collider, moverRadius)),
-      ...circleBlockers.map((blocker, blockerIndex) => sweepAgainstCircle(position, remaining, blocker, circleSeparation, blockerIndex)),
-    ]
-      .filter((candidate): candidate is SweepHit => candidate !== null)
-      .sort((left, right) => left.time - right.time || left.colliderId.localeCompare(right.colliderId))[0]
+    let hit: SweepHit | null = null
+    for (const collider of colliders) {
+      hit = earlierSweepHit(hit, sweepAgainstCollider(position, remaining, collider, moverRadius))
+    }
+    for (let blockerIndex = 0; blockerIndex < circleBlockers.length; blockerIndex += 1) {
+      hit = earlierSweepHit(hit, sweepAgainstCircle(
+        position,
+        remaining,
+        circleBlockers[blockerIndex],
+        circleSeparation,
+        blockerIndex,
+      ))
+    }
 
     if (!hit) {
       position = { x: position.x + remaining.x, z: position.z + remaining.z }

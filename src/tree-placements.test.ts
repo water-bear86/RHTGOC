@@ -9,8 +9,8 @@ describe("authored tree placements", () => {
 
     expect(first).toEqual(second)
     expect(first).toHaveLength(SHERWOOD_TREE_LAYOUT.length)
-    expect(first.length).toBeGreaterThanOrEqual(150)
-    expect(first.length).toBeLessThanOrEqual(180)
+    expect(first.length).toBeGreaterThanOrEqual(300)
+    expect(first.length).toBeLessThanOrEqual(420)
     first.forEach((tree, index) => {
       expect(tree.x).toBe(SHERWOOD_TREE_LAYOUT[index].x)
       expect(tree.z).toBe(SHERWOOD_TREE_LAYOUT[index].z)
@@ -19,7 +19,8 @@ describe("authored tree placements", () => {
         expect(tree.height).toBeGreaterThan(0.7)
         expect(tree.height).toBeLessThan(2.2)
       } else {
-        expect(tree.height).toBeGreaterThan(3)
+        expect(tree.height).toBeGreaterThan(7)
+        expect(tree.height).toBeLessThan(16)
       }
       expect(tree.rotation).toBeGreaterThanOrEqual(0)
       expect(tree.rotation).toBeLessThan(Math.PI * 2)

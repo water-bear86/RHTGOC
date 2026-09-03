@@ -61,13 +61,13 @@ describe("shared Sherwood world collision contract", () => {
   })
 
   it("makes every rendered procedural tree trunk authoritative and solid", () => {
-    expect(SHERWOOD_TREE_COLLIDERS.length).toBeGreaterThanOrEqual(150)
-    expect(SHERWOOD_TREE_COLLIDERS.length).toBeLessThanOrEqual(180)
+    expect(SHERWOOD_TREE_COLLIDERS.length).toBeGreaterThanOrEqual(300)
+    expect(SHERWOOD_TREE_COLLIDERS.length).toBeLessThanOrEqual(420)
     const tree = SHERWOOD_TREE_COLLIDERS[0]
     expect(isSherwoodPlayerPositionBlocked(tree.center)).toBe(true)
 
     const start = { x: tree.center.x - 2, z: tree.center.z }
-    const resolved = resolveSherwoodPlayerMovement(start, { x: 4, z: 0 }, 64)
+    const resolved = resolveSherwoodPlayerMovement(start, { x: 4, z: 0 }, 67)
     expect(resolved.x).toBeLessThan(tree.center.x)
     expect(isSherwoodPlayerPositionBlocked(resolved)).toBe(false)
   })
