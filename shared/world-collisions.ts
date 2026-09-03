@@ -199,6 +199,11 @@ function localPointToWorld(point: XzPoint, collider: OrientedRectangleCollider):
 }
 
 function isInsideCollider(point: XzPoint, collider: OrientedRectangleCollider, playerRadius: number): boolean {
+  // Most collision queries are nowhere near a tree. Reject them before the
+  // rotated-space transform so dense forests do not tax every path sample.
+  const conservativeExtent = collider.halfExtents.x + collider.halfExtents.z + playerRadius
+  if (Math.abs(point.x - collider.center.x) >= conservativeExtent
+    || Math.abs(point.z - collider.center.z) >= conservativeExtent) return false
   const local = toColliderLocal(point, collider)
   return Math.abs(local.x) < collider.halfExtents.x + playerRadius
     && Math.abs(local.z) < collider.halfExtents.z + playerRadius

@@ -43,8 +43,8 @@ export function createSherwoodTreeLayout(): readonly SherwoodTreePlacement[] {
     const dz = segment.end.z - segment.start.z
     const length = Math.max(0.001, Math.hypot(dx, dz))
     const normal = { x: -dz / length, z: dx / length }
-    for (let sample = 0; sample < 110; sample += 1) {
-      const amount = (sample + 0.35 + random() * 0.3) / 110
+    for (let sample = 0; sample < 90; sample += 1) {
+      const amount = (sample + 0.35 + random() * 0.3) / 90
       const side = (sample + segmentIndex) % 2 === 0 ? -1 : 1
       const offset = side * (segment.visualHalfWidth * (0.48 + random() * 0.46))
       const x = segment.start.x + dx * amount + normal.x * offset + (random() - 0.5) * 2.8
@@ -60,7 +60,7 @@ export function createSherwoodTreeLayout(): readonly SherwoodTreePlacement[] {
     { x: -32, z: 61 }, { x: 32, z: 61 },
   ]
   for (const grove of boundaryGroves) {
-    for (let sample = 0; sample < 56; sample += 1) {
+    for (let sample = 0; sample < 40; sample += 1) {
       const angle = random() * Math.PI * 2
       const radius = Math.sqrt(random()) * 9
       const x = grove.x + Math.cos(angle) * radius

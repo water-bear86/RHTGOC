@@ -90,7 +90,12 @@ function inward(point: { x: number; z: number }, distance: number): { x: number;
 }
 
 function treeClear(position: { x: number; z: number }, radius: number): boolean {
-  return SHERWOOD_TREE_LAYOUT.every((tree) => Math.hypot(position.x - tree.x, position.z - tree.z) > radius + tree.scale * 0.55)
+  return SHERWOOD_TREE_LAYOUT.every((tree) => {
+    const dx = position.x - tree.x
+    const dz = position.z - tree.z
+    const clearance = radius + tree.scale * 0.55
+    return dx * dx + dz * dz > clearance * clearance
+  })
 }
 
 function distanceToSegment(point: TopologyPoint, start: TopologyPoint, end: TopologyPoint): number {
