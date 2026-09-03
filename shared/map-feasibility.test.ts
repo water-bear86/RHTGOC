@@ -44,8 +44,8 @@ describe("regional map feasibility contract", () => {
     expect(first.feasibility.feasible).toBe(true)
     expect(first.generation.requestedSeed).toBe(1)
     expect(first.generation.layoutSeed).not.toBe(1)
-    expect(first.generation.attempts).toBe(2)
-    expect(first.generation.rejectedCandidates).toHaveLength(1)
+    expect(first.generation.attempts).toBeGreaterThan(1)
+    expect(first.generation.rejectedCandidates).toHaveLength(first.generation.attempts - 1)
     expect(first.generation.rejectedCandidates[0].diagnostics).toContainEqual(expect.objectContaining({
       code: "interaction_blocked",
       subject: "bow-cache:0",

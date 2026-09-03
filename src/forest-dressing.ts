@@ -1,6 +1,7 @@
 import * as THREE from "three"
 import type { RegionalMissionLayout } from "../shared/regional-layout"
 import { createSherwoodMissionForestRockLayout, type SherwoodForestRockPlacement } from "../shared/world-dressing-layout"
+import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createToonMaterial } from "./toon-materials"
 import { sherwoodHeightAt } from "./sherwood-terrain"
 import { createNatureVariantInstances, type NatureCatalog, type NatureVariantName } from "./nature-assets"
@@ -154,6 +155,79 @@ function scatteredMatrices(
   return matrices
 }
 
+function clearingEdgeMatrices(
+  count: number,
+  random: () => number,
+  exclusions: DressingOptions["exclusions"],
+  roads: DressingOptions["roads"],
+  roadMargin: number,
+  scaleRange: readonly [number, number],
+): THREE.Matrix4[] {
+  const clearings = (exclusions ?? []).filter((area) => area.radius >= 6)
+  const matrices: THREE.Matrix4[] = []
+  let attempts = 0
+  while (matrices.length < count && attempts < count * 36 && clearings.length > 0) {
+    attempts += 1
+    const clearing = clearings[Math.floor(random() * clearings.length)]
+    const angle = random() * Math.PI * 2
+    const radius = clearing.radius + 0.8 + random() * 2.8
+    const x = clearing.x + Math.cos(angle) * radius
+    const z = clearing.z + Math.sin(angle) * radius
+    const nearRiver = Math.abs(x - 1 + z * 0.1) < 5.8
+    if (Math.abs(x) > 62 || Math.abs(z) > 62 || nearRiver
+      || !outsideExclusions(x, z, exclusions)
+      || !outsideRoads(x, z, roads, roadMargin)) continue
+    const scale = scaleRange[0] + random() * (scaleRange[1] - scaleRange[0])
+    matrices.push(new THREE.Matrix4().compose(
+      new THREE.Vector3(x, sherwoodHeightAt(x, z), z),
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), random() * Math.PI * 2),
+      new THREE.Vector3(scale, scale * (0.88 + random() * 0.28), scale),
+    ))
+  }
+  return matrices
+}
+
+function roadsideMatrices(
+  count: number,
+  random: () => number,
+  exclusions: DressingOptions["exclusions"],
+  roads: DressingOptions["roads"],
+  roadMargin: number,
+  bandWidth: number,
+  scaleRange: readonly [number, number],
+): THREE.Matrix4[] {
+  const segments = (roads ?? []).flatMap((road) => road.points.slice(1).map((end, index) => ({
+    road,
+    start: road.points[index],
+    end,
+  }))).filter(({ start, end }) => Math.hypot(end.x - start.x, end.z - start.z) > 0.5)
+  const matrices: THREE.Matrix4[] = []
+  let attempts = 0
+  while (matrices.length < count && attempts < count * 40 && segments.length > 0) {
+    attempts += 1
+    const { road, start, end } = segments[Math.floor(random() * segments.length)]
+    const dx = end.x - start.x
+    const dz = end.z - start.z
+    const length = Math.hypot(dx, dz)
+    const amount = random()
+    const side = random() < 0.5 ? -1 : 1
+    const offset = road.width / 2 + roadMargin + 0.2 + random() * bandWidth
+    const x = start.x + dx * amount + (-dz / length) * offset * side + (dx / length) * (random() - 0.5) * 1.2
+    const z = start.z + dz * amount + (dx / length) * offset * side + (dz / length) * (random() - 0.5) * 1.2
+    const nearRiver = Math.abs(x - 1 + z * 0.1) < 5.8
+    if (Math.abs(x) > 62 || Math.abs(z) > 62 || nearRiver
+      || !outsideExclusions(x, z, exclusions)
+      || !outsideRoads(x, z, roads, roadMargin)) continue
+    const scale = scaleRange[0] + random() * (scaleRange[1] - scaleRange[0])
+    matrices.push(new THREE.Matrix4().compose(
+      new THREE.Vector3(x, sherwoodHeightAt(x, z), z),
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), random() * Math.PI * 2),
+      new THREE.Vector3(scale, scale * (0.86 + random() * 0.3), scale),
+    ))
+  }
+  return matrices
+}
+
 function instanced(
   name: string,
   geometry: THREE.BufferGeometry,
@@ -174,26 +248,34 @@ function instanced(
 /** Dense, nonblocking forest-floor dressing. Gameplay collision remains authoritative elsewhere. */
 export function createForestDressing(options: DressingOptions = {}): ForestDressing {
   const random = seededRandom(options.seed ?? 4815)
-  const density = options.degraded ? 0.48 : 1
+  const density = options.degraded ? 0.44 : 1
   const count = (value: number): number => Math.round(value * density)
   const group = new THREE.Group()
   group.name = "SherwoodForestDressing"
 
-  const meadowCenters = createClusterCenters(13, random, options.exclusions, options.roads, 2.6)
-  const woodlandCenters = createClusterCenters(11, random, options.exclusions, options.roads, 4.2)
+  const meadowCenters = createClusterCenters(18, random, options.exclusions, options.roads, 2.6)
+  const woodlandCenters = createClusterCenters(16, random, options.exclusions, options.roads, 4.2)
+  const treeCenters = SHERWOOD_TREE_LAYOUT.map(({ x, z }) => ({ x, z }))
   const grass = [
-    ...clusteredMatrices(count(220), random, options.exclusions, options.roads, meadowCenters, 6.4, 1.3, [0.55, 1.25]),
-    ...scatteredMatrices(count(450), random, options.exclusions, options.roads, 1.3, [0.45, 0.9]),
+    ...clusteredMatrices(count(300), random, options.exclusions, options.roads, meadowCenters, 6.8, 1.3, [0.62, 1.35]),
+    ...scatteredMatrices(count(700), random, options.exclusions, options.roads, 1.3, [0.52, 1]),
+    ...roadsideMatrices(count(180), random, options.exclusions, options.roads, 1.3, 2.4, [0.62, 1.25]),
+    ...clearingEdgeMatrices(count(120), random, options.exclusions, options.roads, 1.3, [0.68, 1.3]),
   ]
   const ferns = [
-    ...clusteredMatrices(count(100), random, options.exclusions, options.roads, woodlandCenters, 5.1, 2.2, [0.65, 1.35]),
-    ...scatteredMatrices(count(120), random, options.exclusions, options.roads, 2.2, [0.5, 0.95]),
+    ...clusteredMatrices(count(180), random, options.exclusions, options.roads, woodlandCenters, 5.5, 2.2, [0.72, 1.45]),
+    ...scatteredMatrices(count(220), random, options.exclusions, options.roads, 2.2, [0.58, 1.05]),
+    ...clusteredMatrices(count(220), random, options.exclusions, options.roads, treeCenters, 2.8, 2.2, [0.62, 1.2]),
   ]
   const shrubs = [
-    ...clusteredMatrices(count(48), random, options.exclusions, options.roads, woodlandCenters, 4.5, 2.7, [0.65, 1.3]),
-    ...scatteredMatrices(count(40), random, options.exclusions, options.roads, 2.7, [0.5, 0.85]),
+    ...clusteredMatrices(count(90), random, options.exclusions, options.roads, woodlandCenters, 4.8, 2.7, [0.72, 1.45]),
+    ...scatteredMatrices(count(100), random, options.exclusions, options.roads, 2.7, [0.58, 0.98]),
+    ...clusteredMatrices(count(120), random, options.exclusions, options.roads, treeCenters, 3.2, 2.7, [0.65, 1.2]),
   ]
-  const flowers = clusteredMatrices(count(60), random, options.exclusions, options.roads, meadowCenters.slice(0, 8), 3.8, 1.6, [0.65, 1.05])
+  const flowers = [
+    ...clusteredMatrices(count(120), random, options.exclusions, options.roads, meadowCenters.slice(0, 12), 4.1, 1.6, [0.72, 1.2]),
+    ...roadsideMatrices(count(60), random, options.exclusions, options.roads, 1.6, 1.8, [0.7, 1.1]),
+  ]
   const stones = options.missionLayout
     ? rockPlacementMatrices(createSherwoodMissionForestRockLayout(options.missionLayout))
     : clusteredMatrices(count(14), random, options.exclusions, options.roads, woodlandCenters.slice(0, 4), 3.5, 2.4, [0.45, 1.25])
@@ -228,31 +310,44 @@ export function createForestDressing(options: DressingOptions = {}): ForestDress
 /** Textured normal path using the curated MegaKit catalogue. */
 export function createAuthoredForestDressing(catalog: NatureCatalog, options: DressingOptions = {}): ForestDressing {
   const random = seededRandom(options.seed ?? 4815)
-  const density = options.degraded ? 0.48 : 1
+  const density = options.degraded ? 0.44 : 1
   const count = (value: number): number => Math.round(value * density)
-  const meadowCenters = createClusterCenters(13, random, options.exclusions, options.roads, 2.6)
-  const woodlandCenters = createClusterCenters(11, random, options.exclusions, options.roads, 4.2)
+  const meadowCenters = createClusterCenters(18, random, options.exclusions, options.roads, 2.6)
+  const woodlandCenters = createClusterCenters(16, random, options.exclusions, options.roads, 4.2)
+  const treeCenters = SHERWOOD_TREE_LAYOUT.map(({ x, z }) => ({ x, z }))
   const missionRocks = options.missionLayout
     ? rockPlacementMatrices(createSherwoodMissionForestRockLayout(options.missionLayout))
     : clusteredMatrices(count(14), random, options.exclusions, options.roads, woodlandCenters.slice(0, 4), 3.5, 2.4, [0.45, 1.25])
   const placements: ReadonlyArray<[NatureVariantName, THREE.Matrix4[], boolean]> = [
     ["Nature_Grass_Wispy_Short", [
-      ...clusteredMatrices(count(165), random, options.exclusions, options.roads, meadowCenters, 6.4, 1.3, [0.55, 1.25]),
-      ...scatteredMatrices(count(450), random, options.exclusions, options.roads, 1.3, [0.45, 0.9]),
+      ...clusteredMatrices(count(240), random, options.exclusions, options.roads, meadowCenters, 6.8, 1.3, [0.62, 1.35]),
+      ...scatteredMatrices(count(620), random, options.exclusions, options.roads, 1.3, [0.52, 1]),
+      ...roadsideMatrices(count(160), random, options.exclusions, options.roads, 1.3, 2.4, [0.62, 1.25]),
+      ...clearingEdgeMatrices(count(100), random, options.exclusions, options.roads, 1.3, [0.68, 1.3]),
     ], false],
-    ["Nature_Grass_Common_Tall", clusteredMatrices(count(55), random, options.exclusions, options.roads, meadowCenters, 5.2, 1.7, [0.65, 1.15]), false],
+    ["Nature_Grass_Common_Tall", [
+      ...clusteredMatrices(count(70), random, options.exclusions, options.roads, meadowCenters, 5.5, 1.7, [0.72, 1.25]),
+      ...roadsideMatrices(count(70), random, options.exclusions, options.roads, 1.7, 2.1, [0.7, 1.2]),
+    ], false],
     ["Nature_Fern_1", [
-      ...clusteredMatrices(count(100), random, options.exclusions, options.roads, woodlandCenters, 5.1, 2.2, [0.65, 1.35]),
-      ...scatteredMatrices(count(120), random, options.exclusions, options.roads, 2.2, [0.5, 0.95]),
+      ...clusteredMatrices(count(140), random, options.exclusions, options.roads, woodlandCenters, 5.5, 2.2, [0.72, 1.45]),
+      ...scatteredMatrices(count(180), random, options.exclusions, options.roads, 2.2, [0.58, 1.05]),
+      ...clusteredMatrices(count(180), random, options.exclusions, options.roads, treeCenters, 2.8, 2.2, [0.62, 1.2]),
     ], false],
     ["Nature_Bush_Common", [
-      ...clusteredMatrices(count(48), random, options.exclusions, options.roads, woodlandCenters, 4.5, 2.7, [0.65, 1.3]),
-      ...scatteredMatrices(count(40), random, options.exclusions, options.roads, 2.7, [0.5, 0.85]),
+      ...clusteredMatrices(count(70), random, options.exclusions, options.roads, woodlandCenters, 4.8, 2.7, [0.72, 1.45]),
+      ...scatteredMatrices(count(70), random, options.exclusions, options.roads, 2.7, [0.58, 0.98]),
+      ...clusteredMatrices(count(90), random, options.exclusions, options.roads, treeCenters, 3.2, 2.7, [0.65, 1.2]),
+      ...clearingEdgeMatrices(count(50), random, options.exclusions, options.roads, 2.7, [0.68, 1.22]),
     ], !options.degraded],
-    ["Nature_Flower_3_Group", clusteredMatrices(count(60), random, options.exclusions, options.roads, meadowCenters.slice(0, 8), 3.8, 1.6, [0.65, 1.05]), false],
-    ["Nature_Mushroom_Common", clusteredMatrices(count(18), random, options.exclusions, options.roads, woodlandCenters.slice(0, 8), 3.6, 2.4, [0.35, 0.8]), false],
+    ["Nature_Flower_3_Group", [
+      ...clusteredMatrices(count(90), random, options.exclusions, options.roads, meadowCenters.slice(0, 12), 4.1, 1.6, [0.72, 1.2]),
+      ...roadsideMatrices(count(50), random, options.exclusions, options.roads, 1.6, 1.8, [0.7, 1.1]),
+      ...clearingEdgeMatrices(count(40), random, options.exclusions, options.roads, 1.6, [0.72, 1.15]),
+    ], false],
+    ["Nature_Mushroom_Common", clusteredMatrices(count(36), random, options.exclusions, options.roads, treeCenters, 2.5, 2.4, [0.4, 0.88]), false],
     ["Nature_Rock_Medium_2", missionRocks, false],
-    ["Nature_Pebble_Round_3", clusteredMatrices(count(20), random, options.exclusions, options.roads, woodlandCenters.slice(0, 7), 3.6, 2.2, [0.3, 0.8]), false],
+    ["Nature_Pebble_Round_3", roadsideMatrices(count(40), random, options.exclusions, options.roads, 2.2, 1.8, [0.35, 0.85]), false],
   ]
   const group = new THREE.Group()
   group.name = "SherwoodForestDressing"

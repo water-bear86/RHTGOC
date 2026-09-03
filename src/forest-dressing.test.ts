@@ -7,11 +7,11 @@ import { regionalizeMissionDefinition } from "../shared/regional-layout"
 import { createSherwoodMissionForestRockLayout } from "../shared/world-dressing-layout"
 
 describe("forest dressing", () => {
-  it("creates clustered forest-floor pockets without hundreds of draw objects", () => {
+  it("creates a dense layered forest floor without increasing draw-object count", () => {
     const dressing = createForestDressing({ seed: 7 })
-    expect(dressing.instanceCount).toBeGreaterThanOrEqual(1_000)
-    expect(dressing.instanceCount).toBeLessThan(1_150)
-    expect(dressing.clusterCount).toBeGreaterThanOrEqual(20)
+    expect(dressing.instanceCount).toBeGreaterThanOrEqual(2_000)
+    expect(dressing.instanceCount).toBeLessThan(2_200)
+    expect(dressing.clusterCount).toBeGreaterThanOrEqual(30)
     expect(dressing.group.children).toHaveLength(5)
   })
 
@@ -19,7 +19,7 @@ describe("forest dressing", () => {
     const full = createForestDressing({ seed: 7 })
     const degraded = createForestDressing({ seed: 7, degraded: true })
     expect(degraded.instanceCount).toBeLessThan(full.instanceCount)
-    expect(degraded.instanceCount).toBeGreaterThan(480)
+    expect(degraded.instanceCount).toBeGreaterThan(880)
   })
 
   it("protects authored road corridors from decorative clutter", () => {
@@ -36,6 +36,19 @@ describe("forest dressing", () => {
         expect(Math.hypot(position.x - nearestRoadX, position.z)).toBeGreaterThanOrEqual(3.3)
       }
     })
+  })
+
+  it("adds dense verge and clearing-edge layers around playable routes", () => {
+    const road = { width: 4, points: [{ x: -50, z: 0 }, { x: 50, z: 0 }] }
+    const baseline = createForestDressing({ seed: 17 })
+    const layered = createForestDressing({
+      seed: 17,
+      roads: [road],
+      exclusions: [{ x: 0, z: 12, radius: 10 }],
+    })
+
+    expect(layered.instanceCount).toBeGreaterThan(baseline.instanceCount + 300)
+    expect(layered.group.children).toHaveLength(baseline.group.children.length)
   })
 
   it("moves the forest-floor composition between regional seeds", () => {
@@ -78,8 +91,8 @@ describe("forest dressing", () => {
       source.add(mesh)
     }
     const dressing = createAuthoredForestDressing(indexNatureCatalog(source), { seed: 7 })
-    expect(dressing.instanceCount).toBeGreaterThan(1_050)
-    expect(dressing.instanceCount).toBeLessThan(1_200)
+    expect(dressing.instanceCount).toBeGreaterThanOrEqual(1_750)
+    expect(dressing.instanceCount).toBeLessThan(1_900)
     expect(dressing.group.children).toHaveLength(8)
     dressing.group.traverse((object) => {
       if (object instanceof THREE.InstancedMesh) expect((object.material as THREE.MeshStandardMaterial).map).toBeTruthy()
