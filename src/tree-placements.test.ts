@@ -15,14 +15,27 @@ describe("authored tree placements", () => {
       expect(tree.x).toBe(SHERWOOD_TREE_LAYOUT[index].x)
       expect(tree.z).toBe(SHERWOOD_TREE_LAYOUT[index].z)
       expect(tree.scale).toBe(SHERWOOD_TREE_LAYOUT[index].scale)
-      expect(tree.height).toBeGreaterThan(3)
+      if (tree.variantName === "TreeVariant_Stump") {
+        expect(tree.height).toBeGreaterThan(0.7)
+        expect(tree.height).toBeLessThan(2.2)
+      } else {
+        expect(tree.height).toBeGreaterThan(3)
+      }
       expect(tree.rotation).toBeGreaterThanOrEqual(0)
       expect(tree.rotation).toBeLessThan(Math.PI * 2)
     })
   })
 
   it("uses every curated catalog silhouette", () => {
-    const used = new Set(createAuthoredTreePlacements(SHERWOOD_TREE_LAYOUT).map((tree) => tree.variantName))
+    const trees = createAuthoredTreePlacements(SHERWOOD_TREE_LAYOUT)
+    const used = new Set(trees.map((tree) => tree.variantName))
     expect(used).toEqual(new Set(TREE_VARIANT_NAMES))
+
+    const livingBroadleafCount = trees.filter((tree) => tree.variantName.includes("Common")).length
+    const pineCount = trees.filter((tree) => tree.variantName.includes("Pine")).length
+    const twistedCount = trees.filter((tree) => tree.variantName.includes("Twisted")).length
+    expect(livingBroadleafCount).toBeGreaterThan(pineCount)
+    expect(pineCount).toBeGreaterThan(twistedCount * 2)
+    expect(twistedCount).toBeGreaterThanOrEqual(10)
   })
 })

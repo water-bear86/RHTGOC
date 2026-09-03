@@ -383,16 +383,16 @@
       "category": "modular-environment",
       "qualityGate": {
         "decision": "accept",
-        "reviewedAt": "2026-07-13",
-        "rationale": "Eight CC0 tree silhouettes are grounded, normalized, texture-limited, simplified, and rendered through deterministic instancing without changing authoritative collision."
+        "reviewedAt": "2026-09-03",
+        "rationale": "Eleven CC0 tree silhouettes are grounded, normalized, texture-limited, aggressively simplified, and rendered in stable ecological groves without changing authoritative collision."
       },
       "provenance": {
-        "sourceAsset": "Stylized Nature MegaKit[Standard]/glTF curated tree subset",
-        "sourceSha256": "f1627c4ee6f49341c0d652426bcac9fc8c50a3a96b173f3edc9b9dcd4ac52fa5",
-        "sourceBytes": 21061635,
-        "sourceGenerator": "Quaternius Blender glTF export",
+        "sourceAsset": "tree objects.zip / Stylized Nature MegaKit Standard curated tree subset",
+        "sourceSha256": "2cb3e99818560da3947d3f82e5153ce07b22dd2634f3543177f5e55276b1abb3",
+        "sourceBytes": 5601020,
+        "sourceGenerator": "Quaternius FBX and Blender glTF exports",
         "suppliedBy": "project owner",
-        "conversionScript": "tools/build-stylized-tree-catalog.py",
+        "conversionScript": "tools/expand-stylized-tree-catalog.py",
         "conversionDoc": "docs/assets/stylized-nature-trees.md",
         "optimizer": "Blender glTF 2.0 exporter and glTF Transform simplify/WebP"
       },
@@ -404,21 +404,21 @@
       },
       "uri": "assets/environment/sherwood-tree-catalog.glb",
       "format": "glTF 2.0 GLB",
-      "sha256": "b2799cb1497fea6588a88e4a8775b5e7810ffb4d838fbb21da97e4f7d84cfdc0",
-      "bytesMax": 2500000,
+      "sha256": "9056fb251b241ab69ce8c335274cdf6462ae516ac5f7f012ab78443e9f809bf4",
+      "bytesMax": 2700000,
       "resources": { "embedded": true, "externalUris": [] },
       "geometry": {
-        "renderVertices": 98478,
-        "uploadVertices": 50675,
-        "triangles": 32826,
-        "uniquePrimitives": 15,
-        "sceneDrawCalls": 15
+        "renderVertices": 99975,
+        "uploadVertices": 56350,
+        "triangles": 33325,
+        "uniquePrimitives": 20,
+        "sceneDrawCalls": 20
       },
       "materials": {
-        "count": 4,
-        "names": ["Bark_NormalTree", "Leaves_NormalTree", "Leaves_Pine", "Bark_DeadTree"]
+        "count": 5,
+        "names": ["Bark_NormalTree", "Leaves_NormalTree", "Leaves_Pine", "Bark_DeadTree", "Leaves_TwistedTree"]
       },
-      "texture": { "count": 6, "format": "webp", "width": 512, "height": 512, "encodedBytes": 96294, "gpuBytesApprox": 8388600 },
+      "texture": { "count": 7, "format": "webp", "width": 512, "height": 512, "encodedBytes": 102898, "gpuBytesApprox": 9786700 },
       "clips": [],
       "pivot": {
         "policy": "bottom center at origin",
@@ -428,8 +428,8 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.3883, 0, -0.35661],
-        "boundsMax": [0.3883, 1, 0.35661]
+        "boundsMin": [-0.5089855, 0, -0.35661],
+        "boundsMax": [0.5089855, 1, 0.35661]
       },
       "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
       "collision": { "type": "shared-authoritative-trunk-circles", "reason": "Render variants reuse the existing deterministic client/server tree placement and trunk-collision contract" },
