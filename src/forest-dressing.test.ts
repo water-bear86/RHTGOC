@@ -9,9 +9,9 @@ import { createSherwoodMissionForestRockLayout } from "../shared/world-dressing-
 describe("forest dressing", () => {
   it("creates clustered forest-floor pockets without hundreds of draw objects", () => {
     const dressing = createForestDressing({ seed: 7 })
-    expect(dressing.instanceCount).toBeGreaterThanOrEqual(250)
-    expect(dressing.instanceCount).toBeLessThan(350)
-    expect(dressing.clusterCount).toBeGreaterThanOrEqual(12)
+    expect(dressing.instanceCount).toBeGreaterThanOrEqual(1_000)
+    expect(dressing.instanceCount).toBeLessThan(1_150)
+    expect(dressing.clusterCount).toBeGreaterThanOrEqual(20)
     expect(dressing.group.children).toHaveLength(5)
   })
 
@@ -19,7 +19,7 @@ describe("forest dressing", () => {
     const full = createForestDressing({ seed: 7 })
     const degraded = createForestDressing({ seed: 7, degraded: true })
     expect(degraded.instanceCount).toBeLessThan(full.instanceCount)
-    expect(degraded.instanceCount).toBeGreaterThan(120)
+    expect(degraded.instanceCount).toBeGreaterThan(480)
   })
 
   it("protects authored road corridors from decorative clutter", () => {
@@ -32,7 +32,8 @@ describe("forest dressing", () => {
       for (let index = 0; index < object.count; index += 1) {
         object.getMatrixAt(index, matrix)
         position.setFromMatrixPosition(matrix)
-        expect(Math.abs(position.z)).toBeGreaterThanOrEqual(3.3)
+        const nearestRoadX = Math.max(-50, Math.min(50, position.x))
+        expect(Math.hypot(position.x - nearestRoadX, position.z)).toBeGreaterThanOrEqual(3.3)
       }
     })
   })
@@ -77,8 +78,8 @@ describe("forest dressing", () => {
       source.add(mesh)
     }
     const dressing = createAuthoredForestDressing(indexNatureCatalog(source), { seed: 7 })
-    expect(dressing.instanceCount).toBeGreaterThan(250)
-    expect(dressing.instanceCount).toBeLessThan(350)
+    expect(dressing.instanceCount).toBeGreaterThan(1_050)
+    expect(dressing.instanceCount).toBeLessThan(1_200)
     expect(dressing.group.children).toHaveLength(8)
     dressing.group.traverse((object) => {
       if (object instanceof THREE.InstancedMesh) expect((object.material as THREE.MeshStandardMaterial).map).toBeTruthy()

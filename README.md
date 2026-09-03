@@ -37,22 +37,17 @@ npm run dev
 
 Open the URL Vite prints. Controls are WASD or click to move, `E` to interact, Space to fire, and `Q` to use the selected outlaw's signature ability. Append `?render=degraded` to force the lower rendering profile during local QA.
 
-## Wallet sign-in and the optional Sherwood pass
+## Free play and optional wallet identity
 
-Robinhood Wallet sign-in uses WalletConnect through Reown AppKit and Supabase Web3 Auth. Set `VITE_REOWN_PROJECT_ID`, choose `VITE_ROBINHOOD_CHAIN=testnet` or `mainnet`, enable the Ethereum Web3 provider in the hosted Supabase project, and apply the checked-in migrations before testing authenticated social or access flows. The sign-in prompt proves wallet ownership without moving funds.
+Sherwood is free to play. Solo and online quick play do not require a wallet, token balance, purchase, account, or payment. Online play places each arrival into one shared queue, forms an exact four-player group, assigns the four unique outlaw roles, and starts the mission automatically. Band chat remains available during the mission.
 
-The approximately $6, 30-day token pass is controlled exclusively by the server-side `TOKEN_ACCESS_GATE_ENABLED` switch:
-
-- `false` or unset: open play; wallet sign-in remains optional.
-- `true`, `1`, or `on`: create/join/public-hub access requires an authenticated wallet with an unexpired verified token pass.
-
-Configure `ROBINHOOD_CHAIN`, a production RPC in `ROBINHOOD_RPC_URL`, the exact minted `TOKEN_CONTRACT_ADDRESS`, `TOKEN_TREASURY_ADDRESS`, `TOKEN_SYMBOL`, `TOKEN_DECIMALS`, and an operator-set `TOKEN_ACCESS_AMOUNT` that currently approximates USD $6. A wallet-approved ERC-20 transfer buys `TOKEN_ACCESS_DAYS` (30 by default). The server independently verifies the chain, receipt status, confirmations, signed-in sender, token contract, treasury, and amount before recording the unique transaction hash. Reusing a transaction is rejected. If verification, persistence, or configuration is unavailable while the switch is on, authoritative entry fails closed.
+Robinhood Wallet sign-in remains optional for persistent identity and social data. It uses WalletConnect through Reown AppKit and Supabase Web3 Auth. Set `VITE_REOWN_PROJECT_ID`, choose `VITE_ROBINHOOD_CHAIN=testnet` or `mainnet`, enable the Ethereum Web3 provider in the hosted Supabase project, and apply the checked-in migrations before testing those optional authenticated features. A failed or expired wallet session falls back to guest quick play.
 
 ## Multiplayer and persistence
 
-Private rooms support two to four players. Robin, Maid Marian, Little John, and Much are playable across three versioned missions, with shared guards, pings, loot, Wanted pressure, guard captures, teammate rescues, redistribution, rotations, rescue follow-ups, preparations, and seasonal campaign state.
+Quick play supports four players. Robin, Maid Marian, Little John, and Much are playable across three versioned missions, with shared guards, pings, loot, Wanted pressure, guard captures, teammate rescues, redistribution, rotations, rescue follow-ups, preparations, and seasonal campaign state.
 
-The Supabase schema is in [`supabase/migrations`](./supabase/migrations); generated types are in [`src/database.types.ts`](./src/database.types.ts). Browser clients use only the publishable key. The authoritative room service requires `SUPABASE_SECRET_KEY` for durable band, rescue, contribution, campaign, social, token-access, and verified leaderboard writes. Without it, persistence remains unavailable; paid access also remains unavailable when its switch is on. Private Band chat remains in memory. Authenticated, instance-local Camp chat additionally requires `PUBLIC_CAMP_CHAT_ENABLED=true` and a successful startup probe of the private moderation-evidence RPC, so it fails closed when evidence retention is not ready.
+The Supabase schema is in [`supabase/migrations`](./supabase/migrations); generated types are in [`src/database.types.ts`](./src/database.types.ts). Browser clients use only the publishable key. The authoritative room service requires `SUPABASE_SECRET_KEY` for durable band, rescue, contribution, campaign, social, and verified leaderboard writes. Without it, gameplay remains open while those persistence features stay unavailable. Band chat remains in memory.
 
 Global boards are read through a privacy-filtered RPC. Clients never write ranked scores directly. Production activation and proofs remain tracked in #9, #10, and #14.
 

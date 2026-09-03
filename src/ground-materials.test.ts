@@ -21,7 +21,9 @@ describe("Sherwood ground materials", () => {
     expect(material.map?.repeat.toArray()).toEqual([32, 32])
     expect(material.map?.colorSpace).toBe(THREE.SRGBColorSpace)
     expect(material.normalMap?.colorSpace).toBe(THREE.NoColorSpace)
-    expect(material.normalScale.toArray()).toEqual([0.24, 0.24])
+    expect(material.normalScale.toArray()).toEqual([0.14, 0.14])
+    expect(material.emissiveIntensity).toBe(0.42)
+    expect(material.gradientMap?.name).toBe("Sherwood soft ground toon ramp")
   })
 
   it("keeps server-side and unit-test material construction independent of the DOM", () => {
@@ -29,5 +31,6 @@ describe("Sherwood ground materials", () => {
     expect(material.name).toBe("SherwoodForestFloor")
     expect(material.map).toBeNull()
     expect(material.normalMap).toBeNull()
+    expect(material.emissiveIntensity).toBe(0.22)
   })
 })

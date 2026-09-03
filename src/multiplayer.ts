@@ -44,7 +44,7 @@ export class MultiplayerClient {
   private pendingAction: (() => void) | null = null
   private reconnectTimer: number | null = null
   private reconnectAttempt = 0
-  private reconnectSession: { roomCode: string; displayName: string; characterId: CharacterId } | null = null
+  private reconnectSession: { roomCode: string; displayName: string; characterId: CharacterId; quickPlayToken?: string } | null = null
   private hubSession: { displayName: string; characterId: CharacterId } | null = null
   private heartbeatTimer: number | null = null
   private intentionallyClosed = false
@@ -77,15 +77,9 @@ export class MultiplayerClient {
     this.reconnectSession = null
     this.hubSession = { displayName, characterId }
     this.pendingIdentity = { displayName, characterId }
-    void this.getAccessToken()
-      .then((accessToken) => {
-        if (!accessToken) {
-          this.events.onError?.("Sign in before entering the public camp")
-          return
-        }
-        this.connect(() => this.send({ type: "join_public_hub", ...this.handshake(), displayName, characterId, accessToken }))
-      })
-      .catch((error: unknown) => this.events.onError?.(error instanceof Error ? error.message : "Unable to verify Sherwood sign-in"))
+    void this.getOptionalAccessToken()
+      .then((accessToken) => this.connect(() => this.send({ type: "join_public_hub", ...this.handshake(), displayName, characterId, accessToken })))
+      .catch((error: unknown) => this.events.onError?.(error instanceof Error ? error.message : "Unable to enter quick play"))
   }
 
   setHubIntent(looking: boolean, targetPreference: PublicHubPlayer["targetPreference"], desiredPartySize: 2 | 3 | 4): void { this.send({ type: "hub_intent", looking, targetPreference, desiredPartySize }) }
@@ -278,6 +272,7 @@ export class MultiplayerClient {
           characterId: this.pendingIdentity?.characterId ?? "robin",
         }
       }
+      else this.reconnectSession.quickPlayToken = undefined
       localStorage.setItem(`sherwood:reconnect:${message.roomCode}`, message.reconnectToken)
       this.events.onWelcome?.(message.playerId, message.roomCode)
     }
@@ -292,10 +287,19 @@ export class MultiplayerClient {
     if (message.type === "chat_error") this.events.onChatError?.(message.channel, message.code, message.message, message.retryAfterMs)
     if (message.type === "action_result") this.events.onActionResult?.(message.requestId, message.action, message.accepted)
     if (message.type === "hub_band_ready" && this.pendingIdentity) {
-      const identity = this.pendingIdentity
+      const identity = { ...this.pendingIdentity, characterId: message.characterId }
+      this.pendingIdentity = identity
       this.hubSession = null
-      this.reconnectSession = { roomCode: message.roomCode, ...identity }
-      window.setTimeout(() => void this.getAccessToken().then((accessToken) => this.send({ type: "join_room", ...this.handshake(), roomCode: message.roomCode, displayName: identity.displayName, characterId: identity.characterId, accessToken })), message.leader ? 0 : 120)
+      this.reconnectSession = { roomCode: message.roomCode, ...identity, quickPlayToken: message.quickPlayToken }
+      window.setTimeout(() => void this.getOptionalAccessToken().then((accessToken) => this.send({
+        type: "join_room",
+        ...this.handshake(),
+        roomCode: message.roomCode,
+        displayName: identity.displayName,
+        characterId: identity.characterId,
+        quickPlayToken: message.quickPlayToken,
+        accessToken,
+      })), message.leader ? 0 : 120)
     }
     if (message.type === "snapshot") {
       this.events.onExperiments?.(message.experiments)
@@ -335,8 +339,8 @@ export class MultiplayerClient {
       const session = this.reconnectSession
       const hub = this.hubSession
       if (hub) {
-        void this.getAccessToken().then((accessToken) => {
-          if (accessToken) this.connect(() => this.send({ type: "join_public_hub", ...this.handshake(), displayName: hub.displayName, characterId: hub.characterId, accessToken }))
+        void this.getOptionalAccessToken().then((accessToken) => {
+          this.connect(() => this.send({ type: "join_public_hub", ...this.handshake(), displayName: hub.displayName, characterId: hub.characterId, accessToken }))
         })
         return
       }
@@ -349,6 +353,7 @@ export class MultiplayerClient {
           displayName: session.displayName,
           characterId: session.characterId,
           reconnectToken,
+          quickPlayToken: session.quickPlayToken,
           accessToken,
         })))
     }, delay)
@@ -363,5 +368,13 @@ export class MultiplayerClient {
 
   private handshake(): { version: typeof PROTOCOL_VERSION; buildId: string; productAnalytics: boolean } {
     return { version: PROTOCOL_VERSION, buildId: CLIENT_BUILD_ID, productAnalytics: getProductAnalyticsConsent() }
+  }
+
+  private async getOptionalAccessToken(): Promise<string | undefined> {
+    try {
+      return await this.getAccessToken()
+    } catch {
+      return undefined
+    }
   }
 }

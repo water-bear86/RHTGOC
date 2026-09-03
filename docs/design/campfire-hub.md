@@ -1,22 +1,20 @@
-# Campfire hub and mission board
+# Quick play and the campfire runtime
 
-The campfire is the band's persistent preparation space between mission instances. It keeps the outlaws in the 3D world while moving target, role, field-kit, invite, and readiness decisions into one compact mission-board surface.
+The public entry flow is intentionally short: choose an outlaw name, press `PLAY ONLINE`, and wait for four players. Wallet identity is optional and private invite codes are no longer part of the player-facing entry flow.
 
 ## Player flow
 
-1. **Intro to camp:** `FORM A MERRY BAND`, `JOIN BAND`, `REJOIN LAST BAND`, and solo `ENTER THE CAMPFIRE` all arrive at the same hub state.
-2. **Prepare:** the leader selects a mission from the data-driven mission catalog. Every player selects a hero and field kit, then toggles ready.
-3. **Launch:** when every connected outlaw is ready, the authoritative room creates the selected mission snapshot and all clients transition into the mission together.
+1. **Enter:** `PLAY ONLINE` joins the shared queue immediately as a guest or optional authenticated identity.
+2. **Match:** the server forms an exact four-player FIFO group and assigns Robin, Marian, Little John, and Much once each, honoring a player's selected role when it is still available.
+3. **Launch:** reservation tokens bind each queued player to the assigned room and role. The authoritative room starts automatically after all four reserved players arrive.
 4. **Resolve:** the results surface records the run, redistribution vote, and resulting village state.
 5. **Return:** the room resets its players and readiness, retains the band and village state, and broadcasts the refreshed hub without a page reload.
-
-Direct invitation links use `?room=CODE`. The last joined room is stored locally so a returning browser can offer one-click rejoin.
 
 ## Mission-board data
 
 The board iterates `MISSION_CATALOG`; its title, version, approaches, par time, and selected state are therefore sourced from validated mission packages rather than hard-coded cards. The room broadcasts the selected mission slug, village upgrades, recent result, party roles, field kits, readiness, and connection state.
 
-Only the first room member can change the target. Role and kit selection remain player-owned. Starting a mission still requires every connected player to be ready.
+Quick-play role assignment and readiness are server-owned so one disconnected menu cannot stall the group before launch. The normal room lifecycle remains available internally for reconnect and backwards compatibility.
 
 ## Field kits
 
@@ -33,7 +31,6 @@ Movement continues through the shared remappable keyboard, pointer, and controll
 
 ## Verification
 
-- 68 automated tests cover the protocol, room lifecycle, selected mission, role and kit synchronization, return-to-hub reset, village state, and server-side kit effects.
+- Automated tests cover the protocol, room lifecycle, exact four-player matching, role assignment, guest access, return-to-hub reset, village state, and server-side kit effects.
 - The production build validates every mission package and stable asset reference before bundling.
-- A two-context Chromium playtest formed and joined a room, synchronized Much and Little John with different kits, copied and validated the direct invite, launched both clients, exposed the rejoin path, and produced no console, page, or request errors.
-- Visual proof: `/tmp/sherwood-qa/campfire-hub.png`.
+- The four-client smoke test proves guest entry, one shared room, four unique roles, automatic launch, and Band chat delivery.

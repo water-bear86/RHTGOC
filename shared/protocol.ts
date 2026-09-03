@@ -62,6 +62,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     displayName: DisplayNameSchema,
     characterId: CharacterIdSchema,
     reconnectToken: z.string().uuid().optional(),
+    quickPlayToken: z.string().uuid().optional(),
     accessToken: z.string().min(20).max(4_096).optional(),
   }),
   z.object({
@@ -87,7 +88,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("remove_band_member"), targetPlayerId: z.string().uuid() }),
   z.object({ type: z.literal("chat_send"), channel: ChatChannelSchema, text: ChatTextSchema }),
   z.object({ type: z.literal("chat_report"), channel: ChatChannelSchema, messageId: z.string().uuid(), reason: ChatReportReasonSchema }),
-  z.object({ type: z.literal("join_public_hub"), ...ClientHandshakeSchema, displayName: DisplayNameSchema, characterId: CharacterIdSchema, accessToken: z.string().min(20).max(4_096) }),
+  z.object({ type: z.literal("join_public_hub"), ...ClientHandshakeSchema, displayName: DisplayNameSchema, characterId: CharacterIdSchema, accessToken: z.string().min(20).max(4_096).optional() }),
   z.object({ type: z.literal("hub_intent"), looking: z.boolean(), targetPreference: z.enum(["any", "peoples-purse", "prison-wagon", "royal-storehouse"]), desiredPartySize: z.number().int().min(2).max(4) }),
   z.object({ type: z.literal("hub_move"), sequence: z.number().int().nonnegative(), move: z.object({ x: z.number().min(-1).max(1), z: z.number().min(-1).max(1) }) }),
   z.object({ type: z.literal("hub_emote"), kind: z.enum(["wave", "cheer", "bow"]) }),
@@ -378,7 +379,7 @@ export type ServerMessage =
   | { type: "room_state"; roomCode: string; phase: "lobby" | "mission"; missionSlug: string; selectedRotationId: string | null; rotationsPaused: boolean; rotations: SheriffRotation[]; upcomingRotations: SheriffRotation[]; rescueOffer: RescueOffer | null; contributions: BandContribution[]; selectedContributionIds: string[]; season: SherwoodSeasonSnapshot | null; band: MerryBandState | null; experiments: RoomExperimentAssignment[]; players: RoomPlayer[]; village: VillageState; lastResult: LastMissionResult | null }
   | { type: "hub_welcome"; instanceId: string; participantId: string; capacity: number }
   | { type: "hub_state"; instanceId: string; players: PublicHubPlayer[] }
-  | { type: "hub_band_ready"; roomCode: string; leader: boolean }
+  | { type: "hub_band_ready"; roomCode: string; leader: boolean; quickPlayToken: string; characterId: CharacterId }
   | { type: "chat_history"; channel: "band" | "camp"; messages: ChatMessage[] }
   | { type: "chat_message"; message: ChatMessage }
   | { type: "chat_error"; channel: "band" | "camp"; code: ChatErrorCode; message: string; retryAfterMs?: number }

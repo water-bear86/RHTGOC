@@ -5,7 +5,7 @@ const handshake = { version: PROTOCOL_VERSION, buildId: "test-build", productAna
 
 describe("Merry Band protocol", () => {
   it("requires the authoritative stealth-and-stockade snapshot protocol", () => {
-    expect(PROTOCOL_VERSION).toBe(17)
+    expect(PROTOCOL_VERSION).toBe(18)
   })
 
   it("carries authoritative bow cooldown seconds in mission snapshots", () => {
@@ -118,6 +118,7 @@ describe("Merry Band protocol", () => {
   })
 
   it("accepts only fixed, bounded public-camp discovery intents", () => {
+    expect(parseClientMessage({ type: "join_public_hub", ...handshake, displayName: "Guest Oak", characterId: "robin" })).not.toBeNull()
     expect(parseClientMessage({ type: "join_public_hub", ...handshake, displayName: "Oakheart", characterId: "robin", accessToken: "header.payload.signature.long-enough" })).not.toBeNull()
     expect(parseClientMessage({ type: "hub_intent", looking: true, targetPreference: "peoples-purse", desiredPartySize: 4 })).not.toBeNull()
     expect(parseClientMessage({ type: "hub_intent", looking: true, targetPreference: "unreleased", desiredPartySize: 20 })).toBeNull()

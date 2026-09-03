@@ -30,8 +30,8 @@ function latestMessage<T extends ServerMessage["type"]>(recording: ReturnType<ty
   return undefined
 }
 
-describe("opt-in public campfire", () => {
-  it("caps readable instances and preferentially places accepted friends together", () => {
+describe("quick-play queue", () => {
+  it("caps readable instances and packs new arrivals into the fullest compatible camp", () => {
     const hub = new PublicHubService()
     const friend = hub.join(socket(), "user-friend", "Friend", "marian", [], 1_000)
     let filler = friend
@@ -46,7 +46,7 @@ describe("opt-in public campfire", () => {
     expect([...hub.instances.values()].find((instance) => instance.participants.has(overflow.id))?.participants.has(preferred.id)).toBe(false)
   })
 
-  it("matches fixed-intent players into a private-band assignment with friend priority", () => {
+  it("matches fixed-intent players in arrival order without friend priority", () => {
     const hub = new PublicHubService()
     const leader = hub.join(socket(), "leader", "Leader", "robin", ["friend"], 1_000)
     const stranger = hub.join(socket(), "stranger", "Stranger", "much", [], 1_001)
@@ -54,13 +54,28 @@ describe("opt-in public campfire", () => {
     hub.setIntent(leader.id, true, "peoples-purse", 2, 2_000)
     hub.setIntent(stranger.id, true, "any", 2, 2_001)
     hub.setIntent(friend.id, true, "peoples-purse", 2, 2_002)
-    expect(hub.formBand(leader.id, 3_000)?.map((player) => player.userId)).toEqual(["leader", "friend"])
+    expect(hub.formBand(leader.id, 3_000)?.map((player) => player.userId)).toEqual(["leader", "stranger"])
+  })
+
+  it("queues every arrival for an exact four-player group by default", () => {
+    const hub = new PublicHubService()
+    const players = [
+      hub.join(socket(), "first", "First", "robin", [], 1_000),
+      hub.join(socket(), "second", "Second", "robin", [], 1_001),
+      hub.join(socket(), "third", "Third", "robin", [], 1_002),
+      hub.join(socket(), "fourth", "Fourth", "robin", [], 1_003),
+    ]
+    expect(players.every((player) => player.looking && player.desiredPartySize === 4)).toBe(true)
+    expect(hub.drainMatches(2_000).map((group) => group.map((player) => player.userId))).toEqual([["first", "second", "third", "fourth"]])
   })
 
   it("automatically matches compatible players across public-camp instances", () => {
     const hub = new PublicHubService()
     const leader = hub.join(socket(), "leader", "Leader", "robin", [], 1_000)
-    for (let index = 1; index < PUBLIC_HUB_CAPACITY; index += 1) hub.join(socket(), `filler-${index}`, `Filler ${index}`, "much", [], 1_000 + index)
+    for (let index = 1; index < PUBLIC_HUB_CAPACITY; index += 1) {
+      const filler = hub.join(socket(), `filler-${index}`, `Filler ${index}`, "much", [], 1_000 + index)
+      hub.setIntent(filler.id, false, "any", 4, 1_500 + index)
+    }
     const remote = hub.join(socket(), "remote", "Remote", "marian", [], 1_100)
     hub.setIntent(leader.id, true, "any", 2, 2_000)
     hub.setIntent(remote.id, true, "peoples-purse", 2, 2_001)

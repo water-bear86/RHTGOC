@@ -3,7 +3,7 @@ import { randomInt, randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { extname, join, normalize } from "node:path"
 import { WebSocket, WebSocketServer } from "ws"
-import { PROTOCOL_VERSION, parseClientMessage, type ClientDiagnosticCode, type ServerMessage } from "../shared/protocol"
+import { PROTOCOL_VERSION, parseClientMessage, type CharacterId, type ClientDiagnosticCode, type ServerMessage } from "../shared/protocol"
 import { Room, type ContributionTransition, type RescueOfferTransition } from "./room"
 import { createBandStoreFromEnv, type CompletedBandMission, type PersistentBandRecord } from "./band-store"
 import { createLeaderboardStoreFromEnv, terminalLeaderboardFailure, type VerifiedRun } from "./leaderboard-store"
@@ -18,7 +18,7 @@ import { campaignRotationWindow } from "../shared/sherwood-season"
 import { createSeasonStoreFromEnv } from "./season-store"
 import { createSocialStoreFromEnv } from "./social-store"
 import { PublicHubService, type HubParticipant } from "./public-hub"
-import { createTokenAccessServiceFromEnv, REFERENCE_PRICE_USD, tokenAccessGateEnabled, walletAddressFromIdentities } from "./token-access-service"
+import { createTokenAccessServiceFromEnv, REFERENCE_PRICE_USD, walletAddressFromIdentities } from "./token-access-service"
 import { normalizeBuildId, staticCacheControl } from "../shared/release"
 import { GameplayAnalyticsAggregator } from "./gameplay-analytics"
 import { createGameplayAnalyticsStoreFromEnv } from "./gameplay-analytics-store"
@@ -39,7 +39,7 @@ const publicCampChatConfigured = process.env.PUBLIC_CAMP_CHAT_ENABLED === "true"
 let publicCampChatEnabled = false
 const publicHub = new PublicHubService()
 const tokenAccessService = createTokenAccessServiceFromEnv()
-const tokenAccessGate = tokenAccessGateEnabled(process.env.TOKEN_ACCESS_GATE_ENABLED)
+const tokenAccessGate = false
 const gameplayAnalyticsEnabled = process.env.GAMEPLAY_ANALYTICS_ENABLED === "true"
 const gameplayAnalyticsStore = gameplayAnalyticsEnabled ? createGameplayAnalyticsStoreFromEnv() : null
 const gameplayAnalytics = gameplayAnalyticsStore ? new GameplayAnalyticsAggregator() : null
@@ -58,6 +58,16 @@ const observedRoomPhases = new Map<string, string>()
 const observedMissionStatus = new Map<string, string>()
 const roomTraces = new Map<string, string>()
 const reservedRoomsUntil = new Map<string, number>()
+const QUICK_PLAY_RESERVATION_MS = 20_000
+interface QuickPlayReservation {
+  roomCode: string
+  displayName: string
+  characterId: CharacterId
+  authenticatedUserId: string | null
+  expiresAt: number
+}
+const quickPlayReservations = new Map<string, QuickPlayReservation>()
+const quickPlayRooms = new Map<string, { expectedPlayers: number; joinedPlayerIds: Set<string>; expiresAt: number }>()
 let activeConnections = 0
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const pendingRescueTransitions = new Map<string, { transition: RescueOfferTransition; attempts: number; nextAttemptAt: number }>()
@@ -261,11 +271,26 @@ function reservePublicBand(group: HubParticipant[], automatic: boolean): void {
   const code = roomCode()
   const room = new Room(code, (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)), (now) => seasonService.snapshot(now), null, assignRoomExperiments)
   rooms.set(code, room)
-  reservedRoomsUntil.set(code, Date.now() + 10_000)
+  const expiresAt = Date.now() + QUICK_PLAY_RESERVATION_MS
+  reservedRoomsUntil.set(code, expiresAt)
+  quickPlayRooms.set(code, { expectedPlayers: group.length, joinedPlayerIds: new Set(), expiresAt })
   roomTraces.set(code, randomUUID())
-  group.forEach((participant, index) => send(participant.socket, { type: "hub_band_ready", roomCode: code, leader: index === 0 }))
-  telemetry.increment("hub_private_bands_formed_total")
-  structuredLog("hub_private_band_formed", { traceId: roomTraces.get(code) ?? null, partySize: group.length, automatic })
+  const availableRoles: CharacterId[] = ["robin", "marian", "little-john", "much"]
+  group.forEach((participant, index) => {
+    const preferredIndex = availableRoles.indexOf(participant.characterId)
+    const characterId = availableRoles.splice(preferredIndex >= 0 ? preferredIndex : 0, 1)[0]
+    const quickPlayToken = randomUUID()
+    quickPlayReservations.set(quickPlayToken, {
+      roomCode: code,
+      displayName: participant.displayName,
+      characterId,
+      authenticatedUserId: participant.authenticatedUserId,
+      expiresAt,
+    })
+    send(participant.socket, { type: "hub_band_ready", roomCode: code, leader: index === 0, quickPlayToken, characterId })
+  })
+  telemetry.increment("quick_play_groups_formed_total")
+  structuredLog("quick_play_group_formed", { traceId: roomTraces.get(code) ?? null, partySize: group.length, automatic })
 }
 
 const contentTypes: Record<string, string> = {
@@ -337,16 +362,8 @@ async function verifySupabaseUser(accessToken: string | undefined): Promise<stri
   return (await verifySupabaseIdentity(accessToken))?.id ?? null
 }
 
-async function tokenAccessAllows(userId: string | null): Promise<boolean> {
-  if (!tokenAccessGate) return true
-  if (!userId || !tokenAccessService) return false
-  try {
-    return (await tokenAccessService.access(userId)).entitled
-  } catch (error) {
-    telemetry.increment("token_access_failure_total")
-    structuredLog("token_access_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
-    return false
-  }
+function isPersistentUserId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
 function enqueueRescueTransition(transition: RescueOfferTransition): void {
@@ -921,16 +938,21 @@ sockets.on("connection", (socket) => {
           publicHub.leave(hubParticipantId)
           hubParticipantId = null
         }
-        const authUserId = await verifySupabaseUser(message.accessToken)
-        if (message.accessToken && supabaseUrl && supabasePublishableKey && !authUserId) {
+        const quickPlayReservation = message.type === "join_room" && message.quickPlayToken
+          ? quickPlayReservations.get(message.quickPlayToken) ?? null
+          : null
+        if (message.type === "join_room" && message.quickPlayToken && (!quickPlayReservation || quickPlayReservation.roomCode !== message.roomCode || quickPlayReservation.expiresAt <= Date.now())) {
+          send(socket, { type: "error", code: "FORBIDDEN", message: "That quick-play seat expired. Find a new group." })
+          return
+        }
+        const verifiedAuthUserId = await verifySupabaseUser(message.accessToken)
+        if (message.accessToken && supabaseUrl && supabasePublishableKey && !verifiedAuthUserId && !quickPlayReservation) {
           send(socket, { type: "error", code: "FORBIDDEN", message: "Your Sherwood sign-in expired. Sign in again or continue as a guest." })
           return
         }
-        if (!await tokenAccessAllows(authUserId)) {
-          telemetry.increment("token_access_room_rejected_total")
-          send(socket, { type: "error", code: "FORBIDDEN", message: "Sherwood requires an active 30-day token pass" })
-          return
-        }
+        const authUserId = quickPlayReservation?.authenticatedUserId ?? verifiedAuthUserId
+        const displayName = quickPlayReservation?.displayName ?? message.displayName
+        const characterId = quickPlayReservation?.characterId ?? message.characterId
         let persistentBand: PersistentBandRecord | null = null
         if (message.type === "create_room" && authUserId && bandStore) {
           try {
@@ -955,9 +977,9 @@ sockets.on("connection", (socket) => {
           return
         }
         if (message.type === "create_room") rooms.set(room.code, room)
-        if (message.type === "join_room" && room.players.size === 0 && !room.band && authUserId && bandStore) {
+        if (message.type === "join_room" && !quickPlayReservation && room.players.size === 0 && !room.band && authUserId && bandStore) {
           try {
-            room.attachPersistentBand(await bandStore.ensureBand(authUserId, message.displayName, message.characterId))
+            room.attachPersistentBand(await bandStore.ensureBand(authUserId, displayName, characterId))
             telemetry.increment("band_restore_success_total")
           } catch (error) {
             telemetry.increment("band_restore_failure_total")
@@ -968,7 +990,7 @@ sockets.on("connection", (socket) => {
         const reconnected = message.type === "join_room" && message.reconnectToken
           ? room.reconnect(socket, message.reconnectToken, Date.now(), authUserId, message.productAnalytics, message.buildId)
           : null
-        const player = reconnected ?? room.addPlayer(socket, message.displayName, message.characterId, authUserId, false, message.productAnalytics, message.buildId)
+        const player = reconnected ?? room.addPlayer(socket, displayName, characterId, authUserId, quickPlayReservation !== null, message.productAnalytics, message.buildId)
         telemetry.increment(reconnected ? "reconnect_success_total" : message.type === "create_room" ? "rooms_created_total" : "room_joins_total")
         if (message.type === "create_room") {
           const traceId = randomUUID()
@@ -976,11 +998,24 @@ sockets.on("connection", (socket) => {
           structuredLog("room_created", { traceId })
         }
         joinedRoom = room
-        reservedRoomsUntil.delete(room.code)
+        if (!quickPlayReservation) reservedRoomsUntil.delete(room.code)
         playerId = player.id
         send(socket, { type: "welcome", version: PROTOCOL_VERSION, buildId, playerId: player.id, reconnectToken: player.reconnectToken, roomCode: room.code })
         room.sendBandChatHistory(player.id)
         room.broadcastRoomState()
+        if (quickPlayReservation && message.type === "join_room" && message.quickPlayToken) {
+          quickPlayReservations.delete(message.quickPlayToken)
+          const quickPlayRoom = quickPlayRooms.get(room.code)
+          if (quickPlayRoom) {
+            quickPlayRoom.joinedPlayerIds.add(player.id)
+            if (quickPlayRoom.joinedPlayerIds.size === quickPlayRoom.expectedPlayers) {
+              for (const joinedPlayerId of quickPlayRoom.joinedPlayerIds) room.setReady(joinedPlayerId, true)
+              quickPlayRooms.delete(room.code)
+              reservedRoomsUntil.delete(room.code)
+              telemetry.increment("quick_play_groups_started_total")
+            }
+          }
+        }
       } catch (error) {
         const reason = error instanceof Error ? error.message : "MISSION_STARTED"
         const code = reason === "ROOM_FULL" ? "ROOM_FULL" : reason === "ROLE_FULL" ? "ROLE_FULL" : "MISSION_STARTED"
@@ -1005,23 +1040,14 @@ sockets.on("connection", (socket) => {
         return
       }
       const authUserId = await verifySupabaseUser(message.accessToken)
-      if (!authUserId) {
-        telemetry.increment("hub_auth_rejected_total")
-        send(socket, { type: "error", code: "FORBIDDEN", message: "The public camp requires a current Sherwood sign-in" })
-        return
-      }
-      if (!await tokenAccessAllows(authUserId)) {
-        telemetry.increment("token_access_hub_rejected_total")
-        send(socket, { type: "error", code: "FORBIDDEN", message: "The public camp requires an active 30-day token pass" })
-        return
-      }
       const [friendIds, blockedIds] = await Promise.all([
-        socialStore?.getAcceptedFriendIds(authUserId).catch(() => []) ?? [],
-        socialStore?.getHubBlockedIds(authUserId).catch(() => []) ?? [],
+        authUserId ? socialStore?.getAcceptedFriendIds(authUserId).catch(() => []) ?? [] : [],
+        authUserId ? socialStore?.getHubBlockedIds(authUserId).catch(() => []) ?? [] : [],
       ])
-      const participant = publicHub.join(socket, authUserId, message.displayName, message.characterId, friendIds, Date.now(), blockedIds)
+      const participantUserId = authUserId ?? `guest:${randomUUID()}`
+      const participant = publicHub.join(socket, participantUserId, message.displayName, message.characterId, friendIds, Date.now(), blockedIds, authUserId)
       hubParticipantId = participant.id
-      telemetry.increment("hub_opt_ins_total")
+      telemetry.increment(authUserId ? "quick_play_authenticated_joins_total" : "quick_play_guest_joins_total")
       return
     }
 
@@ -1064,7 +1090,7 @@ sockets.on("connection", (socket) => {
           const result = publicHub.reportCampChat(hubParticipantId, message.messageId, message.reason)
           if (!result.ok) {
             send(socket, { type: "chat_error", channel: "camp", code: result.code, message: result.message, ...(result.retryAfterMs === undefined ? {} : { retryAfterMs: result.retryAfterMs }) })
-          } else if (!socialStore) {
+          } else if (!socialStore || !isPersistentUserId(result.evidence.reporterUserId) || !isPersistentUserId(result.evidence.targetUserId)) {
             publicHub.releaseCampChatReport(hubParticipantId, message.messageId)
             send(socket, { type: "chat_error", channel: "camp", code: "NOT_AVAILABLE", message: "Camp reporting is temporarily unavailable" })
           } else {
@@ -1082,7 +1108,7 @@ sockets.on("connection", (socket) => {
             }
           }
         }
-      } else if (message.type === "hub_intent") publicHub.setIntent(hubParticipantId, message.looking, message.targetPreference, message.desiredPartySize as 2 | 3 | 4)
+      } else if (message.type === "hub_intent") publicHub.setIntent(hubParticipantId, message.looking, "any", 4)
       else if (message.type === "hub_move") publicHub.move(hubParticipantId, message.sequence, message.move)
       else if (message.type === "hub_emote") {
         if (publicHub.emote(hubParticipantId, message.kind)) telemetry.increment(`hub_emote_${message.kind}_total`)
@@ -1095,13 +1121,17 @@ sockets.on("connection", (socket) => {
         if (report) {
           telemetry.increment("hub_reports_total")
           structuredLog("hub_reported", { reason: message.reason })
-          void socialStore?.recordHubReport(report.reporterUserId, report.targetUserId, report.reason).catch(() => telemetry.increment("hub_report_persistence_failure_total"))
+          if (isPersistentUserId(report.reporterUserId) && isPersistentUserId(report.targetUserId)) {
+            void socialStore?.recordHubReport(report.reporterUserId, report.targetUserId, report.reason).catch(() => telemetry.increment("hub_report_persistence_failure_total"))
+          }
         } else telemetry.increment("hub_report_rate_limited_total")
       } else if (message.type === "hub_block") {
         const block = publicHub.block(hubParticipantId, message.targetParticipantId)
         if (block) {
           telemetry.increment("hub_blocks_total")
-          void socialStore?.recordHubBlock(block.blockerUserId, block.blockedUserId).catch(() => telemetry.increment("hub_block_persistence_failure_total"))
+          if (isPersistentUserId(block.blockerUserId) && isPersistentUserId(block.blockedUserId)) {
+            void socialStore?.recordHubBlock(block.blockerUserId, block.blockedUserId).catch(() => telemetry.increment("hub_block_persistence_failure_total"))
+          }
         }
       } else if (message.type === "hub_form_band") {
         const group = publicHub.formBand(hubParticipantId)
@@ -1305,6 +1335,13 @@ sockets.on("connection", (socket) => {
 })
 
 setInterval(() => {
+  const now = Date.now()
+  for (const [token, reservation] of quickPlayReservations) {
+    if (reservation.expiresAt <= now) quickPlayReservations.delete(token)
+  }
+  for (const [code, quickPlayRoom] of quickPlayRooms) {
+    if (quickPlayRoom.expiresAt <= now) quickPlayRooms.delete(code)
+  }
   let activePlayers = 0
   let seasonChanged = false
   for (const [code, room] of rooms) {
@@ -1340,7 +1377,7 @@ setInterval(() => {
       })
     }
     seasonChanged = settleRoomOutcomes(code, room) || seasonChanged
-    if (room.players.size === 0 && (reservedRoomsUntil.get(code) ?? 0) <= Date.now()) {
+    if (room.players.size === 0 && (reservedRoomsUntil.get(code) ?? 0) <= now) {
       rooms.delete(code)
       reservedRoomsUntil.delete(code)
       observedRoomPhases.delete(code)

@@ -58,9 +58,9 @@ import {
 import { PresentationEventBus, type PresentationEventInput } from "./presentation-events"
 import { cueForPing, presentationForMissionEvent } from "./gameplay-presentation"
 import { MUSIC_TRACKS, musicStateForSituation, type MusicState } from "./music-state"
-import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendDirectInvite, sendFriendRequest, updateSocialPresence, type SocialState } from "./social"
+import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendFriendRequest, updateSocialPresence, type SocialState } from "./social"
 import { currentWalletSession, disconnectRobinhoodWallet, shortWalletAddress, signInWithRobinhoodWallet, walletAddress } from "./wallet-auth"
-import { loadAccessState, purchaseTokenPass, type AccessState } from "./token-access"
+import type { AccessState } from "./token-access"
 import { createVillageCottage, createVillageWagonShell } from "./village-assets"
 import { createAuthoredTreePlacements, TREE_VARIANT_NAMES } from "./tree-placements"
 import {
@@ -133,8 +133,6 @@ const introEyebrow = document.querySelector<HTMLElement>("#intro-eyebrow")!
 const introTitle = document.querySelector<HTMLElement>("#intro-title")!
 const introCopy = document.querySelector<HTMLElement>("#intro-copy")!
 const startButton = document.querySelector<HTMLButtonElement>("#start-button")!
-const friendsDisclosure = document.querySelector<HTMLDetailsElement>("#friends-disclosure")!
-const friendsSummary = document.querySelector<HTMLElement>("#friends-summary")!
 const introHelpButton = document.querySelector<HTMLButtonElement>("#intro-help")!
 const entryAccessNote = document.querySelector<HTMLElement>("#entry-access-note")!
 const outlawDisclosure = document.querySelector<HTMLDetailsElement>("#outlaw-disclosure")!
@@ -174,14 +172,6 @@ const roleChoicePanel = document.querySelector<HTMLElement>("#role-choice-panel"
 const roleChoiceButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-room-character]")]
 const roleChoiceStatus = document.querySelector<HTMLElement>("#role-choice-status")!
 const playerNameInput = document.querySelector<HTMLInputElement>("#player-name")!
-const roomCodeInput = document.querySelector<HTMLInputElement>("#room-code")!
-const createRoomButton = document.querySelector<HTMLButtonElement>("#create-room")!
-const joinRoomButton = document.querySelector<HTMLButtonElement>("#join-room")!
-const roomLobby = document.querySelector<HTMLDivElement>("#room-lobby")!
-const lobbyCode = document.querySelector<HTMLElement>("#lobby-code")!
-const lobbyStatus = document.querySelector<HTMLElement>("#lobby-status")!
-const partyList = document.querySelector<HTMLUListElement>("#party-list")!
-const readyButton = document.querySelector<HTMLButtonElement>("#ready-button")!
 const partyHud = document.querySelector<HTMLElement>("#party-hud")!
 const missionPartyList = document.querySelector<HTMLUListElement>("#mission-party-list")!
 const missionRoomCode = document.querySelector<HTMLElement>("#mission-room-code")!
@@ -243,7 +233,6 @@ const accessCopy = document.querySelector<HTMLElement>("#access-copy")!
 const accessStatus = document.querySelector<HTMLElement>("#access-status")!
 const walletSignIn = document.querySelector<HTMLButtonElement>("#wallet-sign-in")!
 const walletSignOut = document.querySelector<HTMLButtonElement>("#wallet-sign-out")!
-const tokenPassPurchase = document.querySelector<HTMLButtonElement>("#token-pass-purchase")!
 const settingsButton = document.querySelector<HTMLButtonElement>("#settings-button")!
 const settingsPanel = document.querySelector<HTMLDivElement>("#settings-panel")!
 const closeSettings = document.querySelector<HTMLButtonElement>("#close-settings")!
@@ -274,7 +263,6 @@ const audioPreview = document.querySelector<HTMLButtonElement>("#audio-preview")
 const missionDebugButton = document.querySelector<HTMLButtonElement>("#mission-debug-button")!
 const graphicsRestoreButton = document.querySelector<HTMLButtonElement>("#graphics-restore-button")!
 const missionDebug = document.querySelector<HTMLPreElement>("#mission-debug")!
-const rejoinRoomButton = document.querySelector<HTMLButtonElement>("#rejoin-room")!
 const joinPublicHubButton = document.querySelector<HTMLButtonElement>("#join-public-hub")!
 const hubPanel = document.querySelector<HTMLElement>("#hub-panel")!
 const hubClose = document.querySelector<HTMLButtonElement>("#hub-close")!
@@ -341,14 +329,6 @@ const quickChatForm = document.querySelector<HTMLFormElement>("#quick-chat")!
 const quickChatInput = document.querySelector<HTMLInputElement>("#quick-chat-input")!
 const quickChatChannel = document.querySelector<HTMLElement>("#quick-chat-channel")!
 playerNameInput.value = localStorage.getItem("sherwood-rebellion:player-name") ?? "Greenhood"
-const invitedRoom = new URLSearchParams(location.search).get("room")?.trim().toUpperCase()
-if (invitedRoom?.match(/^[A-Z2-9]{6}$/)) {
-  roomCodeInput.value = invitedRoom
-  friendsDisclosure.open = true
-  friendsSummary.textContent = `JOIN BAND ${invitedRoom}`
-}
-const lastRoomCode = localStorage.getItem("sherwood:last-room-code")
-if (lastRoomCode?.match(/^[A-Z2-9]{6}$/)) rejoinRoomButton.classList.remove("hidden")
 
 let inputSettings: InputSettings = loadInputSettings(localStorage)
 let audioSettings: AudioSettings = loadAudioSettings(localStorage)
@@ -457,7 +437,6 @@ let lastPresenceSignature = ""
 let inPublicHub = false
 let publicHubParticipantId: string | null = null
 let publicHubPlayers: PublicHubPlayer[] = []
-let publicHubIsLooking = false
 let publicHubCapacity = 12
 let publicHubEntryPending = false
 let walletAuthPending: Promise<void> | null = null
@@ -1571,7 +1550,6 @@ const multiplayer = new MultiplayerClient({
     closeQuickChat(false)
     closeChatDrawer(false)
     inPublicHub = false
-    publicHubIsLooking = false
     publicHubPlayers = []
     publicHubParticipantId = null
     publicHubPanel.classList.add("hidden")
@@ -1582,12 +1560,8 @@ const multiplayer = new MultiplayerClient({
     pendingRoomSelection = false
     currentRoomPlayers = []
     localStorage.setItem("sherwood:last-room-code", roomCode)
-    lobbyCode.textContent = roomCode
     missionRoomCode.textContent = roomCode
     hubRoomCode.textContent = roomCode
-    roomCodeInput.value = roomCode
-    roomLobby.classList.remove("hidden")
-    lobbyStatus.textContent = "Choose an outlaw, then ready up together."
     enterHub(true)
     renderChatChrome()
     void syncPresence("in-band", roomCode)
@@ -1619,8 +1593,6 @@ const multiplayer = new MultiplayerClient({
       state.bowCooldown = localPlayer.bowCooldown
       if (phase === "lobby") state.player.position = { ...localPlayer.position }
     }
-    readyButton.textContent = localReady ? "NOT READY" : "READY UP"
-    readyButton.disabled = !roomConnected || !localRoleConfirmed
     hubReady.textContent = localReady ? "NOT READY" : "READY UP"
     hubReady.disabled = roomConnected && !localRoleConfirmed
     hubLoadout.value = localPlayer?.loadoutId ?? "balanced"
@@ -1642,7 +1614,6 @@ const multiplayer = new MultiplayerClient({
       setIntroVisible(false)
       setHubBoardOpen(false)
       setMissionWorldVisible(true)
-      lobbyStatus.textContent = "Mission started"
       ensureRemotePlayers(players)
       partyHud.classList.remove("hidden")
       clock.getDelta()
@@ -1712,7 +1683,7 @@ const multiplayer = new MultiplayerClient({
       if (inHub) renderHub()
       if (!roleChoicePanel.classList.contains("hidden")) renderRoleChoice(currentRoomPlayers)
     }
-    lobbyStatus.textContent = message
+    hubState.textContent = message
     showToast(message)
   },
   onConnection: (connected) => {
@@ -1724,9 +1695,8 @@ const multiplayer = new MultiplayerClient({
       renderPublicEntryAuthState(accessState.authenticated)
       entryAccessNote.textContent = "PUBLIC CAMP CONNECTION LOST · TRY AGAIN"
     }
-    readyButton.disabled = !connected || !localRoleConfirmed
     if (!connected && multiplayerActive) resetLocalHeroActions()
-    lobbyStatus.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnect with the same code"
+    if (inHub) hubState.textContent = connected ? "Connected to Sherwood" : "Connection lost — reconnecting"
     if (inHub) renderHub()
     if (!connected) closeQuickChat(false)
     renderChatChrome()
@@ -1757,7 +1727,7 @@ const multiplayer = new MultiplayerClient({
     setMissionWorldVisible(false)
     positionMissionCampfire(HUB_CAMPFIRE_POSITION)
     positionVillageUpgrades(HUB_CAMPFIRE_POSITION)
-    objectiveElement.textContent = "Meet outlaws and form a private band"
+    objectiveElement.textContent = "Finding three more outlaws"
     renderChatChrome()
     void syncPresence("available", null)
   },
@@ -1980,12 +1950,14 @@ function renderHub(): void {
 
 function renderPublicHub(): void {
   const visiblePlayers = publicHubPlayers.filter((player) => !blockedPlayerIds.has(player.id))
-  publicHubCount.textContent = `${visiblePlayers.length}/12`
-  publicHubLooking.textContent = publicHubIsLooking ? "CANCEL SEARCH" : "FIND A BAND"
+  const searchingPlayers = visiblePlayers.filter((player) => player.looking && player.desiredPartySize === 4).length
+  const queueCount = Math.max(1, Math.min(4, searchingPlayers))
+  publicHubCount.textContent = `${queueCount}/4`
+  publicHubLooking.textContent = "SEARCHING"
   const compatible = visiblePlayers.filter((player) => (
     player.id !== publicHubParticipantId
     && player.looking
-    && player.desiredPartySize === 2
+    && player.desiredPartySize === 4
   )).length
   publicHubList.replaceChildren()
   for (const player of visiblePlayers) {
@@ -1995,7 +1967,7 @@ function renderPublicHub(): void {
     const detail = document.createElement("small")
     const showSignals = !mutedPlayerIds.has(player.id)
     name.textContent = `${player.displayName} · ${characterName(player.characterId)}${showSignals && player.emote ? ` · ${player.emote.toUpperCase()}` : ""}${showSignals && player.ping ? ` · ${player.ping.toUpperCase()}!` : ""}`
-    detail.textContent = player.looking ? "LOOKING FOR ONE OUTLAW" : "At the fire"
+    detail.textContent = player.looking ? "IN THE FOUR-PLAYER QUEUE" : "At the fire"
     copy.append(name, detail)
     const actions = document.createElement("div")
     if (player.id !== publicHubParticipantId) {
@@ -2032,9 +2004,10 @@ function renderPublicHub(): void {
     item.append(copy, actions)
     publicHubList.append(item)
   }
-  publicHubStatus.textContent = publicHubIsLooking
-    ? `Searching every public camp · ${compatible} other outlaw${compatible === 1 ? "" : "s"} visibly searching here · friends receive priority but are never required.`
-    : "One shared queue · two-outlaw band · mission chosen automatically."
+  const remaining = Math.max(0, 3 - compatible)
+  publicHubStatus.textContent = remaining > 0
+    ? `Waiting for ${remaining} more outlaw${remaining === 1 ? "" : "s"}… No wallet or payment required.`
+    : "Band found. Starting Sherwood…"
   renderPublicCampChat()
 }
 
@@ -2069,7 +2042,7 @@ function renderRescueOffer(): void {
     "lost-supplies": `The Sheriff recovered ${offer.targetCount} cache${offer.targetCount === 1 ? "" : "s"} from the failed run.`,
   }
   const outcomes: Partial<Record<RescueOffer["status"], string>> = {
-    accepted: "The fresh rescue mission is selected. Helpers may join this private band before readiness.",
+    accepted: "The fresh rescue mission is selected for your band.",
     completed: `Rescue completed · ${offer.recoveredValue} value recovered exactly once.`,
     expired: "The bounded rescue window expired. Ordinary play was never restricted.",
     abandoned: "The band declined this rescue. No penalty applies.",
@@ -3202,10 +3175,6 @@ async function refreshSocialPanel(): Promise<void> {
       addSocialAction(actions, "DECLINE", async () => { await respondFriendRequest(friend.profile.user_id, false); await refreshSocialPanel() })
     })
     renderSocialList(socialFriendList, state.friends, (friend, actions) => {
-      if (roomConnected && multiplayer.roomCode) addSocialAction(actions, "INVITE", async () => {
-        await sendDirectInvite(friend.profile.user_id, multiplayer.roomCode!, selectedCharacter)
-        socialStatus.textContent = `Invite sent to ${friend.profile.display_name}. It expires in 15 minutes.`
-      })
       addSocialAction(actions, "REMOVE", async () => { await removeFriend(friend.profile.user_id); await refreshSocialPanel() })
       addSocialAction(actions, "BLOCK", async () => { await blockSocialPlayer(friend.profile.user_id); await refreshSocialPanel() })
     })
@@ -3229,27 +3198,9 @@ async function refreshSocialPanel(): Promise<void> {
       const name = document.createElement("span")
       const detail = document.createElement("small")
       name.textContent = sender?.display_name ?? "Trusted outlaw"
-      detail.textContent = `Band ${invite.room_code} · ${invite.character_hint ? characterName(invite.character_hint) : "choose any hero"} · expires ${new Date(invite.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+      detail.textContent = "Legacy private invite · quick play has replaced invite rooms"
       copy.append(name, detail)
       const actions = document.createElement("div")
-      addSocialAction(actions, "USE INVITE", async () => {
-        const code = await respondDirectInvite(invite.id, true)
-        if (!code) throw new Error("That invitation expired")
-        multiplayer.close()
-        roomConnected = false
-        roomSessionActive = false
-        multiplayerActive = false
-        running = false
-        setHubBoardOpen(false)
-        roomCodeInput.value = code
-        friendsDisclosure.open = true
-        friendsSummary.textContent = `JOIN BAND ${code}`
-        intro.classList.remove("ending")
-        setIntroVisible(true)
-        closePanel(socialPanel, false)
-        queueMicrotask(() => joinRoomButton.focus())
-        showToast("INVITE READY · JOIN THE ROOM TO CHOOSE YOUR HERO")
-      })
       addSocialAction(actions, "DECLINE", async () => { await respondDirectInvite(invite.id, false); await refreshSocialPanel() })
       item.append(copy, actions)
       socialInviteList.append(item)
@@ -3266,25 +3217,19 @@ async function refreshSocialPanel(): Promise<void> {
   }
 }
 
-function canEnterSherwood(): boolean {
-  return !accessState.gateEnabled || accessState.entitled
-}
-
-function renderPublicEntryAuthState(authenticated: boolean): void {
+function renderPublicEntryAuthState(_authenticated: boolean): void {
   if (publicHubEntryPending) return
   if (isMobileSpectator()) {
     joinPublicHubButton.textContent = "PUBLIC BANDS REQUIRE DESKTOP"
     joinPublicHubButton.setAttribute("aria-label", "Public Merry Bands require desktop controls")
     return
   }
-  joinPublicHubButton.textContent = authenticated ? "FIND A PUBLIC BAND" : "SIGN IN & FIND A PUBLIC BAND"
-  joinPublicHubButton.setAttribute("aria-label", authenticated
-    ? "Find a public Merry Band"
-    : "Sign in with Robinhood Wallet and find a public Merry Band")
+  joinPublicHubButton.textContent = "PLAY ONLINE · GROUP OF 4"
+  joinPublicHubButton.setAttribute("aria-label", "Play online with a random group of four")
 }
 
 function refreshPublicEntryAvailability(): void {
-  joinPublicHubButton.disabled = Boolean(walletAuthPending) || publicHubEntryPending || !canEnterSherwood() || isMobileSpectator()
+  joinPublicHubButton.disabled = publicHubEntryPending || isMobileSpectator()
 }
 
 function renderOpenPlayEntryNote(authenticated: boolean): void {
@@ -3293,67 +3238,38 @@ function renderOpenPlayEntryNote(authenticated: boolean): void {
     return
   }
   entryAccessNote.textContent = authenticated
-    ? "WALLET CONNECTED · SOLO, PRIVATE & PUBLIC PLAY OPEN"
-    : "SOLO + PRIVATE OPEN · PUBLIC BANDS NEED WALLET SIGN-IN · NO PAYMENT"
+    ? "FREE TO PLAY · OPTIONAL WALLET CONNECTED"
+    : "FREE TO PLAY · NO WALLET REQUIRED"
 }
 
 async function refreshAccessPanel(): Promise<void> {
   try {
-    const [session, nextAccess] = await Promise.all([currentWalletSession(), loadAccessState()])
-    accessState = nextAccess
+    const session = await currentWalletSession()
+    accessState = { ...accessState, gateEnabled: false, authenticated: Boolean(session), entitled: true, payment: null }
     const address = session ? walletAddress(session) : null
-    walletState.textContent = address ? shortWalletAddress(address) : nextAccess.authenticated ? "CONNECTED" : "NOT CONNECTED"
-    walletSignIn.classList.toggle("hidden", nextAccess.authenticated)
-    walletSignOut.classList.toggle("hidden", !nextAccess.authenticated)
-    tokenPassPurchase.classList.toggle("hidden", !nextAccess.gateEnabled || !nextAccess.authenticated || nextAccess.entitled || !nextAccess.payment)
-    const entryLocked = !canEnterSherwood()
-    startButton.disabled = entryLocked
-    rejoinRoomButton.disabled = entryLocked
-    createRoomButton.disabled = entryLocked
-    joinRoomButton.disabled = entryLocked
+    walletState.textContent = address ? shortWalletAddress(address) : session ? "CONNECTED" : "NOT CONNECTED"
+    walletSignIn.classList.toggle("hidden", Boolean(session))
+    walletSignOut.classList.toggle("hidden", !session)
+    startButton.disabled = false
     refreshPublicEntryAvailability()
-    const publicIdentityReady = Boolean(session && nextAccess.authenticated)
+    const publicIdentityReady = Boolean(session)
     renderPublicEntryAuthState(publicIdentityReady)
-    accessCard.classList.toggle("hidden", !nextAccess.gateEnabled)
-    if (!nextAccess.gateEnabled) {
-      if (!publicHubEntryPending) renderOpenPlayEntryNote(publicIdentityReady)
-      accessCopy.textContent = "Solo and private bands are open. Public matchmaking uses wallet sign-in for identity only; no token or payment is required."
-      accessStatus.textContent = "ACCESS SWITCH OFF · OPEN PLAY"
-    } else if (!nextAccess.authenticated) {
-      if (!publicHubEntryPending) entryAccessNote.textContent = "WALLET SIGN-IN REQUIRED FOR THIS REALM"
-      accessCopy.textContent = `Sign in with Robinhood Wallet, then buy a 30-day pass with the Sherwood token (approximately $${nextAccess.referencePriceUsd}).`
-      accessStatus.textContent = "WALLET SIGNATURE REQUIRED"
-    } else if (nextAccess.entitled) {
-      const expiry = nextAccess.accessExpiresAt ? new Date(nextAccess.accessExpiresAt).toLocaleDateString() : ""
-      if (!publicHubEntryPending) entryAccessNote.textContent = "SHERWOOD ACCESS ACTIVE"
-      accessCopy.textContent = "Your on-chain Sherwood pass is active. The authoritative realm is unlocked."
-      accessStatus.textContent = expiry ? `PASS ACTIVE THROUGH ${expiry.toUpperCase()}` : "PASS ACTIVE"
-    } else if (!nextAccess.payment) {
-      if (!publicHubEntryPending) entryAccessNote.textContent = "SHERWOOD ACCESS LOCKED"
-      accessCopy.textContent = "Token payments are not configured on this realm. Access remains locked while the gate is on."
-      accessStatus.textContent = "TOKEN PAYMENT UNAVAILABLE"
-    } else {
-      const payment = nextAccess.payment
-      if (!publicHubEntryPending) entryAccessNote.textContent = "TOKEN PASS REQUIRED"
-      tokenPassPurchase.textContent = `PAY ${payment.amountDisplay} ${payment.tokenSymbol} · ${payment.passDays} DAYS`
-      accessCopy.textContent = `Transfer ${payment.amountDisplay} ${payment.tokenSymbol} on ${payment.chainName} for ${payment.passDays} days of access (approximately $${nextAccess.referencePriceUsd}).`
-      accessStatus.textContent = "PASS NOT ACTIVE"
-    }
+    accessCard.classList.add("hidden")
+    if (!publicHubEntryPending) renderOpenPlayEntryNote(publicIdentityReady)
+    accessCopy.textContent = "Sherwood is free to play. Wallet sign-in is optional and is used only for persistent identity features."
+    accessStatus.textContent = "OPEN PLAY"
     if (!intro.classList.contains("closed")) {
       setIntroVisible(true)
-      const focusTarget = invitedRoom ? joinRoomButton : startButton
-      if (document.activeElement === document.body || document.activeElement === introCard) queueMicrotask(() => focusTarget.focus({ preventScroll: true }))
+      if (document.activeElement === document.body || document.activeElement === introCard) queueMicrotask(() => startButton.focus({ preventScroll: true }))
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to check Sherwood access"
-    if (!publicHubEntryPending) entryAccessNote.textContent = "SHERWOOD ACCESS CHECK FAILED · RELOAD TO RETRY"
+    accessState = { ...accessState, gateEnabled: false, entitled: true }
+    if (!publicHubEntryPending) entryAccessNote.textContent = "FREE TO PLAY · NO WALLET REQUIRED"
     accessStatus.textContent = message
-    accessCard.classList.remove("hidden")
-    startButton.disabled = true
-    rejoinRoomButton.disabled = true
-    createRoomButton.disabled = true
-    joinRoomButton.disabled = true
-    joinPublicHubButton.disabled = true
+    accessCard.classList.add("hidden")
+    startButton.disabled = false
+    refreshPublicEntryAvailability()
   }
 }
 
@@ -3649,42 +3565,8 @@ function updateVillageUpgradeTier(view: THREE.Group, tier: number): void {
 }
 
 function renderParty(players: RoomPlayer[]): void {
-  partyList.replaceChildren()
   missionPartyList.replaceChildren()
   for (const player of players) {
-    const item = document.createElement("li")
-    item.classList.toggle("ready", player.ready)
-    const identity = document.createElement("span")
-    identity.textContent = `${player.ready ? "✓" : "○"} ${player.displayName} · ${characterName(player.characterId)}${player.connected ? "" : " · reconnecting"}`
-    item.append(identity)
-    if (player.bandRole) {
-      const role = document.createElement("small")
-      role.className = "band-member"
-      role.textContent = player.bandRole.toUpperCase()
-      item.append(role)
-    }
-    const localPlayer = players.find((candidate) => candidate.id === multiplayer.playerId)
-    if (player.id === multiplayer.playerId && player.bandInvitePending) {
-      const accept = document.createElement("button")
-      accept.textContent = "JOIN BAND"
-      accept.addEventListener("click", () => multiplayer.respondBandMembership(true))
-      const decline = document.createElement("button")
-      decline.textContent = "DECLINE"
-      decline.addEventListener("click", () => multiplayer.respondBandMembership(false))
-      item.append(accept, decline)
-    } else if (localPlayer?.bandRole === "leader" && player.id !== multiplayer.playerId && !player.bandRole) {
-      const offer = document.createElement("button")
-      offer.textContent = "OFFER MEMBERSHIP"
-      offer.addEventListener("click", () => multiplayer.offerBandMembership(player.id))
-      item.append(offer)
-    } else if (localPlayer?.bandRole === "leader" && player.bandRole === "member") {
-      const remove = document.createElement("button")
-      remove.textContent = "REMOVE"
-      remove.addEventListener("click", () => multiplayer.removeBandMember(player.id))
-      item.append(remove)
-    }
-    partyList.append(item)
-
     const compact = document.createElement("li")
     compact.classList.toggle("local", player.id === multiplayer.playerId)
     compact.classList.toggle("disconnected", !player.connected)
@@ -3707,7 +3589,6 @@ function renderParty(players: RoomPlayer[]): void {
     compact.append(presence, compactIdentity, vitality)
     missionPartyList.append(compact)
   }
-  lobbyStatus.textContent = players.length < 2 ? "Waiting for another outlaw…" : "Ready together to begin."
 }
 
 function ensureRemotePlayers(players: RoomPlayer[]): void {
@@ -4005,7 +3886,7 @@ function renderChatChrome(statusOverride?: string): void {
         : "Private to this Merry Band · Enter opens quick chat.")
   if (inPublicHub) {
     const chatLabel = chatState.isAvailable("camp") ? "INSTANCE CHAT" : "CAMP CHAT OFF"
-    missionModifiers.textContent = `OPT-IN PUBLIC CAMP · CAP ${publicHubCapacity} · ${chatLabel}`
+    missionModifiers.textContent = `QUICK PLAY QUEUE · CAP ${publicHubCapacity} · ${chatLabel}`
   }
   renderPublicCampChat(statusOverride)
   renderChatBadges()
@@ -5135,87 +5016,32 @@ function sendSupportAction(action: "rescue" | "transfer_loot"): void {
 
 startButton.addEventListener("click", () => {
   if (ended) return
-  if (!canEnterSherwood()) {
-    accessStatus.textContent = "Buy a 30-day token pass before entering Sherwood."
-    return
-  }
   enterHub(false)
-})
-
-rejoinRoomButton.addEventListener("click", () => {
-  const code = localStorage.getItem("sherwood:last-room-code")
-  const displayName = playerNameInput.value.trim().slice(0, 20)
-  if (!code || !displayName) return
-  friendsDisclosure.open = true
-  friendsSummary.textContent = `REJOIN BAND ${code}`
-  roomCodeInput.value = code
-  roomLobby.classList.remove("hidden")
-  lobbyStatus.textContent = `Rejoining band ${code}…`
-  readyButton.disabled = true
-  queueMicrotask(() => lobbyStatus.scrollIntoView({ block: "nearest" }))
-  localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  multiplayer.joinRoom(code, displayName, selectedCharacter)
 })
 
 joinPublicHubButton.addEventListener("click", () => void (async () => {
   if (publicHubEntryPending || isMobileSpectator()) return
   publicHubEntryPending = true
   joinPublicHubButton.disabled = true
-  joinPublicHubButton.textContent = "CHECKING WALLET…"
-  entryAccessNote.textContent = "CHECKING PUBLIC-CAMP IDENTITY…"
+  joinPublicHubButton.textContent = "FINDING A GROUP…"
+  entryAccessNote.textContent = "JOINING THE FOUR-PLAYER QUEUE…"
   try {
-    let session = await currentWalletSession()
-    if (!session || !accessState.authenticated) {
-      entryAccessNote.textContent = "SIGN ROBINHOOD WALLET · THIS DOES NOT AUTHORIZE A TRANSACTION"
-      await connectWalletAndRefresh()
-      session = await currentWalletSession()
-    }
-    if (!session || !accessState.authenticated) throw new Error("Wallet sign-in did not create a current Sherwood session")
-
-    void loadSocialState().then((social) => { currentSocial = social }).catch(() => {
-      socialStatus.textContent = "Public matchmaking is available. Friends and saved identity are temporarily offline."
-    })
-
-    const displayName = playerNameInput.value.trim().slice(0, 20)
-    if (!displayName) throw new Error("Choose an outlaw name before entering the public camp")
+    const displayName = playerNameInput.value.trim().slice(0, 20) || "Greenhood"
+    playerNameInput.value = displayName
     localStorage.setItem("sherwood-rebellion:player-name", displayName)
-    joinPublicHubButton.textContent = "ENTERING PUBLIC CAMP…"
-    entryAccessNote.textContent = "ENTERING THE PUBLIC CAMP…"
+    joinPublicHubButton.textContent = "ENTERING QUICK PLAY…"
+    entryAccessNote.textContent = "ENTERING QUICK PLAY…"
     multiplayer.joinPublicHub(displayName, selectedCharacter)
   } catch (error) {
     publicHubEntryPending = false
     const message = error instanceof Error ? error.message : "Unable to enter the public camp"
     entryAccessNote.textContent = message.toUpperCase()
     showToast(message)
-    const session = await currentWalletSession().catch(() => null)
     refreshPublicEntryAvailability()
-    renderPublicEntryAuthState(Boolean(session && accessState.authenticated))
+    renderPublicEntryAuthState(accessState.authenticated)
   }
 })())
 
-createRoomButton.addEventListener("click", () => {
-  const displayName = playerNameInput.value.trim().slice(0, 20)
-  if (!displayName) {
-    lobbyStatus.textContent = "Choose an outlaw name first"
-    return
-  }
-  localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  multiplayer.createRoom(displayName, selectedCharacter)
-})
-
-joinRoomButton.addEventListener("click", () => {
-  const displayName = playerNameInput.value.trim().slice(0, 20)
-  const code = roomCodeInput.value.trim().toUpperCase()
-  if (!displayName || code.length !== 6) {
-    lobbyStatus.textContent = "Enter an outlaw name and six-character room code"
-    roomLobby.classList.remove("hidden")
-    return
-  }
-  localStorage.setItem("sherwood-rebellion:player-name", displayName)
-  multiplayer.joinRoom(code, displayName, selectedCharacter)
-})
-
-readyButton.addEventListener("click", requestMissionReady)
 hubReady.addEventListener("click", requestMissionReady)
 hubClose.addEventListener("click", () => setHubBoardOpen(false, true))
 hubRoles.forEach((button) => button.addEventListener("click", () => {
@@ -5256,8 +5082,7 @@ hubAbandonRescue.addEventListener("click", () => {
   if (currentRescueOffer) multiplayer.abandonRescue(currentRescueOffer.id)
 })
 publicHubLooking.addEventListener("click", () => {
-  publicHubIsLooking = !publicHubIsLooking
-  multiplayer.setHubIntent(publicHubIsLooking, "any", 2)
+  multiplayer.setHubIntent(true, "any", 4)
   renderPublicHub()
 })
 publicCampChatForm.addEventListener("submit", (event) => {
@@ -5348,7 +5173,6 @@ publicHubLeave.addEventListener("click", () => {
   roomConnected = false
   roomSessionActive = false
   inPublicHub = false
-  publicHubIsLooking = false
   publicHubParticipantId = null
   publicHubPlayers = []
   blockedPlayerIds.clear()
@@ -5474,20 +5298,6 @@ walletSignOut.addEventListener("click", () => void disconnectRobinhoodWallet().t
   currentSocial = null
   await Promise.all([refreshAccessPanel(), refreshSocialPanel()])
 }).catch((error) => { accessStatus.textContent = error instanceof Error ? error.message : "Unable to sign out" }))
-tokenPassPurchase.addEventListener("click", () => void (async () => {
-  const payment = accessState.payment
-  if (!payment) return
-  tokenPassPurchase.disabled = true
-  accessStatus.textContent = `CONFIRM ${payment.amountDisplay} ${payment.tokenSymbol} IN ROBINHOOD WALLET`
-  try {
-    accessState = await purchaseTokenPass(payment)
-    await refreshAccessPanel()
-  } catch (error) {
-    accessStatus.textContent = error instanceof Error ? error.message : "Token payment could not be verified"
-  } finally {
-    tokenPassPurchase.disabled = false
-  }
-})())
 socialAddFriend.addEventListener("click", () => void sendFriendRequest(socialFriendInput.value).then(async () => {
   socialFriendInput.value = ""
   socialStatus.textContent = "Friend request sent. Duplicate requests are suppressed."

@@ -33,6 +33,7 @@ export interface PublicHubServiceOptions {
 
 export interface HubParticipant extends PublicHubPlayer {
   userId: string
+  authenticatedUserId: string | null
   friendUserIds: Set<string>
   blockedUserIds: Set<string>
   socket: WebSocket
@@ -71,15 +72,11 @@ export class PublicHubService {
     this.campChatEnabled = enabled
   }
 
-  join(socket: WebSocket, userId: string, displayName: string, characterId: CharacterId, friendUserIds: string[], now = Date.now(), blockedUserIds: string[] = []): HubParticipant {
+  join(socket: WebSocket, userId: string, displayName: string, characterId: CharacterId, friendUserIds: string[], now = Date.now(), blockedUserIds: string[] = [], authenticatedUserId: string | null = userId): HubParticipant {
     this.cleanup(now)
     const blocked = new Set(blockedUserIds)
     const candidates = [...this.instances.values()].filter((instance) => instance.participants.size < PUBLIC_HUB_CAPACITY && [...instance.participants.values()].every((player) => !blocked.has(player.userId) && !player.blockedUserIds.has(userId)))
-    const instance = candidates.sort((left, right) => {
-      const leftFriends = [...left.participants.values()].filter((player) => friendUserIds.includes(player.userId)).length
-      const rightFriends = [...right.participants.values()].filter((player) => friendUserIds.includes(player.userId)).length
-      return rightFriends - leftFriends || right.participants.size - left.participants.size
-    })[0] ?? this.createInstance()
+    const instance = candidates.sort((left, right) => right.participants.size - left.participants.size)[0] ?? this.createInstance()
     const index = instance.participants.size
     const angle = index / PUBLIC_HUB_CAPACITY * Math.PI * 2
     const spawn = resolveSherwoodPlayerMovement({
@@ -87,11 +84,11 @@ export class PublicHubService {
       z: 9 + Math.sin(angle) * 4.5,
     }, { x: 0, z: 0 }, PUBLIC_HUB_WORLD_BOUNDS)
     const participant: HubParticipant = {
-      id: randomUUID(), userId, friendUserIds: new Set(friendUserIds), blockedUserIds: blocked, socket, displayName, characterId,
+      id: randomUUID(), userId, authenticatedUserId, friendUserIds: new Set(friendUserIds), blockedUserIds: blocked, socket, displayName, characterId,
       position: spawn,
-      looking: false, targetPreference: "any", desiredPartySize: 2,
+      looking: true, targetPreference: "any", desiredPartySize: 4,
       emote: null, emoteExpiresAt: 0, ping: null, pingExpiresAt: 0,
-      lastActivityAt: now, lookingSinceAt: null, lastSequence: 0, lastEmoteAt: 0, lastPingAt: 0, lastReportAt: 0, reportedUserIds: new Set(),
+      lastActivityAt: now, lookingSinceAt: now, lastSequence: 0, lastEmoteAt: 0, lastPingAt: 0, lastReportAt: 0, reportedUserIds: new Set(),
       chatSentAt: [], recentChatTexts: new Map(), reportedChatMessageIds: new Set(),
     }
     instance.participants.set(participant.id, participant)
@@ -273,7 +270,7 @@ export class PublicHubService {
     if (!leader || !leader.looking) return null
     const matches = [...this.participants.values()]
       .filter((candidate) => candidate.id !== participantId && this.compatible(leader, candidate))
-      .sort((left, right) => Number(leader.friendUserIds.has(right.userId)) - Number(leader.friendUserIds.has(left.userId)) || left.lastActivityAt - right.lastActivityAt)
+      .sort((left, right) => (left.lookingSinceAt ?? now) - (right.lookingSinceAt ?? now) || left.lastActivityAt - right.lastActivityAt)
     if (matches.length < leader.desiredPartySize - 1) return null
     const group = [leader]
     for (const candidate of matches) {
@@ -296,7 +293,7 @@ export class PublicHubService {
       const group = [leader]
       const candidates = waiting
         .filter((candidate) => candidate.id !== leader.id && !claimed.has(candidate.id) && this.compatible(leader, candidate))
-        .sort((left, right) => Number(leader.friendUserIds.has(right.userId)) - Number(leader.friendUserIds.has(left.userId)) || (left.lookingSinceAt ?? now) - (right.lookingSinceAt ?? now))
+        .sort((left, right) => (left.lookingSinceAt ?? now) - (right.lookingSinceAt ?? now) || left.lastActivityAt - right.lastActivityAt)
       for (const candidate of candidates) {
         if (group.every((member) => this.compatible(member, candidate))) group.push(candidate)
         if (group.length === leader.desiredPartySize) break

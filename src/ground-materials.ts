@@ -17,6 +17,32 @@ const GROUND_TEXTURES: Record<SherwoodGroundKind, Readonly<{ albedo: string; nor
 
 let browserTextureLoader: THREE.TextureLoader | null = null
 const browserTextureCache = new Map<string, THREE.Texture>()
+let softGroundGradientMap: THREE.DataTexture | null = null
+
+function getSoftGroundGradientMap(): THREE.DataTexture {
+  if (softGroundGradientMap) return softGroundGradientMap
+  softGroundGradientMap = new THREE.DataTexture(
+    new Uint8Array([
+      142, 142, 142, 255,
+      184, 184, 184, 255,
+      222, 222, 222, 255,
+      255, 255, 255, 255,
+    ]),
+    4,
+    1,
+    THREE.RGBAFormat,
+    THREE.UnsignedByteType,
+  )
+  softGroundGradientMap.name = "Sherwood soft ground toon ramp"
+  softGroundGradientMap.minFilter = THREE.NearestFilter
+  softGroundGradientMap.magFilter = THREE.NearestFilter
+  softGroundGradientMap.generateMipmaps = false
+  softGroundGradientMap.wrapS = THREE.ClampToEdgeWrapping
+  softGroundGradientMap.wrapT = THREE.ClampToEdgeWrapping
+  softGroundGradientMap.colorSpace = THREE.NoColorSpace
+  softGroundGradientMap.needsUpdate = true
+  return softGroundGradientMap
+}
 
 const loadBrowserTexture: GroundTextureLoader = (url) => {
   if (typeof document === "undefined") return null
@@ -61,11 +87,14 @@ export function createSherwoodGroundMaterial(
     color: options.color ?? 0xffffff,
     map: map ? configureTexture(map, repeat, true) : null,
     normalMap: normalMap ? configureTexture(normalMap, repeat, false) : null,
-    normalScale: new THREE.Vector2(0.24, 0.24),
+    normalScale: new THREE.Vector2(0.14, 0.14),
+    emissive: kind === "meadow" ? 0x24351d : 0x2b241a,
+    emissiveIntensity: kind === "meadow" ? 0.42 : 0.22,
   }
   if (options.polygonOffset !== undefined) parameters.polygonOffset = options.polygonOffset
   if (options.polygonOffsetFactor !== undefined) parameters.polygonOffsetFactor = options.polygonOffsetFactor
   const material = createToonMaterial(parameters)
+  material.gradientMap = getSoftGroundGradientMap()
   material.name = kind === "meadow" ? "SherwoodMeadowGround" : "SherwoodForestFloor"
   return material
 }

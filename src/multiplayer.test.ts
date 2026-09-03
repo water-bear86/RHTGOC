@@ -13,15 +13,31 @@ afterEach(() => {
 })
 
 describe("multiplayer public hub auth", () => {
-  it("reports session lookup failures instead of leaving public entry pending", async () => {
+  it("falls back to a guest handshake when wallet session lookup fails", async () => {
     getSupabaseMock.mockReturnValue({
       auth: { getSession: vi.fn().mockRejectedValue(new Error("Session lookup unavailable")) },
     } as never)
+    const sent: unknown[] = []
+    vi.stubGlobal("location", { protocol: "http:", hostname: "localhost", host: "localhost" })
+    vi.stubGlobal("WebSocket", class {
+      static readonly OPEN = 1
+      readonly OPEN = 1
+      readyState = 1
+      constructor() { queueMicrotask(() => this.open?.({})) }
+      private open?: (event: object) => void
+      addEventListener(type: string, listener: (event: object) => void) { if (type === "open") this.open = listener }
+      send(value: string) { sent.push(JSON.parse(value)) }
+      close() {}
+    })
+    vi.stubGlobal("window", { setInterval: vi.fn(() => 1), clearInterval: vi.fn(), setTimeout: vi.fn(() => 1), clearTimeout: vi.fn() })
     const onError = vi.fn()
 
     new MultiplayerClient({ onError }).joinPublicHub("Greenhood", "robin")
 
-    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("Session lookup unavailable"))
+    await vi.waitFor(() => expect(sent).toHaveLength(1))
+    expect(sent[0]).toMatchObject({ type: "join_public_hub", displayName: "Greenhood", characterId: "robin" })
+    expect(sent[0]).not.toHaveProperty("accessToken")
+    expect(onError).not.toHaveBeenCalled()
   })
 
   it("reports synchronous socket setup failures through the public-entry error path", async () => {

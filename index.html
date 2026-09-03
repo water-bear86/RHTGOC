@@ -4,12 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#13291f" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23e2af43'/%3E%3Cpath d='M18 46 31 13l7 18 10-6-9 25z' fill='%2313291f'/%3E%3C/svg%3E" />
     <title>RHTGOC — Robin Hood: The Game (On Chain)</title>
   </head>
   <body>
     <div id="game"></div>
-    <div class="wallet-dock" aria-label="Robinhood Wallet">
-      <span><i>RH</i> ROBINHOOD WALLET</span>
+    <div class="wallet-dock" aria-label="Optional Robinhood Wallet">
+      <span><i>RH</i> OPTIONAL WALLET</span>
       <b id="wallet-state">NOT CONNECTED</b>
       <button id="wallet-sign-in">SIGN IN</button>
       <button class="hidden" id="wallet-sign-out">SIGN OUT</button>
@@ -98,30 +99,12 @@
 
         <div class="entry-actions" aria-label="Choose how to enter Sherwood">
           <button class="entry-primary" id="start-button" disabled>PLAY SOLO <span>→</span></button>
-          <button class="entry-public" id="join-public-hub" disabled>SIGN IN &amp; FIND A PUBLIC BAND</button>
-          <button class="entry-rejoin hidden" id="rejoin-room" disabled>REJOIN LAST BAND</button>
-          <details class="entry-disclosure" id="friends-disclosure">
-            <summary id="friends-summary">PLAY WITH FRIENDS</summary>
-            <div class="entry-disclosure-body">
-              <p>Create a private Merry Band or enter an invite code. Wallet sign-in is optional for private play.</p>
-              <div class="band-setup">
-                <input id="player-name" maxlength="20" value="Greenhood" aria-label="Outlaw name" />
-                <button id="create-room" disabled>FORM A MERRY BAND</button>
-                <input id="room-code" maxlength="6" placeholder="ROOM CODE" aria-label="Room code" />
-                <button id="join-room" disabled>JOIN BAND</button>
-              </div>
-              <div class="room-lobby hidden" id="room-lobby">
-                <span class="eyebrow">MERRY BAND <b id="lobby-code">------</b></span>
-                <ul id="party-list"></ul>
-                <p id="lobby-status" role="status" aria-live="polite">Waiting for outlaws…</p>
-                <button id="ready-button" disabled>READY UP</button>
-              </div>
-            </div>
-          </details>
+          <button class="entry-public" id="join-public-hub" disabled>PLAY ONLINE · GROUP OF 4</button>
+          <label class="entry-name" for="player-name"><span>OUTLAW NAME</span><input id="player-name" maxlength="20" value="Greenhood" /></label>
           <button class="entry-help" id="intro-help" type="button">HOW TO PLAY</button>
         </div>
 
-        <p class="entry-access-note" id="entry-access-note" role="status" aria-live="polite">CHECKING SHERWOOD ACCESS…</p>
+        <p class="entry-access-note" id="entry-access-note" role="status" aria-live="polite">FREE TO PLAY · NO WALLET REQUIRED</p>
 
         <details class="outlaw-disclosure" id="outlaw-disclosure">
           <summary><span>PLAYING AS</span><b id="selected-outlaw-summary">ROBIN HOOD · MARKSMAN</b><i>CHANGE</i></summary>
@@ -134,11 +117,8 @@
         </details>
 
         <section class="access-card hidden" id="access-card" aria-label="Sherwood access">
-          <div><span>SHERWOOD ACCESS</span><b>WALLET REQUIRED</b></div>
+          <div><span>SHERWOOD ACCESS</span><b>FREE TO PLAY</b></div>
           <p id="access-copy">Checking access to Sherwood.</p>
-          <div class="access-actions">
-            <button class="hidden" id="token-pass-purchase">BUY 30-DAY TOKEN PASS · ≈ $6</button>
-          </div>
           <small id="access-status" role="status" aria-live="polite"></small>
         </section>
         <small id="intro-controls">MOVE WITH WASD OR CLICK · STAND STILL + SPACE TO FIRE · FULL CONTROLS IN ?</small>
@@ -397,15 +377,15 @@
           <option value="balanced">Balanced kit</option><option value="smoke">Smoke pouch</option>
         </select>
       </label>
-      <div class="hub-actions"><button id="hub-copy-code">COPY INVITE CODE</button><button id="hub-ready">START SOLO</button></div>
+      <div class="hub-actions"><button id="hub-copy-code" hidden>COPY INVITE CODE</button><button id="hub-ready">START SOLO</button></div>
       <small id="hub-state">Move around the fire. The board keeps the playfield clear.</small>
     </section>
-    <section class="public-hub-panel hidden" id="public-hub-panel" aria-label="Opt-in public campfire">
-      <span class="eyebrow">OPT-IN PUBLIC CAMP</span>
-      <div class="hub-heading"><h2>Find a band</h2><b id="public-hub-count">0/12</b></div>
-      <p>Chat with this camp while Sherwood finds one other outlaw. The mission is chosen automatically so a small crowd does not split into empty queues.</p>
-      <div class="public-hub-actions"><button id="public-hub-looking">FIND A BAND</button></div>
-      <section class="public-camp-chat" aria-labelledby="public-camp-chat-title">
+    <section class="public-hub-panel hidden" id="public-hub-panel" aria-label="Online matchmaking">
+      <span class="eyebrow">QUICK PLAY</span>
+      <div class="hub-heading"><h2>Finding your band</h2><b id="public-hub-count">1/4</b></div>
+      <p>Four outlaws, one random group. Sherwood starts the mission as soon as everyone arrives.</p>
+      <div class="public-hub-actions" hidden><button id="public-hub-looking">SEARCHING</button></div>
+      <section class="public-camp-chat" aria-labelledby="public-camp-chat-title" hidden>
         <div><b id="public-camp-chat-title">CAMP CHAT</b><small id="public-camp-chat-status" role="status" aria-live="polite">Connecting to camp chat…</small></div>
         <ol id="public-camp-chat-log" role="log" aria-live="polite" aria-relevant="additions" aria-label="Camp chat messages"></ol>
         <form id="public-camp-chat-form" autocomplete="off">
@@ -414,9 +394,9 @@
           <button type="submit" disabled>SEND</button>
         </form>
       </section>
-      <ul id="public-hub-list"></ul>
-      <button id="public-hub-leave">LEAVE PUBLIC CAMP</button>
-      <small id="public-hub-status">Find a band searches one shared two-outlaw queue.</small>
+      <ul id="public-hub-list" hidden></ul>
+      <small id="public-hub-status">Waiting for three more outlaws…</small>
+      <button id="public-hub-leave">CANCEL</button>
     </section>
     <script type="module" src="/src/main.ts"></script>
   </body>

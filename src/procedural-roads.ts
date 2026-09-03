@@ -174,9 +174,9 @@ export function createProceduralRoads(
 ): THREE.Group {
   const group = new THREE.Group()
   group.name = "SherwoodProceduralRoads"
-  const shoulderMaterial = createSherwoodGroundMaterial("forest-floor", { color: 0x81745f, polygonOffset: true, polygonOffsetFactor: -1 })
-  const majorPathMaterial = createSherwoodGroundMaterial("forest-floor", { color: 0xb49a78, polygonOffset: true, polygonOffsetFactor: -2 })
-  const trackMaterial = createSherwoodGroundMaterial("forest-floor", { color: 0x95846b, polygonOffset: true, polygonOffsetFactor: -2 })
+  const shoulderMaterial = createSherwoodGroundMaterial("forest-floor", { color: 0xa8a181, polygonOffset: true, polygonOffsetFactor: -1 })
+  const majorPathMaterial = createSherwoodGroundMaterial("forest-floor", { color: 0xc4aa82, polygonOffset: true, polygonOffsetFactor: -2 })
+  const trackMaterial = createSherwoodGroundMaterial("forest-floor", { color: 0xac9b7d, polygonOffset: true, polygonOffsetFactor: -2 })
   if (options.trailheadClearing) {
     const shoulder = new THREE.Mesh(
       clearingGeometry(options.trailheadClearing, 3.25, 0.09),
@@ -194,7 +194,7 @@ export function createProceduralRoads(
   }
   for (const road of roads) {
     const shoulder = new THREE.Mesh(
-      roadGeometry(road, road.width + (road.width >= 3 ? 0.55 : 0.35), 0.09),
+      roadGeometry(road, road.width + (road.width >= 3 ? 0.9 : 0.62), 0.09),
       shoulderMaterial,
     )
     shoulder.name = `RoadShoulder_${road.id}`

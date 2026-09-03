@@ -119,7 +119,7 @@ export function createSherwoodTerrain(size = SHERWOOD_VISUAL_TERRAIN_SIZE, segme
   geometry.computeBoundingBox()
   geometry.computeBoundingSphere()
   const terrain = new THREE.Mesh(geometry, createSherwoodGroundMaterial("meadow", {
-    color: 0x9aae88,
+    color: 0xd2dfbd,
     repeat: { x: 38, y: 38 },
   }))
   terrain.name = "SherwoodTopography"
