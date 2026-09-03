@@ -1,7 +1,7 @@
 import * as THREE from "three"
 import type { ComposedRoad } from "../shared/world-composer"
 import { sherwoodHeightAt } from "./sherwood-terrain"
-import { createToonMaterial } from "./toon-materials"
+import { createSherwoodGroundMaterial } from "./ground-materials"
 
 interface RoadPoint {
   x: number
@@ -96,7 +96,9 @@ function roadGeometry(road: ComposedRoad, width: number, lift: number): THREE.Bu
       const x = point.x + nx * offset
       const z = point.z + nz * offset
       positions.push(x, sherwoodHeightAt(x, z) + lift, z)
-      uvs.push(distances[index] / Math.max(0.001, totalDistance), lateralAmount)
+      // Ground textures use metre-scaled UVs so short tracks and long roads
+      // retain the same visible texel density.
+      uvs.push(distances[index] / 4.2, lateralAmount * pointWidth / 4.2)
     }
     if (index < points.length - 1) {
       const row = index * verticesPerRow
@@ -125,6 +127,7 @@ function clearingGeometry(center: RoadPoint, radius: number, lift: number): THRE
   const segments = 32
   const rings = Math.max(4, Math.ceil(radius / ROAD_LATERAL_SAMPLE_SPACING))
   const positions: number[] = [center.x, sherwoodHeightAt(center.x, center.z) + lift, center.z]
+  const uvs: number[] = [0.5, 0.5]
   const indices: number[] = []
   for (let ring = 1; ring <= rings; ring += 1) {
     const ringAmount = ring / rings
@@ -135,6 +138,7 @@ function clearingGeometry(center: RoadPoint, radius: number, lift: number): THRE
       const x = center.x + Math.cos(angle) * ringRadius
       const z = center.z + Math.sin(angle) * ringRadius
       positions.push(x, sherwoodHeightAt(x, z) + lift, z)
+      uvs.push(0.5 + (x - center.x) / (radius * 2), 0.5 + (z - center.z) / (radius * 2))
     }
   }
   for (let segment = 0; segment < segments; segment += 1) {
@@ -157,6 +161,7 @@ function clearingGeometry(center: RoadPoint, radius: number, lift: number): THRE
   }
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2))
   geometry.setIndex(indices)
   geometry.computeVertexNormals()
   geometry.computeBoundingSphere()
@@ -169,9 +174,9 @@ export function createProceduralRoads(
 ): THREE.Group {
   const group = new THREE.Group()
   group.name = "SherwoodProceduralRoads"
-  const shoulderMaterial = createToonMaterial({ color: 0x4e5135, polygonOffset: true, polygonOffsetFactor: -1 })
-  const majorPathMaterial = createToonMaterial({ color: 0x75613f, polygonOffset: true, polygonOffsetFactor: -2 })
-  const trackMaterial = createToonMaterial({ color: 0x5f5b3d, polygonOffset: true, polygonOffsetFactor: -2 })
+  const shoulderMaterial = createSherwoodGroundMaterial("forest-floor", { color: 0x81745f, polygonOffset: true, polygonOffsetFactor: -1 })
+  const majorPathMaterial = createSherwoodGroundMaterial("forest-floor", { color: 0xb49a78, polygonOffset: true, polygonOffsetFactor: -2 })
+  const trackMaterial = createSherwoodGroundMaterial("forest-floor", { color: 0x95846b, polygonOffset: true, polygonOffsetFactor: -2 })
   if (options.trailheadClearing) {
     const shoulder = new THREE.Mesh(
       clearingGeometry(options.trailheadClearing, 3.25, 0.09),

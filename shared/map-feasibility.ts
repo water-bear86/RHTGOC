@@ -1,5 +1,11 @@
 import type { MissionDefinition } from "./mission-definition"
-import type { RegionalizedMission, RegionalMissionLayout } from "./regional-layout"
+import {
+  SHERWOOD_STOCKADE_KEY_MIN_DISTANCE,
+  SHERWOOD_STOCKADE_MAX_HEIGHT_SPREAD,
+  sherwoodStockadeFootprintHeightSpread,
+  type RegionalizedMission,
+  type RegionalMissionLayout,
+} from "./regional-layout"
 import {
   SHERWOOD_PLAYER_RADIUS,
   isSherwoodPlayerPositionBlocked,
@@ -16,6 +22,8 @@ export const MAP_FEASIBILITY_DIAGNOSTIC_CODES = [
   "unsafe_spawn",
   "interaction_out_of_bounds",
   "interaction_blocked",
+  "objective_terrain_unsuitable",
+  "key_too_close",
   "crossing_blocked",
   "road_segment_blocked",
   "objective_unreachable",
@@ -240,6 +248,30 @@ export function validateRegionalMissionFeasibility(regional: RegionalizedMission
   checkPosition({ subject: "campfire", position: layout.campfirePosition }, "anchor_out_of_bounds", "anchor_blocked")
   checkPosition({ subject: "objective", position: layout.objectivePosition }, "anchor_out_of_bounds", "anchor_blocked")
   if (layout.objectiveStockadeEnabled) {
+    const footprintSpread = sherwoodStockadeFootprintHeightSpread(
+      layout.objectivePosition,
+      layout.objectiveGateRotation,
+    )
+    if (footprintSpread > SHERWOOD_STOCKADE_MAX_HEIGHT_SPREAD) {
+      diagnostics.push({
+        code: "objective_terrain_unsuitable",
+        subject: "objective-stockade",
+        position: copyPoint(layout.objectivePosition),
+        detail: `height spread ${footprintSpread.toFixed(3)}m`,
+      })
+    }
+    const keyDistance = Math.hypot(
+      layout.objectiveGateKeyPosition.x - layout.objectivePosition.x,
+      layout.objectiveGateKeyPosition.z - layout.objectivePosition.z,
+    )
+    if (keyDistance < SHERWOOD_STOCKADE_KEY_MIN_DISTANCE) {
+      diagnostics.push({
+        code: "key_too_close",
+        subject: "objective-gate-key",
+        position: copyPoint(layout.objectiveGateKeyPosition),
+        detail: `key distance ${keyDistance.toFixed(3)}m`,
+      })
+    }
     const cosine = Math.cos(layout.objectiveGateRotation)
     const sine = Math.sin(layout.objectiveGateRotation)
     const inStockadeFrame = (x: number, z: number): { x: number; z: number } => ({

@@ -51,5 +51,6 @@ describe("procedural road renderer", () => {
     expect(Array.from({ length: normals.count }, (_, index) => normals.getY(index))
       .every((normalY) => normalY > 0)).toBe(true)
     expect(clearing.geometry.getAttribute("position").count).toBeGreaterThan(150)
+    expect(clearing.geometry.getAttribute("uv").count).toBe(clearing.geometry.getAttribute("position").count)
   })
 })

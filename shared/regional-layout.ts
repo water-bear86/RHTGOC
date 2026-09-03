@@ -1,4 +1,6 @@
 import type { MissionDefinition } from "./mission-definition"
+import { SHERWOOD_SETTLEMENT_SITES, sherwoodTopologyHeightAt } from "./world-topology"
+import { SHERWOOD_RIDGE_ROCK_LAYOUT } from "./world-ridge-rock-layout"
 
 export interface RegionCell {
   index: number
@@ -43,6 +45,28 @@ export const SHERWOOD_RIVER_CENTER_X = 1
 export const SHERWOOD_RIVER_SLOPE = -0.1
 /** Cell-center clearance leaves room for anchor jitter, the river, and a full road corridor. */
 export const SHERWOOD_MISSION_ANCHOR_RIVER_CLEARANCE = 10
+export const SHERWOOD_STOCKADE_MAX_HEIGHT_SPREAD = 0.65
+export const SHERWOOD_STOCKADE_KEY_MIN_DISTANCE = 18
+export const SHERWOOD_STOCKADE_KEY_MAX_DISTANCE = 28
+
+export function sherwoodStockadeFootprintHeightSpread(
+  position: Readonly<{ x: number; z: number }>,
+  rotation: number,
+): number {
+  const cosine = Math.cos(rotation)
+  const sine = Math.sin(rotation)
+  const heights: number[] = []
+  // This matches the stockade's authoritative 14 by 11 metre footprint.
+  for (const localX of [-7, -3.5, 0, 3.5, 7]) {
+    for (const localZ of [-5.5, -2.75, 0, 2.75, 5.5]) {
+      heights.push(sherwoodTopologyHeightAt(
+        position.x + cosine * localX + sine * localZ,
+        position.z - sine * localX + cosine * localZ,
+      ))
+    }
+  }
+  return Math.max(...heights) - Math.min(...heights)
+}
 
 export function riverPointAt(z: number): { x: number; z: number } {
   return { x: SHERWOOD_RIVER_CENTER_X + SHERWOOD_RIVER_SLOPE * z, z }
@@ -74,6 +98,7 @@ function choose<T>(values: readonly T[], random: () => number): T {
 
 function chooseAnchorCells(
   anchorCells: readonly RegionCell[],
+  objectiveAnchorCells: readonly RegionCell[],
   variant: RegionalLayoutVariant,
   random: () => number,
 ): { campfireCell: RegionCell; objectiveCell: RegionCell } {
@@ -87,25 +112,25 @@ function chooseAnchorCells(
   let objectiveCandidates: readonly RegionCell[]
 
   if (variant === "long-haul") {
-    const farthest = Math.max(...anchorCells.map(distance))
-    objectiveCandidates = anchorCells.filter((cell) => distance(cell) === farthest)
+    const farthest = Math.max(...objectiveAnchorCells.map(distance))
+    objectiveCandidates = objectiveAnchorCells.filter((cell) => distance(cell) === farthest)
   } else if (variant === "cross-river") {
-    objectiveCandidates = anchorCells.filter((cell) => (
+    objectiveCandidates = objectiveAnchorCells.filter((cell) => (
       riverSide(cell) !== riverSide(campfireCell) && distance(cell) >= 3
     ))
   } else if (variant === "same-bank") {
-    objectiveCandidates = anchorCells.filter((cell) => (
+    objectiveCandidates = objectiveAnchorCells.filter((cell) => (
       riverSide(cell) === riverSide(campfireCell)
       && distance(cell) >= 2
       && distance(cell) <= 4
     ))
   } else {
-    objectiveCandidates = perimeterCells.filter((cell) => distance(cell) >= 3)
+    objectiveCandidates = objectiveAnchorCells.filter((cell) => isPerimeterCell(cell) && distance(cell) >= 3)
   }
 
   const usableCandidates = objectiveCandidates.length > 0
     ? objectiveCandidates
-    : anchorCells.filter((cell) => cell.index !== campfireCell.index && distance(cell) >= 2)
+    : objectiveAnchorCells.filter((cell) => cell.index !== campfireCell.index && distance(cell) >= 2)
   return { campfireCell, objectiveCell: choose(usableCandidates, random) }
 }
 
@@ -159,16 +184,83 @@ function cloneCell(cell: RegionCell): RegionCell {
   return { ...cell, center: { ...cell.center } }
 }
 
+function flatStockadeSites(): typeof SHERWOOD_SETTLEMENT_SITES {
+  return SHERWOOD_SETTLEMENT_SITES.filter((site) => (
+    sherwoodStockadeFootprintHeightSpread(site.center, 0) <= SHERWOOD_STOCKADE_MAX_HEIGHT_SPREAD
+    && SHERWOOD_RIDGE_ROCK_LAYOUT.every((rock) => (
+      Math.hypot(site.center.x - rock.x, site.center.z - rock.z) >= 11.5
+    ))
+  ))
+}
+
+function stockadePositionInCell(
+  cell: RegionCell,
+  campfirePosition: Readonly<{ x: number; z: number }>,
+): { x: number; z: number } {
+  const candidates = flatStockadeSites().filter((site) => regionCellIndexAt(site.center) === cell.index)
+  const scored = candidates.map((site) => {
+    const rotation = Math.atan2(
+      campfirePosition.x - site.center.x,
+      campfirePosition.z - site.center.z,
+    )
+    return { site, spread: sherwoodStockadeFootprintHeightSpread(site.center, rotation) }
+  }).sort((left, right) => left.spread - right.spread || left.site.id.localeCompare(right.site.id))
+  return { ...scored[0].site.center }
+}
+
+function localTerrainSpread(position: Readonly<{ x: number; z: number }>): number {
+  const heights = [-0.8, 0, 0.8].flatMap((x) => [-0.8, 0, 0.8].map((z) => (
+    sherwoodTopologyHeightAt(position.x + x, position.z + z)
+  )))
+  return Math.max(...heights) - Math.min(...heights)
+}
+
+function chooseStockadeKeyPosition(
+  objectivePosition: Readonly<{ x: number; z: number }>,
+  campfirePosition: Readonly<{ x: number; z: number }>,
+  seed: number,
+): { x: number; z: number } {
+  const approachAngle = Math.atan2(
+    campfirePosition.z - objectivePosition.z,
+    campfirePosition.x - objectivePosition.x,
+  )
+  const phase = ((seed >>> 0) % 16) * Math.PI / 8
+  const candidates = [22, 26].flatMap((radius) => Array.from({ length: 16 }, (_, index) => {
+    const angle = approachAngle + phase + index * Math.PI / 8
+    const position = {
+      x: objectivePosition.x + Math.cos(angle) * radius,
+      z: objectivePosition.z + Math.sin(angle) * radius,
+    }
+    return { position, radius, index, terrainSpread: localTerrainSpread(position) }
+  })).filter(({ position }) => (
+    Math.abs(position.x) <= SHERWOOD_REGIONAL_BOUNDS - 3
+    && Math.abs(position.z) <= SHERWOOD_REGIONAL_BOUNDS - 3
+    && Math.hypot(position.x - campfirePosition.x, position.z - campfirePosition.z) >= 18
+    && Math.abs(position.x - SHERWOOD_RIVER_CENTER_X - SHERWOOD_RIVER_SLOPE * position.z) >= 6
+  )).sort((left, right) => (
+    left.terrainSpread - right.terrainSpread
+    || Math.abs(left.radius - 22) - Math.abs(right.radius - 22)
+    || left.index - right.index
+  ))
+  return { ...candidates[0].position }
+}
+
 export function regionalizeMissionDefinition(base: MissionDefinition, seed: number): RegionalizedMission {
   const random = seededUnit(seed)
   const cells = sherwoodRegionCells()
   const anchorCells = cells.filter(missionAnchorCellClearOfRiver)
   const variants: readonly RegionalLayoutVariant[] = ["long-haul", "cross-river", "same-bank", "central-expedition"]
   const variant = choose(variants, random)
-  const { campfireCell, objectiveCell } = chooseAnchorCells(anchorCells, variant, random)
-  const campfirePosition = jittered(campfireCell, random)
-  const objectivePosition = jittered(objectiveCell, random)
   const objectiveStockadeEnabled = base.scenario === undefined
+  const stockadeCellIndices = new Set(flatStockadeSites().map((site) => regionCellIndexAt(site.center)))
+  const objectiveAnchorCells = objectiveStockadeEnabled
+    ? anchorCells.filter((cell) => stockadeCellIndices.has(cell.index))
+    : anchorCells
+  const { campfireCell, objectiveCell } = chooseAnchorCells(anchorCells, objectiveAnchorCells, variant, random)
+  const campfirePosition = jittered(campfireCell, random)
+  const objectivePosition = objectiveStockadeEnabled
+    ? stockadePositionInCell(objectiveCell, campfirePosition)
+    : jittered(objectiveCell, random)
   const approachLength = Math.max(
     0.001,
     Math.hypot(campfirePosition.x - objectivePosition.x, campfirePosition.z - objectivePosition.z),
@@ -182,11 +274,9 @@ export function regionalizeMissionDefinition(base: MissionDefinition, seed: numb
     x: objectivePosition.x + objectiveApproach.x * 5.5,
     z: objectivePosition.z + objectiveApproach.z * 5.5,
   }
-  const keySide = seed % 2 === 0 ? 1 : -1
-  const objectiveGateKeyPosition = {
-    x: objectivePosition.x + objectiveApproach.x * 7.5 - objectiveApproach.z * 2.5 * keySide,
-    z: objectivePosition.z + objectiveApproach.z * 7.5 + objectiveApproach.x * 2.5 * keySide,
-  }
+  const objectiveGateKeyPosition = objectiveStockadeEnabled
+    ? chooseStockadeKeyPosition(objectivePosition, campfirePosition, seed)
+    : { ...objectiveGatePosition }
   const crossingBands = [-42, -26, -10, 10, 26, 42]
   const firstCrossingIndex = Math.floor(random() * (crossingBands.length - 2))
   const secondCandidates = crossingBands.filter((_, index) => Math.abs(index - firstCrossingIndex) >= 2)

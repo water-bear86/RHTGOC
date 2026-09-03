@@ -1,6 +1,6 @@
 import * as THREE from "three"
 import { sherwoodTopologyHeightAt } from "../shared/world-topology"
-import { createToonMaterial } from "./toon-materials"
+import { createSherwoodGroundMaterial } from "./ground-materials"
 
 export const SHERWOOD_BRIDGE_LENGTH = 8.4
 export const SHERWOOD_BRIDGE_WIDTH = 3.2
@@ -118,7 +118,10 @@ export function createSherwoodTerrain(size = SHERWOOD_VISUAL_TERRAIN_SIZE, segme
   geometry.computeVertexNormals()
   geometry.computeBoundingBox()
   geometry.computeBoundingSphere()
-  const terrain = new THREE.Mesh(geometry, createToonMaterial({ color: 0x3b5834 }))
+  const terrain = new THREE.Mesh(geometry, createSherwoodGroundMaterial("meadow", {
+    color: 0x9aae88,
+    repeat: { x: 38, y: 38 },
+  }))
   terrain.name = "SherwoodTopography"
   terrain.receiveShadow = true
   terrain.castShadow = false

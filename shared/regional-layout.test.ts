@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest"
 import { PEOPLES_PURSE_MISSION, PRISON_WAGON_MISSION, ROYAL_STOREHOUSE_MISSION } from "./mission-catalog"
 import {
   SHERWOOD_REGIONAL_BOUNDS,
+  SHERWOOD_STOCKADE_KEY_MAX_DISTANCE,
+  SHERWOOD_STOCKADE_KEY_MIN_DISTANCE,
+  SHERWOOD_STOCKADE_MAX_HEIGHT_SPREAD,
   regionCellIndexAt,
   regionalizeMissionDefinition,
   sherwoodRegionCells,
+  sherwoodStockadeFootprintHeightSpread,
   stableSeed,
   type RegionalLayoutVariant,
 } from "./regional-layout"
@@ -63,8 +67,26 @@ describe("5x5 regional mission layout", () => {
     }
     expect(variants).toEqual(new Set<RegionalLayoutVariant>(["long-haul", "cross-river", "same-bank", "central-expedition"]))
     expect(campCells.size).toBeGreaterThanOrEqual(18)
-    expect(objectiveCells.size).toBeGreaterThanOrEqual(18)
-    expect(anchorPairs.size).toBeGreaterThanOrEqual(80)
+    expect(objectiveCells.size).toBeGreaterThanOrEqual(7)
+    expect(anchorPairs.size).toBeGreaterThanOrEqual(64)
+  })
+
+  it("keeps every tax-cart stockade on gentle terrain and sends the key away from its gate", () => {
+    for (let seed = 1; seed <= 512; seed += 1) {
+      const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed * 7919).layout
+      const footprintSpread = sherwoodStockadeFootprintHeightSpread(
+        layout.objectivePosition,
+        layout.objectiveGateRotation,
+      )
+      const keyDistance = Math.hypot(
+        layout.objectiveGateKeyPosition.x - layout.objectivePosition.x,
+        layout.objectiveGateKeyPosition.z - layout.objectivePosition.z,
+      )
+      expect(footprintSpread, `seed ${seed * 7919}`).toBeLessThanOrEqual(SHERWOOD_STOCKADE_MAX_HEIGHT_SPREAD)
+      expect(keyDistance).toBeGreaterThanOrEqual(SHERWOOD_STOCKADE_KEY_MIN_DISTANCE)
+      expect(keyDistance).toBeLessThanOrEqual(SHERWOOD_STOCKADE_KEY_MAX_DISTANCE)
+      expect(regionCellIndexAt(layout.objectivePosition)).toBe(layout.objectiveCell.index)
+    }
   })
 
   it("translates every mission family while preserving stable package identity", () => {

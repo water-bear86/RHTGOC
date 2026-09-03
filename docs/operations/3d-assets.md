@@ -10,6 +10,8 @@
 
 Raw FBX, OBJ, Blender/DCC files, absolute source paths, and glTF files with unresolved external buffers or textures are source material only and fail the shipping validator. Source packs are curated outside `public/`; only accepted, normalized runtime assets enter the browser bundle.
 
+Standalone ground materials follow the same provenance rule. The meadow and forest-floor sources are project-owner supplied and recorded in `docs/assets/licenses/ground-textures-project-authorized.md`; only their optimized 1024px WebP albedo and normal derivatives ship. Height displacement is intentionally omitted so visible terrain remains aligned with authoritative X/Z movement and the shared heightfield.
+
 ## Accept, rework, or reject
 
 | Decision | Binding rule | Next action |

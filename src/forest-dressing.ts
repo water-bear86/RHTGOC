@@ -1,4 +1,6 @@
 import * as THREE from "three"
+import type { RegionalMissionLayout } from "../shared/regional-layout"
+import { createSherwoodMissionForestRockLayout, type SherwoodForestRockPlacement } from "../shared/world-dressing-layout"
 import { createToonMaterial } from "./toon-materials"
 import { sherwoodHeightAt } from "./sherwood-terrain"
 import { createNatureVariantInstances, type NatureCatalog, type NatureVariantName } from "./nature-assets"
@@ -19,6 +21,15 @@ export interface DressingOptions {
   degraded?: boolean
   exclusions?: ReadonlyArray<{ x: number; z: number; radius: number }>
   roads?: readonly DressingRoad[]
+  missionLayout?: RegionalMissionLayout
+}
+
+function rockPlacementMatrices(placements: readonly SherwoodForestRockPlacement[]): THREE.Matrix4[] {
+  return placements.map((placement) => new THREE.Matrix4().compose(
+    new THREE.Vector3(placement.x, sherwoodHeightAt(placement.x, placement.z), placement.z),
+    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), placement.rotation),
+    new THREE.Vector3(placement.scaleX, placement.scaleY, placement.scaleZ),
+  ))
 }
 
 function seededRandom(seed: number): () => number {
@@ -148,7 +159,9 @@ export function createForestDressing(options: DressingOptions = {}): ForestDress
   const ferns = clusteredMatrices(count(72), random, options.exclusions, options.roads, woodlandCenters, 4.4, 2.2, [0.65, 1.35])
   const shrubs = clusteredMatrices(count(32), random, options.exclusions, options.roads, woodlandCenters, 3.8, 2.7, [0.65, 1.3])
   const flowers = clusteredMatrices(count(24), random, options.exclusions, options.roads, meadowCenters.slice(0, 4), 3.2, 1.6, [0.65, 1.05])
-  const stones = clusteredMatrices(count(14), random, options.exclusions, options.roads, woodlandCenters.slice(0, 4), 3.5, 2.4, [0.45, 1.25])
+  const stones = options.missionLayout
+    ? rockPlacementMatrices(createSherwoodMissionForestRockLayout(options.missionLayout))
+    : clusteredMatrices(count(14), random, options.exclusions, options.roads, woodlandCenters.slice(0, 4), 3.5, 2.4, [0.45, 1.25])
 
   const grassBlade = new THREE.ConeGeometry(0.14, 0.62, 3)
   grassBlade.translate(0, 0.31, 0)
@@ -184,6 +197,9 @@ export function createAuthoredForestDressing(catalog: NatureCatalog, options: Dr
   const count = (value: number): number => Math.round(value * density)
   const meadowCenters = createClusterCenters(8, random, options.exclusions, options.roads, 2.6)
   const woodlandCenters = createClusterCenters(7, random, options.exclusions, options.roads, 4.2)
+  const missionRocks = options.missionLayout
+    ? rockPlacementMatrices(createSherwoodMissionForestRockLayout(options.missionLayout))
+    : clusteredMatrices(count(14), random, options.exclusions, options.roads, woodlandCenters.slice(0, 4), 3.5, 2.4, [0.45, 1.25])
   const placements: ReadonlyArray<[NatureVariantName, THREE.Matrix4[], boolean]> = [
     ["Nature_Grass_Wispy_Short", clusteredMatrices(count(105), random, options.exclusions, options.roads, meadowCenters, 5.8, 1.3, [0.55, 1.25]), false],
     ["Nature_Grass_Common_Tall", clusteredMatrices(count(35), random, options.exclusions, options.roads, meadowCenters, 4.6, 1.7, [0.65, 1.15]), false],
@@ -191,7 +207,7 @@ export function createAuthoredForestDressing(catalog: NatureCatalog, options: Dr
     ["Nature_Bush_Common", clusteredMatrices(count(32), random, options.exclusions, options.roads, woodlandCenters, 3.8, 2.7, [0.65, 1.3]), !options.degraded],
     ["Nature_Flower_3_Group", clusteredMatrices(count(24), random, options.exclusions, options.roads, meadowCenters.slice(0, 4), 3.2, 1.6, [0.65, 1.05]), false],
     ["Nature_Mushroom_Common", clusteredMatrices(count(12), random, options.exclusions, options.roads, woodlandCenters.slice(0, 5), 3, 2.4, [0.35, 0.8]), false],
-    ["Nature_Rock_Medium_2", clusteredMatrices(count(14), random, options.exclusions, options.roads, woodlandCenters.slice(0, 4), 3.5, 2.4, [0.45, 1.25]), false],
+    ["Nature_Rock_Medium_2", missionRocks, false],
     ["Nature_Pebble_Round_3", clusteredMatrices(count(10), random, options.exclusions, options.roads, woodlandCenters.slice(0, 4), 3.1, 2.2, [0.3, 0.8]), false],
   ]
   const group = new THREE.Group()

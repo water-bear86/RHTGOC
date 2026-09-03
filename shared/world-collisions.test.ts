@@ -7,6 +7,7 @@ import {
   SHERWOOD_TREE_COLLIDERS,
   VILLAGE_COTTAGE_COLLIDER,
   createSherwoodSettlementColliders,
+  createSherwoodMissionRockColliders,
   createSherwoodTopologyColliders,
   isSherwoodPlayerPositionBlocked,
   resolveSherwoodCombinedMovement,
@@ -81,6 +82,28 @@ describe("shared Sherwood world collision contract", () => {
     const resolved = resolveSherwoodPlayerMovement(start, { x: 10, z: 0 }, 64)
     expect(resolved.x).toBeLessThan(rock.center.x)
     expect(isSherwoodPlayerPositionBlocked(resolved)).toBe(false)
+  })
+
+  it("makes medium forest rocks and ancient standing stones authoritative", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 4219).layout
+    const rocks = createSherwoodMissionRockColliders(layout)
+    expect(rocks.filter(({ id }) => id.startsWith("sherwood-forest-rock-"))).toHaveLength(14)
+    expect(rocks.filter(({ id }) => id.startsWith("sherwood-standing-stone-"))).toHaveLength(7)
+    for (const rock of rocks) {
+      expect(isSherwoodPlayerPositionBlocked(rock.center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
+    }
+
+    const rock = rocks[0]
+    const direction = { x: Math.cos(rock.rotation), z: -Math.sin(rock.rotation) }
+    const start = { x: rock.center.x - direction.x * 3, z: rock.center.z - direction.z * 3 }
+    const resolved = resolveSherwoodPlayerMovement(start, {
+      x: direction.x * 6,
+      z: direction.z * 6,
+    }, layout.worldBounds, SHERWOOD_PLAYER_RADIUS, layout)
+    expect(isSherwoodPlayerPositionBlocked(resolved, SHERWOOD_PLAYER_RADIUS, layout)).toBe(false)
+    const resolvedAlongApproach = (resolved.x - rock.center.x) * direction.x
+      + (resolved.z - rock.center.z) * direction.z
+    expect(resolvedAlongApproach).toBeLessThan(0)
   })
 
   it("sweeps against the full cottage so a long normal tick cannot tunnel through", () => {

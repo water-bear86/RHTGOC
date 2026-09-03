@@ -1,6 +1,8 @@
 import type { RegionalMissionLayout } from "./regional-layout"
 import { SHERWOOD_GUARD_SEPARATION } from "./guard-rules"
 import { composeSherwoodWorld } from "./world-composer"
+import { createSherwoodMissionForestRockLayout } from "./world-dressing-layout"
+import { createSherwoodStandingStoneLayout } from "./world-landmarks-layout"
 import {
   SHERWOOD_STATIC_OBSTACLES,
   SHERWOOD_MISSION_STATIC_OBSTACLES,
@@ -50,6 +52,23 @@ export const SHERWOOD_RIDGE_ROCK_COLLIDERS: readonly OrientedRectangleCollider[]
 
 export const SHERWOOD_STATIC_COLLIDERS: readonly OrientedRectangleCollider[] = SHERWOOD_STATIC_OBSTACLES
 
+export function createSherwoodMissionRockColliders(layout: RegionalMissionLayout): readonly OrientedRectangleCollider[] {
+  const world = composeSherwoodWorld(layout)
+  const forestRocks = createSherwoodMissionForestRockLayout(layout).map((rock, index) => ({
+    id: `sherwood-forest-rock-${index}`,
+    center: { x: rock.x, z: rock.z },
+    halfExtents: { x: rock.scaleX * 0.34, z: rock.scaleZ * 0.34 },
+    rotation: rock.rotation,
+  }))
+  const standingStones = createSherwoodStandingStoneLayout(layout, world).stones.map((stone, index) => ({
+    id: `sherwood-standing-stone-${index}`,
+    center: { x: stone.x, z: stone.z },
+    halfExtents: { x: 0.38, z: 0.32 },
+    rotation: stone.rotation,
+  }))
+  return Object.freeze([...forestRocks, ...standingStones])
+}
+
 const missionStaticColliderCache = new WeakMap<RegionalMissionLayout, readonly OrientedRectangleCollider[]>()
 
 function staticCollidersForLayout(layout?: RegionalMissionLayout): readonly OrientedRectangleCollider[] {
@@ -57,7 +76,11 @@ function staticCollidersForLayout(layout?: RegionalMissionLayout): readonly Orie
   const cached = missionStaticColliderCache.get(layout)
   if (cached) return cached
   const rocks = selectSherwoodRidgeRockObstaclesForRoads(composeSherwoodWorld(layout).roads)
-  const colliders = Object.freeze([...SHERWOOD_MISSION_STATIC_OBSTACLES, ...rocks])
+  const colliders = Object.freeze([
+    ...SHERWOOD_MISSION_STATIC_OBSTACLES,
+    ...rocks,
+    ...createSherwoodMissionRockColliders(layout),
+  ])
   missionStaticColliderCache.set(layout, colliders)
   return colliders
 }

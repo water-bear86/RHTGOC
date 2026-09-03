@@ -1033,6 +1033,7 @@ function rebuildForestDressing(layout: RegionalMissionLayout): void {
   const options = {
     seed: layout.seed,
     degraded: renderProfile.tier === "degraded",
+    missionLayout: layout,
     exclusions,
     roads: world.roads,
   }

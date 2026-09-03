@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest"
 import * as THREE from "three"
 import { createAuthoredForestDressing, createForestDressing } from "./forest-dressing"
 import { NATURE_VARIANT_NAMES, indexNatureCatalog } from "./nature-assets"
+import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
+import { regionalizeMissionDefinition } from "../shared/regional-layout"
+import { createSherwoodMissionForestRockLayout } from "../shared/world-dressing-layout"
 
 describe("forest dressing", () => {
   it("creates clustered forest-floor pockets without hundreds of draw objects", () => {
@@ -46,6 +49,23 @@ describe("forest dressing", () => {
     ;(firstGrass as THREE.InstancedMesh).getMatrixAt(0, firstMatrix)
     ;(secondGrass as THREE.InstancedMesh).getMatrixAt(0, secondMatrix)
     expect(secondMatrix.elements).not.toEqual(firstMatrix.elements)
+  })
+
+  it("renders every shared mission rock even on the degraded profile", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 4219).layout
+    const expected = createSherwoodMissionForestRockLayout(layout)
+    const dressing = createForestDressing({ missionLayout: layout, degraded: true })
+    const stones = dressing.group.getObjectByName("ForestStoneInstances") as THREE.InstancedMesh
+    const matrix = new THREE.Matrix4()
+    const position = new THREE.Vector3()
+
+    expect(stones.count).toBe(expected.length)
+    expected.forEach((rock, index) => {
+      stones.getMatrixAt(index, matrix)
+      position.setFromMatrixPosition(matrix)
+      expect(position.x).toBeCloseTo(rock.x, 5)
+      expect(position.z).toBeCloseTo(rock.z, 5)
+    })
   })
 
   it("uses textured catalogue meshes for the normal dressing path", () => {
