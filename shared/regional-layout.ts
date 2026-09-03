@@ -96,6 +96,35 @@ function choose<T>(values: readonly T[], random: () => number): T {
   return values[Math.min(values.length - 1, Math.floor(random() * values.length))]
 }
 
+function orientPathToward(
+  path: readonly { x: number; z: number }[],
+  originalOrigin: { x: number; z: number },
+  regionalOrigin: { x: number; z: number },
+  target: { x: number; z: number },
+): Array<{ x: number; z: number }> {
+  const final = path[path.length - 1] ?? originalOrigin
+  const originalLength = Math.max(0.001, Math.hypot(final.x - originalOrigin.x, final.z - originalOrigin.z))
+  const targetLength = Math.max(0.001, Math.hypot(target.x - regionalOrigin.x, target.z - regionalOrigin.z))
+  const originalDirection = {
+    x: (final.x - originalOrigin.x) / originalLength,
+    z: (final.z - originalOrigin.z) / originalLength,
+  }
+  const targetDirection = {
+    x: (target.x - regionalOrigin.x) / targetLength,
+    z: (target.z - regionalOrigin.z) / targetLength,
+  }
+  const cosine = originalDirection.x * targetDirection.x + originalDirection.z * targetDirection.z
+  const sine = originalDirection.x * targetDirection.z - originalDirection.z * targetDirection.x
+  return path.map((position) => {
+    const relativeX = position.x - originalOrigin.x
+    const relativeZ = position.z - originalOrigin.z
+    return {
+      x: regionalOrigin.x + relativeX * cosine - relativeZ * sine,
+      z: regionalOrigin.z + relativeX * sine + relativeZ * cosine,
+    }
+  })
+}
+
 function chooseAnchorCells(
   anchorCells: readonly RegionCell[],
   objectiveAnchorCells: readonly RegionCell[],
@@ -349,7 +378,15 @@ export function regionalizeMissionDefinition(base: MissionDefinition, seed: numb
 
   let disguisePosition = { ...objectivePosition }
   if (definition.scenario?.kind === "prison-wagon" && base.scenario?.kind === "prison-wagon") {
-    definition.scenario.wagonPath = base.scenario.wagonPath.map((position) => offset(position, originalObjective, objectivePosition))
+    // The authored route points west from its original spawn. Rotate that shape
+    // toward the regional camp so perimeter objectives send the wagon into the
+    // playable map instead of preserving an arbitrary out-of-bounds heading.
+    definition.scenario.wagonPath = orientPathToward(
+      base.scenario.wagonPath,
+      originalObjective,
+      objectivePosition,
+      campfirePosition,
+    )
   }
   if (definition.scenario?.kind === "storehouse" && base.scenario?.kind === "storehouse") {
     definition.scenario.alarmPanels = base.scenario.alarmPanels.map((alarm) => ({ ...alarm, position: offset(alarm.position, originalObjective, objectivePosition) }))

@@ -77,4 +77,13 @@ describe("regional map feasibility contract", () => {
       expect(regional.generation.attempts).toBeLessThanOrEqual(32)
     }
   })
+
+  it("keeps perimeter prison-wagon routes inside the candidate budget", () => {
+    const regional = regionalizeFeasibleMissionDefinition(PRISON_WAGON_MISSION, 78_104_616)
+    expect(regional.feasibility.feasible).toBe(true)
+    expect(regional.generation.attempts).toBeLessThanOrEqual(32)
+    expect(regional.definition.scenario?.kind).toBe("prison-wagon")
+    if (regional.definition.scenario?.kind !== "prison-wagon") return
+    expect(regional.definition.scenario.wagonPath[0]).toEqual(regional.definition.spawns.cart)
+  })
 })
