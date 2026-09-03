@@ -82,6 +82,7 @@ import {
   rotateCameraOffset,
 } from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
+import { setCharacterOcclusionSilhouette } from "./character-occlusion"
 import { regionCellIndexAt, stableSeed, type RegionalMissionLayout } from "../shared/regional-layout"
 import { buildRegionMapCells, regionMapCellClassName, type RegionMapCellState } from "./region-map"
 import { createAuthoredForestDressing, createForestDressing } from "./forest-dressing"
@@ -3600,6 +3601,7 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
       existing.captureFor = player.captureFor
       existing.stealth = player.stealth
       if (existing.characterId !== player.characterId) {
+        setCharacterOcclusionSilhouette(existing.view, false)
         disposeCharacterVisual(existing.fallback)
         existing.view.remove(existing.fallback)
         existing.fallback = createCharacter(player.characterId)
@@ -3635,6 +3637,7 @@ function ensureRemotePlayers(players: RoomPlayer[]): void {
   }
   for (const [id, remote] of remoteViews) {
     if (activeIds.has(id)) continue
+    setCharacterOcclusionSilhouette(remote.view, false)
     disposeCharacterVisual(remote.fallback)
     scene.remove(remote.view)
     remoteViews.delete(id)
@@ -4614,6 +4617,8 @@ function syncViews(elapsed: number, dt: number): void {
       disposeOwnedMeshResources(view)
     },
   )
+  setCharacterOcclusionSilhouette(playerView, false)
+  for (const remote of remoteViews.values()) setCharacterOcclusionSilhouette(remote.view, false)
   water.update(elapsed, renderProfile.motionScale)
   missionCampfire.update(elapsed, renderProfile.motionScale)
   if (missionCampfireHalo) {
@@ -4679,33 +4684,14 @@ function syncViews(elapsed: number, dt: number): void {
   const propDistance = renderProfile.tier === "degraded" ? 34 : 48
   for (const prop of medievalPropViews) prop.visible = Math.hypot(prop.position.x - player.x, prop.position.z - player.z) <= propDistance
   syncVillageLods(player)
-  const cameraPosition = { x: camera.position.x, z: camera.position.z }
   for (const occluder of cameraOccluders) {
-    const cameraToOccluder = { x: occluder.view.position.x - camera.position.x, z: occluder.view.position.z - camera.position.z }
-    const cameraDistance = Math.hypot(cameraToOccluder.x, cameraToOccluder.z)
-    const blocksCamera = blocksCameraSightline({
-      camera: cameraPosition,
-      focus: player,
-      occluder: occluder.view.position,
-      radius: occluder.radius,
-    })
     occluder.view.visible = occluder.view.userData.lodVisible !== false
-      && cameraDistance > occluder.radius * 2.35
       && (occluder.maxDistance === undefined || Math.hypot(occluder.view.position.x - player.x, occluder.view.position.z - player.z) <= occluder.maxDistance)
-      && !blocksCamera
   }
   const dirtyTreeBatches = new Set<THREE.InstancedMesh>()
   for (const tree of authoredTreeInstances) {
     const playerDistance = Math.hypot(tree.x - player.x, tree.z - player.z)
-    const cameraToTree = { x: tree.x - camera.position.x, z: tree.z - camera.position.z }
-    const cameraDistance = Math.hypot(cameraToTree.x, cameraToTree.z)
-    const blocksCamera = blocksCameraSightline({
-      camera: cameraPosition,
-      focus: player,
-      occluder: tree,
-      radius: tree.radius,
-    })
-    const hidden = playerDistance > treeDistance || cameraDistance <= tree.radius * 2.35 || blocksCamera
+    const hidden = playerDistance > treeDistance
     if (hidden === tree.hidden) continue
     tree.hidden = hidden
     tree.batch.setMatrixAt(tree.instanceId, hidden ? tree.hiddenMatrix : tree.visibleMatrix)
@@ -4831,6 +4817,32 @@ function syncViews(elapsed: number, dt: number): void {
   const desiredCamera = new THREE.Vector3(player.x + cameraOffset.x, playerGroundY + 14.5, player.z + cameraOffset.z)
   camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt))
   camera.lookAt(player.x, playerGroundY + 0.75, player.z)
+  const cameraPosition = { x: camera.position.x, z: camera.position.z }
+  const visibleOccluders: Array<{ x: number; z: number; radius: number }> = []
+  for (const occluder of cameraOccluders) {
+    if (occluder.view.visible) {
+      visibleOccluders.push({
+        x: occluder.view.position.x,
+        z: occluder.view.position.z,
+        radius: occluder.radius,
+      })
+    }
+  }
+  for (const tree of authoredTreeInstances) {
+    if (!tree.hidden) visibleOccluders.push(tree)
+  }
+  const characterIsOccluded = (position: { x: number; z: number }): boolean => visibleOccluders.some((occluder) => blocksCameraSightline({
+    camera: cameraPosition,
+    focus: position,
+    occluder,
+    radius: occluder.radius,
+  }))
+  const playerIsOccluded = characterIsOccluded(player)
+  renderer.domElement.dataset.characterOcclusion = playerIsOccluded ? "silhouette" : "clear"
+  setCharacterOcclusionSilhouette(playerView, playerIsOccluded)
+  for (const remote of remoteViews.values()) {
+    if (remote.fallback.visible) setCharacterOcclusionSilhouette(remote.view, characterIsOccluded(remote.view.position))
+  }
   if (objectiveVisible) {
     const projectedObjective = new THREE.Vector3(objectiveBeacon.position.x, objectiveBeacon.position.y + 6, objectiveBeacon.position.z).project(camera)
     const pointerLayout = computeObjectivePointer({
@@ -5225,6 +5237,7 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   })
   state = createInitialState(selectedCharacter)
   lastPlayerPosition = { ...state.player.position }
+  setCharacterOcclusionSilhouette(playerView, false)
   disposeCharacterVisual(playerView)
   scene.remove(playerView)
   playerView = createCharacter(selectedCharacter)

@@ -55,9 +55,9 @@ export function cameraRelativeMove(screenMove: Vec2, cameraPosition: Vec2, focus
 }
 
 /**
- * Keeps the controlled outlaw readable when a tree or structure overlaps the
- * camera-to-player corridor. The small endpoint allowance catches tree crowns
- * immediately behind the player without hiding unrelated scenery.
+ * Detects when scenery overlaps a camera-to-character corridor so the character
+ * can receive a readability treatment while the forest itself remains visible.
+ * The endpoint allowance catches tree crowns immediately behind the character.
  */
 export function blocksCameraSightline(query: CameraSightlineQuery): boolean {
   const cameraToFocusX = query.focus.x - query.camera.x

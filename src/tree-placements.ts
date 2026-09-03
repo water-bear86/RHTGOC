@@ -35,6 +35,23 @@ const TWISTED_VARIANTS = [
 ] as const satisfies readonly TreeVariantName[]
 const TAU = Math.PI * 2
 
+// Rounded horizontal crown bounds from the normalized tree catalog. Keeping
+// these proportional to placement scale makes sightline occlusion match the
+// canopy players actually see instead of the much narrower trunk collider.
+const VISUAL_RADIUS_FACTORS: Readonly<Record<TreeVariantName, number>> = Object.freeze({
+  TreeVariant_Common_1: 4.05,
+  TreeVariant_Common_2: 3.73,
+  TreeVariant_Common_3: 2.91,
+  TreeVariant_Common_4: 2.65,
+  TreeVariant_Pine_2: 5.12,
+  TreeVariant_Pine_5: 4.98,
+  TreeVariant_Dead_3: 2.94,
+  TreeVariant_Twisted_1: 4.69,
+  TreeVariant_Twisted_5: 3.76,
+  TreeVariant_Pine_3: 3.55,
+  TreeVariant_Stump: 0.7,
+})
+
 function variantForPlacement(placement: SherwoodTreePlacement, index: number): TreeVariantName {
   if (index % 47 === 0) return "TreeVariant_Stump"
   if (index % 31 === 0) return "TreeVariant_Dead_3"
@@ -75,7 +92,7 @@ export function createAuthoredTreePlacements(
       variantName,
       rotation: positiveModulo(index * 2.399963 + placement.x * 0.173 + placement.z * 0.127, TAU),
       height: placement.scale * heightFactor,
-      visualRadius: placement.scale * (variantName.includes("Stump") ? 0.7 : 1.35),
+      visualRadius: placement.scale * VISUAL_RADIUS_FACTORS[variantName],
     })
   })
 }

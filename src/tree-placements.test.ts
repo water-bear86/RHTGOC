@@ -21,6 +21,8 @@ describe("authored tree placements", () => {
       } else {
         expect(tree.height).toBeGreaterThan(7)
         expect(tree.height).toBeLessThan(16)
+        expect(tree.visualRadius).toBeGreaterThan(1.4)
+        expect(tree.visualRadius).toBeLessThan(7.7)
       }
       expect(tree.rotation).toBeGreaterThanOrEqual(0)
       expect(tree.rotation).toBeLessThan(Math.PI * 2)
