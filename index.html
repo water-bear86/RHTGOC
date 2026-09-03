@@ -55,7 +55,7 @@
       </aside>
       <button class="help-button" id="help-button" aria-label="Open controls">?</button>
       <button class="leaderboard-button" id="leaderboard-button" aria-label="Open leaderboard">♜</button>
-      <button class="social-button" id="social-button" aria-label="Open friends and invitations">♥</button>
+      <button class="social-button hidden" id="social-button" aria-label="Open friends and invitations" aria-hidden="true" tabindex="-1" hidden>♥</button>
       <button class="safety-button" id="safety-button" aria-label="Open band safety">♢</button>
       <button class="settings-button" id="settings-button" aria-label="Open accessibility and controls">⚙</button>
       <button class="chat-button hidden" id="chat-button" aria-label="Open chat" aria-haspopup="dialog" aria-controls="chat-drawer" aria-expanded="false">✎<b class="hidden" id="chat-unread-badge">0</b></button>
@@ -217,7 +217,7 @@
           <option value="">Any party</option><option value="1">Solo</option><option value="2">2 players</option><option value="3">3 players</option><option value="4">4 players</option>
         </select>
         <select id="board-scope" aria-label="Leaderboard scope">
-          <option value="global">Global</option><option value="friends">Friends</option><option value="band">Merry Band</option>
+          <option value="global">Global</option><option value="band">Merry Band</option>
         </select>
         <select id="board-mission" aria-label="Leaderboard mission">
           <option value="peoples-purse">People's Purse</option><option value="prison-wagon">Break the Iron Road</option><option value="royal-storehouse">The Nottingham Ledger</option>
