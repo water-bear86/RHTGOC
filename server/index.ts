@@ -7,6 +7,8 @@ import { PROTOCOL_VERSION, parseClientMessage, type CharacterId, type ClientDiag
 import { Room, type ContributionTransition, type RescueOfferTransition } from "./room"
 import { createBandStoreFromEnv, type CompletedBandMission, type PersistentBandRecord } from "./band-store"
 import { createLeaderboardStoreFromEnv, terminalLeaderboardFailure, type VerifiedRun } from "./leaderboard-store"
+import { createRankedLeaderboardStoreFromEnv, isLeaderboardKind } from "./ranked-leaderboard-store"
+import { LeaderboardCache } from "./leaderboard-cache"
 import { structuredLog, Telemetry } from "./telemetry"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
@@ -33,6 +35,8 @@ const buildId = normalizeBuildId(process.env.BUILD_ID)
 const rooms = new Map<string, Room>()
 const bandStore = createBandStoreFromEnv()
 const leaderboardStore = createLeaderboardStoreFromEnv()
+const rankedLeaderboardStore = createRankedLeaderboardStoreFromEnv()
+const leaderboardCache = new LeaderboardCache()
 const rescueOfferStore = createRescueOfferStoreFromEnv()
 const contributionStore = createContributionStoreFromEnv()
 const seasonStore = createSeasonStoreFromEnv()
@@ -791,6 +795,167 @@ const httpServer = createServer(async (request, response) => {
   }
   if (pathname === "/season" && request.method === "GET") {
     json(response, 200, seasonService.snapshot())
+    return
+  }
+  if (pathname === "/api/leaderboard/ranked" && request.method === "GET") {
+    const url = new URL(request.url ?? "/", "http://localhost")
+    const kind = url.searchParams.get("kind") ?? "master-outlaws"
+    const seasonSlug = url.searchParams.get("season") ?? "season-zero"
+    const characterId = url.searchParams.get("characterId") ?? undefined
+    const partySizeParam = url.searchParams.get("partySize")
+    const partySize = partySizeParam === null ? undefined : Number(partySizeParam)
+    const missionSlug = url.searchParams.get("missionSlug") ?? undefined
+    const limitParam = url.searchParams.get("limit")
+    const limit = limitParam === null ? 50 : Number(limitParam)
+    const offsetParam = url.searchParams.get("offset")
+    const offset = offsetParam === null ? 0 : Number(offsetParam)
+
+    if (!isLeaderboardKind(kind)) {
+      json(response, 400, { error: "Invalid leaderboard kind" })
+      return
+    }
+    if (!/^[a-z0-9-]{1,40}$/.test(seasonSlug)) {
+      json(response, 400, { error: "Invalid season" })
+      return
+    }
+    if (characterId !== undefined && !["robin", "marian", "little-john", "much"].includes(characterId)) {
+      json(response, 400, { error: "Invalid character filter" })
+      return
+    }
+    if (partySize !== undefined && (!Number.isInteger(partySize) || partySize < 1 || partySize > 4)) {
+      json(response, 400, { error: "Invalid party size filter" })
+      return
+    }
+    if (missionSlug !== undefined && !/^[a-z0-9-]{1,60}$/.test(missionSlug)) {
+      json(response, 400, { error: "Invalid mission filter" })
+      return
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0 || offset > 10_000) {
+      json(response, 400, { error: "Invalid pagination parameters" })
+      return
+    }
+    if (kind === "swift-arrows" && (missionSlug === undefined || partySize === undefined)) {
+      json(response, 400, { error: "Swift Arrows requires missionSlug and partySize" })
+      return
+    }
+    if (url.searchParams.has("bandId") || url.searchParams.has("playerIds")) {
+      // Friend and band scopes are viewer-authorized reads; they go through the
+      // authenticated Supabase RPC, never this unauthenticated global endpoint.
+      json(response, 400, { error: "Scoped leaderboards require an authenticated client read" })
+      return
+    }
+    if (!rankedLeaderboardStore) {
+      json(response, 503, { error: "Ranked leaderboard is not configured" })
+      return
+    }
+
+    const filters = { kind, seasonSlug, characterId: characterId as CharacterId | undefined, partySize, missionSlug, limit, offset }
+    const cached = leaderboardCache.get(filters)
+    if (cached) {
+      json(response, 200, { entries: cached.entries, pagination: cached.pagination, cached: true })
+      return
+    }
+
+    try {
+      const result = await rankedLeaderboardStore.readRanked(filters)
+      leaderboardCache.set(filters, { entries: result.entries, pagination: result.pagination })
+      json(response, 200, { entries: result.entries, pagination: result.pagination, cached: false })
+    } catch (error) {
+      telemetry.increment("ranked_leaderboard_read_failure_total")
+      structuredLog("ranked_leaderboard_read_failed", { message: error instanceof Error ? error.message : "unknown" }, "error")
+      json(response, 503, { error: "Leaderboard is temporarily unavailable" })
+    }
+    return
+  }
+  if (pathname === "/api/leaderboard/season/status" && request.method === "GET") {
+    if (!rankedLeaderboardStore) {
+      json(response, 503, { error: "Leaderboard is not configured" })
+      return
+    }
+    const url = new URL(request.url ?? "/", "http://localhost")
+    const seasonSlug = url.searchParams.get("season") ?? undefined
+    try {
+      const status = await rankedLeaderboardStore.getSeasonStatus(seasonSlug)
+      json(response, 200, status)
+    } catch (error) {
+      json(response, 503, { error: "Season status unavailable" })
+    }
+    return
+  }
+  if (pathname === "/admin/leaderboard/season/activate" && request.method === "POST") {
+    if (!opsAdminSecret || !leaderboardStore) {
+      json(response, 503, { error: "Leaderboard operator controls are not configured" })
+      return
+    }
+    if (!operatorAuthorized(request)) {
+      json(response, 401, { error: "Unauthorized" })
+      return
+    }
+    try {
+      const body = await readJsonBody(request) as { slug?: unknown; name?: unknown; startsAt?: unknown; endsAt?: unknown }
+      const slug = typeof body.slug === "string" ? body.slug : ""
+      const name = typeof body.name === "string" ? body.name : ""
+      const startsAt = Number(body.startsAt)
+      const endsAt = Number(body.endsAt)
+      if (!/^[a-z0-9-]{1,40}$/.test(slug) || name.length < 1 || name.length > 60 || !Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) {
+        json(response, 400, { error: "Invalid season definition" })
+        return
+      }
+      const result = await leaderboardStore.activateSeason({ slug, name, startsAt, endsAt })
+      leaderboardCache.invalidateAll()
+      telemetry.increment("leaderboard_season_activate_total")
+      structuredLog("leaderboard_season_activated", { slug, activated: result.activated })
+      json(response, 200, result)
+    } catch (error) {
+      json(response, 409, { error: error instanceof Error ? error.message : "Activation failed" })
+    }
+    return
+  }
+  if (pathname === "/admin/leaderboard/season/close" && request.method === "POST") {
+    if (!opsAdminSecret || !leaderboardStore) {
+      json(response, 503, { error: "Leaderboard operator controls are not configured" })
+      return
+    }
+    if (!operatorAuthorized(request)) {
+      json(response, 401, { error: "Unauthorized" })
+      return
+    }
+    try {
+      const body = await readJsonBody(request) as { seasonId?: unknown; drainMinutes?: unknown }
+      const seasonId = typeof body.seasonId === "string" ? body.seasonId : ""
+      const drainMinutes = body.drainMinutes === undefined ? 30 : Number(body.drainMinutes)
+      if (!/^[0-9a-f-]{36}$/.test(seasonId) || !Number.isInteger(drainMinutes) || drainMinutes < 1 || drainMinutes > 1440) {
+        json(response, 400, { error: "Invalid close request" })
+        return
+      }
+      const result = await leaderboardStore.closeSeason(seasonId, drainMinutes)
+      leaderboardCache.invalidateAll()
+      telemetry.increment("leaderboard_season_close_total")
+      structuredLog("leaderboard_season_closed", { seasonId, drainMinutes, changed: result.changed })
+      json(response, 200, result)
+    } catch (error) {
+      json(response, 409, { error: error instanceof Error ? error.message : "Close failed" })
+    }
+    return
+  }
+  if (pathname === "/admin/leaderboard/season/recover" && request.method === "POST") {
+    if (!opsAdminSecret || !leaderboardStore) {
+      json(response, 503, { error: "Leaderboard operator controls are not configured" })
+      return
+    }
+    if (!operatorAuthorized(request)) {
+      json(response, 401, { error: "Unauthorized" })
+      return
+    }
+    try {
+      const result = await leaderboardStore.recoverSeasonDrain()
+      leaderboardCache.invalidateAll()
+      telemetry.increment("leaderboard_season_recover_total")
+      structuredLog("leaderboard_season_recovered", { seasonsRecovered: result.seasonsRecovered, snapshotsCreated: result.snapshotsCreated, blocked: result.blocked.length })
+      json(response, 200, result)
+    } catch (error) {
+      json(response, 409, { error: error instanceof Error ? error.message : "Recover failed" })
+    }
     return
   }
   if (pathname.startsWith("/admin/rotations/") && request.method === "POST") {
