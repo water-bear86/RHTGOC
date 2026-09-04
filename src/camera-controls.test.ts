@@ -52,23 +52,23 @@ describe("camera controls", () => {
     }
   })
 
-  it("identifies scenery inside the padded camera-to-player corridor", () => {
+  it("identifies scenery inside the camera-to-player corridor", () => {
     const base = {
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
       radius: 0.8,
     }
-    expect(blocksCameraSightline({ ...base, occluder: { x: 1.3, z: 4 } })).toBe(true)
-    expect(blocksCameraSightline({ ...base, occluder: { x: 1.6, z: 4 } })).toBe(false)
+    expect(blocksCameraSightline({ ...base, occluder: { x: 0.7, z: 4 } })).toBe(true)
+    expect(blocksCameraSightline({ ...base, occluder: { x: 0.9, z: 4 } })).toBe(false)
   })
 
-  it("catches crowns just behind the player but preserves distant scenery", () => {
+  it("only treats scenery physically between camera and player as cover", () => {
     const base = {
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
       radius: 0.9,
     }
-    expect(blocksCameraSightline({ ...base, occluder: { x: 0.4, z: -0.5 } })).toBe(true)
+    expect(blocksCameraSightline({ ...base, occluder: { x: 0.4, z: -0.5 } })).toBe(false)
     expect(blocksCameraSightline({ ...base, occluder: { x: 0, z: -2 } })).toBe(false)
     expect(blocksCameraSightline({ ...base, occluder: { x: 0, z: 11 } })).toBe(false)
   })

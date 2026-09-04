@@ -57,7 +57,8 @@ export function cameraRelativeMove(screenMove: Vec2, cameraPosition: Vec2, focus
 /**
  * Detects when scenery overlaps a camera-to-character corridor so the character
  * can receive a readability treatment while the forest itself remains visible.
- * The endpoint allowance catches tree crowns immediately behind the character.
+ * Cover must sit between the camera and character; nearby or behind scenery
+ * is not enough to turn a character into a silhouette.
  */
 export function blocksCameraSightline(query: CameraSightlineQuery): boolean {
   const cameraToFocusX = query.focus.x - query.camera.x
@@ -71,10 +72,10 @@ export function blocksCameraSightline(query: CameraSightlineQuery): boolean {
     cameraToOccluderX * cameraToFocusX
     + cameraToOccluderZ * cameraToFocusZ
   ) / lengthSquared
-  if (projection <= 0.04 || projection >= 1.08) return false
+  if (projection <= 0.04 || projection >= 0.98) return false
 
   const closestX = query.camera.x + cameraToFocusX * projection
   const closestZ = query.camera.z + cameraToFocusZ * projection
-  const clearance = Math.max(0, query.clearance ?? 0.65)
+  const clearance = Math.max(0, query.clearance ?? 0)
   return Math.hypot(query.occluder.x - closestX, query.occluder.z - closestZ) < query.radius + clearance
 }
