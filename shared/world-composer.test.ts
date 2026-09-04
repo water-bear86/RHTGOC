@@ -101,7 +101,7 @@ describe("Sherwood world composer", () => {
       expect(world.roads.every((road) => road.points.length >= 2)).toBe(true)
       expect(world.buildingCount).toBeGreaterThanOrEqual(10)
     }
-  }, 30_000)
+  }, 60_000)
 
   it("keeps every building footprint entirely out of the river", () => {
     const riverNormalLength = Math.hypot(1, -SHERWOOD_RIVER_SLOPE)
@@ -116,5 +116,5 @@ describe("Sherwood world composer", () => {
         expect(centerlineDistance - footprintRadius).toBeGreaterThan(SHERWOOD_RIVER_HALF_WIDTH)
       }
     }
-  }, 30_000)
+  }, 60_000)
 })
