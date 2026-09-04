@@ -47,7 +47,7 @@ export interface VanityDisplayItem {
 }
 
 export async function loadVanityState(): Promise<VanityState> {
-  return tokenBackendJson<VanityState>(await tokenBackendRequest("/vanity/state"), "Sherwood Finery is temporarily unavailable")
+  return tokenBackendJson<VanityState>(await tokenBackendRequest("/api/vanity/state"), "Sherwood Finery is temporarily unavailable")
 }
 
 /** Items for the shop panel: shared catalog ids stay visible even offline. */
@@ -87,14 +87,14 @@ export async function purchaseVanityItem(itemId: string, state: VanityState): Pr
     passDays: 0,
   })
   return tokenBackendJson<VanityState>(
-    await tokenBackendRequest("/vanity/purchase", "POST", { itemId, transactionHash }),
+    await tokenBackendRequest("/api/vanity/purchase", "POST", { itemId, transactionHash }),
     "Finery purchase could not be verified",
   )
 }
 
 export async function equipVanityItems(itemIds: readonly string[]): Promise<VanityState> {
   return tokenBackendJson<VanityState>(
-    await tokenBackendRequest("/vanity/equip", "POST", { itemIds: [...itemIds] }),
+    await tokenBackendRequest("/api/vanity/equip", "POST", { itemIds: [...itemIds] }),
     "Finery equipment could not be saved",
   )
 }

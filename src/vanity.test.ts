@@ -72,7 +72,7 @@ describe("vanity client API", () => {
   it("loads a browsable catalog even when signed out", async () => {
     tokenBackendJson.mockResolvedValueOnce(signedOutState)
     const state = await loadVanityState()
-    expect(tokenBackendRequest).toHaveBeenCalledWith("/vanity/state")
+    expect(tokenBackendRequest).toHaveBeenCalledWith("/api/vanity/state")
     expect(state.items).toHaveLength(2)
     const cards = vanityDisplayItems(state)
     expect(cards.find((card) => card.item.id === "fox-plume")).toMatchObject({ owned: false, equipped: false })
@@ -111,7 +111,7 @@ describe("vanity client API", () => {
       amountDisplay: "3.0",
       tokenSymbol: "HOOD",
     }))
-    expect(tokenBackendRequest).toHaveBeenCalledWith("/vanity/purchase", "POST", {
+    expect(tokenBackendRequest).toHaveBeenCalledWith("/api/vanity/purchase", "POST", {
       itemId: "fox-plume",
       transactionHash: `0x${"ab".repeat(32)}`,
     })
@@ -130,7 +130,7 @@ describe("vanity client API", () => {
     tokenBackendRequest.mockResolvedValueOnce(response)
     tokenBackendJson.mockResolvedValueOnce(next)
     const state = await equipVanityItems(["fox-plume"])
-    expect(tokenBackendRequest).toHaveBeenCalledWith("/vanity/equip", "POST", { itemIds: ["fox-plume"] })
+    expect(tokenBackendRequest).toHaveBeenCalledWith("/api/vanity/equip", "POST", { itemIds: ["fox-plume"] })
     expect(state.equippedItemIds).toEqual(["fox-plume"])
   })
 })

@@ -34,7 +34,7 @@ the client; the client never derives prices from raw multipliers.
 
 ## Server-authoritative purchase and ownership
 
-`POST /vanity/purchase` (signed-in wallet identity) verifies, before granting
+`POST /api/vanity/purchase` (signed-in wallet identity) verifies, before granting
 ownership:
 
 1. the transaction hash format,
@@ -55,11 +55,11 @@ have no read or write access. Client state can never grant inventory.
 
 ## Endpoints
 
-- `GET /vanity/state` — browse signed out or signed in; returns catalog,
+- `GET /api/vanity/state` — browse signed out or signed in; returns catalog,
   server prices, payment envelope, and (when signed in) owned/equipped ids.
-- `POST /vanity/purchase` — `{ itemId, transactionHash }`, requires wallet
+- `POST /api/vanity/purchase` — `{ itemId, transactionHash }`, requires wallet
   identity; returns refreshed state.
-- `POST /vanity/equip` — `{ itemIds }`, requires sign-in; returns refreshed
+- `POST /api/vanity/equip` — `{ itemIds }`, requires sign-in; returns refreshed
   state. One item per slot, owned items only.
 
 `/health` and the startup log report `vanityConfigured`.
@@ -110,6 +110,6 @@ the token pass:
 - `TOKEN_ACCESS_AMOUNT` — also the Finery base price amount
 - `TOKEN_PAYMENT_CONFIRMATIONS`
 
-Until the token environment is set, `/vanity/state` still serves the catalog
+Until the token environment is set, `/api/vanity/state` still serves the catalog
 for signed-out browsing but marks `paymentConfigured: false`, and purchases
 respond 503.

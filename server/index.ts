@@ -634,7 +634,7 @@ const httpServer = createServer(async (request, response) => {
     response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     response.setHeader("Vary", "Origin")
   }
-  if (request.method === "OPTIONS" && (pathname.startsWith("/access") || pathname.startsWith("/vanity"))) {
+  if (request.method === "OPTIONS" && (pathname.startsWith("/access") || pathname.startsWith("/api/vanity"))) {
     response.writeHead(requestOrigin === publicOrigin ? 204 : 403)
     response.end()
     return
@@ -713,7 +713,7 @@ const httpServer = createServer(async (request, response) => {
     }
     return
   }
-  if (pathname === "/vanity/state" && request.method === "GET") {
+  if (pathname === "/api/vanity/state" && request.method === "GET") {
     const identity = await verifySupabaseIdentity(bearerToken(request))
     if (!vanityService) {
       json(response, 200, vanityFallbackBrowsePayload(identity !== null))
@@ -729,7 +729,7 @@ const httpServer = createServer(async (request, response) => {
     }
     return
   }
-  if (pathname === "/vanity/equip" && request.method === "POST") {
+  if (pathname === "/api/vanity/equip" && request.method === "POST") {
     if (!vanityService) {
       json(response, 503, { error: "Sherwood Finery is not configured on this server" })
       return
@@ -756,7 +756,7 @@ const httpServer = createServer(async (request, response) => {
     }
     return
   }
-  if (pathname === "/vanity/purchase" && request.method === "POST") {
+  if (pathname === "/api/vanity/purchase" && request.method === "POST") {
     if (!vanityService) {
       json(response, 503, { error: "Sherwood Finery payments are not configured" })
       return
