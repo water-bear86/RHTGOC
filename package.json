@@ -16,6 +16,8 @@
     "test:operator": "node tools/operator-review-smoke-test.mjs",
     "ops:aws-status": "node tools/aws-lightsail-status.mjs",
     "ops:aws-edge": "node tools/aws-edge-release.mjs",
+    "ops:godot-artifact": "node tools/godot-artifact.mjs",
+    "ops:verify-release": "node tools/godot-release-verify.mjs",
     "ops:analytics-report": "node tools/gameplay-analytics-report.mjs",
     "build:village-assets": "node tools/build-sherwood-village-slice.mjs",
     "build:regional-maps": "tsx tools/bake-regional-maps.ts",
