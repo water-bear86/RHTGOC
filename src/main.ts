@@ -78,9 +78,9 @@ import type { HeroAction } from "./character-visuals"
 import { createCharacterVisual, disposeCharacterVisual, poseCharacterVisual } from "./character-assets"
 import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, normalizedHeroActionProgress } from "./character-animation"
 import {
-  blocksCameraSightline,
   cameraQuarterTurnsForRoute,
   cameraRelativeMove,
+  characterCoveredByScenery,
   rotateCameraOffset,
 } from "./camera-controls"
 import { createGuardVisual, poseGuardVisual, synchronizeGuardVisualsById } from "./guard-visuals"
@@ -4971,7 +4971,7 @@ function syncViews(elapsed: number, dt: number): void {
   for (const tree of authoredTreeInstances) {
     if (!tree.hidden) visibleOccluders.push(tree)
   }
-  const characterIsOccluded = (position: { x: number; z: number }): boolean => visibleOccluders.some((occluder) => blocksCameraSightline({
+  const characterIsOccluded = (position: { x: number; z: number }): boolean => visibleOccluders.some((occluder) => characterCoveredByScenery({
     camera: cameraPosition,
     focus: position,
     occluder,

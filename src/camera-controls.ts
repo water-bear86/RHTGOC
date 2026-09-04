@@ -2,12 +2,12 @@ import type { Vec2 } from "./simulation"
 
 export const CAMERA_QUARTER_TURN = Math.PI / 2
 
-export interface CameraSightlineQuery {
+export interface CharacterCoverQuery {
   camera: Vec2
   focus: Vec2
   occluder: Vec2
   radius: number
-  clearance?: number
+  bodyDepth?: number
 }
 
 export function rotateCameraOffset(offset: Vec2, quarterTurns: number): Vec2 {
@@ -55,27 +55,33 @@ export function cameraRelativeMove(screenMove: Vec2, cameraPosition: Vec2, focus
 }
 
 /**
- * Detects when scenery overlaps a camera-to-character corridor so the character
- * can receive a readability treatment while the forest itself remains visible.
- * Cover must sit between the camera and character; nearby or behind scenery
- * is not enough to turn a character into a silhouette.
+ * Decides whether scenery truly hides a character from the camera, so the
+ * character can become a readable silhouette through the forest. Two
+ * conditions keep the trigger honest:
+ *
+ * - The cover's centre must sit strictly between the camera and the character.
+ *   A crown the character has already reached (projection at or beyond the
+ *   character) hangs overhead rather than in front, so it is not cover.
+ * - The cover must actually reach the character's body, measured to a point one
+ *   body-depth toward the camera from the character's feet. A crown that merely
+ *   crosses the corridor further ahead never hides the outlaw behind it.
  */
-export function blocksCameraSightline(query: CameraSightlineQuery): boolean {
+export function characterCoveredByScenery(query: CharacterCoverQuery): boolean {
   const cameraToFocusX = query.focus.x - query.camera.x
   const cameraToFocusZ = query.focus.z - query.camera.z
-  const lengthSquared = cameraToFocusX ** 2 + cameraToFocusZ ** 2
-  if (lengthSquared <= 0.0001) return false
+  const corridorLength = Math.hypot(cameraToFocusX, cameraToFocusZ)
+  if (corridorLength <= 0.0001) return false
 
   const cameraToOccluderX = query.occluder.x - query.camera.x
   const cameraToOccluderZ = query.occluder.z - query.camera.z
   const projection = (
     cameraToOccluderX * cameraToFocusX
     + cameraToOccluderZ * cameraToFocusZ
-  ) / lengthSquared
-  if (projection <= 0.04 || projection >= 0.98) return false
+  ) / (corridorLength * corridorLength)
+  if (projection <= 0 || projection >= 1) return false
 
-  const closestX = query.camera.x + cameraToFocusX * projection
-  const closestZ = query.camera.z + cameraToFocusZ * projection
-  const clearance = Math.max(0, query.clearance ?? 0)
-  return Math.hypot(query.occluder.x - closestX, query.occluder.z - closestZ) < query.radius + clearance
+  const bodyDepth = Math.max(0, query.bodyDepth ?? 0.55)
+  const bodyX = query.focus.x - (cameraToFocusX / corridorLength) * bodyDepth
+  const bodyZ = query.focus.z - (cameraToFocusZ / corridorLength) * bodyDepth
+  return Math.hypot(query.occluder.x - bodyX, query.occluder.z - bodyZ) < query.radius
 }

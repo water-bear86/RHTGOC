@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
-  blocksCameraSightline,
   cameraQuarterTurnsForRoute,
   cameraRelativeMove,
+  characterCoveredByScenery,
   rotateCameraOffset,
 } from "./camera-controls"
 
@@ -52,29 +52,70 @@ describe("camera controls", () => {
     }
   })
 
-  it("identifies scenery inside the camera-to-player corridor", () => {
+  it("silhouettes a character when cover sits between the camera and their body", () => {
     const base = {
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
       radius: 0.8,
     }
-    expect(blocksCameraSightline({ ...base, occluder: { x: 0.7, z: 4 } })).toBe(true)
-    expect(blocksCameraSightline({ ...base, occluder: { x: 0.9, z: 4 } })).toBe(false)
+    expect(characterCoveredByScenery({ ...base, occluder: { x: 0.3, z: 1.0 } })).toBe(true)
+    expect(characterCoveredByScenery({ ...base, occluder: { x: 0.3, z: 1.6 } })).toBe(false)
   })
 
-  it("only treats scenery physically between camera and player as cover", () => {
-    const base = {
+  it("keeps the character readable when a crown crosses the corridor further ahead", () => {
+    expect(characterCoveredByScenery({
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
-      radius: 0.9,
-    }
-    expect(blocksCameraSightline({ ...base, occluder: { x: 0.4, z: -0.5 } })).toBe(false)
-    expect(blocksCameraSightline({ ...base, occluder: { x: 0, z: -2 } })).toBe(false)
-    expect(blocksCameraSightline({ ...base, occluder: { x: 0, z: 11 } })).toBe(false)
+      occluder: { x: 0.5, z: 5 },
+      radius: 1.2,
+    })).toBe(false)
+  })
+
+  it("does not silhouette a character standing inside a canopy they have reached", () => {
+    expect(characterCoveredByScenery({
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      occluder: { x: 0.4, z: -1.4 },
+      radius: 2,
+    })).toBe(false)
+  })
+
+  it("does not silhouette for scenery beside the character or behind the camera", () => {
+    expect(characterCoveredByScenery({
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      occluder: { x: 2.2, z: 0.5 },
+      radius: 1.5,
+    })).toBe(false)
+    expect(characterCoveredByScenery({
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      occluder: { x: 0, z: 12 },
+      radius: 3,
+    })).toBe(false)
+  })
+
+  it("counts a crown that overhangs the character's body from the camera side", () => {
+    expect(characterCoveredByScenery({
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      occluder: { x: 0, z: 0.4 },
+      radius: 0.6,
+    })).toBe(true)
+  })
+
+  it("moves the measured body point toward the camera as body depth grows", () => {
+    expect(characterCoveredByScenery({
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      occluder: { x: 0, z: 1.2 },
+      radius: 0.8,
+      bodyDepth: 0.2,
+    })).toBe(false)
   })
 
   it("does not occlude when the camera and focus coincide", () => {
-    expect(blocksCameraSightline({
+    expect(characterCoveredByScenery({
       camera: { x: 2, z: 2 },
       focus: { x: 2, z: 2 },
       occluder: { x: 2, z: 2 },
