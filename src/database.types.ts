@@ -640,6 +640,81 @@ export type Database = {
         }
         Relationships: []
       }
+      player_vanity_owned: {
+        Row: {
+          granted_at: string
+          item_id: string
+          user_id: string
+        }
+        Insert: {
+          granted_at?: string
+          item_id: string
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          item_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      player_vanity_state: {
+        Row: {
+          equipped_item_ids: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          equipped_item_ids?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          equipped_item_ids?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      vanity_purchases: {
+        Row: {
+          amount_base_units: number
+          chain_id: number
+          created_at: string
+          item_id: string
+          paid_at: string
+          token_contract: string
+          treasury_address: string
+          tx_hash: string
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          amount_base_units: number
+          chain_id: number
+          created_at?: string
+          item_id: string
+          paid_at: string
+          token_contract: string
+          treasury_address: string
+          tx_hash: string
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          amount_base_units?: number
+          chain_id?: number
+          created_at?: string
+          item_id?: string
+          paid_at?: string
+          token_contract?: string
+          treasury_address?: string
+          tx_hash?: string
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
       player_social_profiles: {
         Row: {
           active_room_code: string | null
@@ -1022,6 +1097,20 @@ export type Database = {
         }
         Returns: string
       }
+      record_vanity_purchase: {
+        Args: {
+          p_amount_base_units: string
+          p_chain_id: number
+          p_item_id: string
+          p_paid_at: string
+          p_token_contract: string
+          p_treasury_address: string
+          p_tx_hash: string
+          p_user_id: string
+          p_wallet_address: string
+        }
+        Returns: boolean
+      }
       record_band_contribution_transition: {
         Args: {
           p_band_id?: string
@@ -1158,6 +1247,10 @@ export type Database = {
       set_merry_band_hero_role: {
         Args: { p_band_id: string; p_hero_role: string; p_user_id: string }
         Returns: Json
+      }
+      set_vanity_equipped: {
+        Args: { p_item_ids: string[]; p_user_id: string }
+        Returns: string[]
       }
       snapshot_leaderboard_season: {
         Args: { p_season_id: string }

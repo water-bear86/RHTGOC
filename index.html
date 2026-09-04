@@ -102,6 +102,7 @@
           <button class="entry-public" id="join-public-hub" disabled>PLAY ONLINE · GROUP OF 4</button>
           <label class="entry-name" for="player-name"><span>OUTLAW NAME</span><input id="player-name" maxlength="20" value="Greenhood" /></label>
           <button class="entry-help" id="intro-help" type="button">HOW TO PLAY</button>
+          <button class="entry-finery" id="finery-button" type="button">SHERWOOD FINERY · COSMETIC ONLY</button>
         </div>
 
         <p class="entry-access-note" id="entry-access-note" role="status" aria-live="polite">FREE TO PLAY · NO WALLET REQUIRED</p>
@@ -318,6 +319,15 @@
       </details>
       <button class="reset-bindings" id="reset-settings">RESET TO DEFAULTS</button>
       <p class="settings-note" id="settings-status" role="status" aria-live="polite">Changes save on this device.</p>
+    </div>
+    <div class="panel vanity-panel hidden" id="vanity-panel" role="dialog" aria-modal="true" aria-labelledby="vanity-title" aria-describedby="vanity-copy" tabindex="-1">
+      <button id="close-vanity" type="button" aria-label="Close Sherwood Finery">×</button>
+      <span class="eyebrow">SHERWOOD FINERY · LOOK, NOT POWER</span>
+      <h2 id="vanity-title">Finery for the greenwood</h2>
+      <p id="vanity-copy">Cosmetic keepsakes for your outlaw. Nothing here changes how Sherwood plays — only how your outlaw looks.</p>
+      <p class="board-state" id="vanity-state" role="status" aria-live="polite">Loading the Finery shelf…</p>
+      <ul class="finery-list" id="finery-list"></ul>
+      <small class="finery-note" id="vanity-status">Sherwood stays free to play. Purchases use the same Robinhood Chain token payments as other optional on-chain extras.</small>
     </div>
     <pre class="mission-debug hidden" id="mission-debug" role="status" aria-live="polite"></pre>
     <section class="hub-panel hidden" id="hub-panel" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="hub-title" tabindex="-1">

@@ -662,3 +662,66 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; }
 }
+
+/* ---- Sherwood Finery (cosmetic-only vanity shop) ---- */
+.entry-finery {
+  grid-column: 1 / -1;
+  min-height: 30px !important;
+  color: var(--gold) !important;
+  background: transparent !important;
+  border: 1px solid #e4b65359 !important;
+  border-radius: 2px !important;
+  font-size: 9px !important;
+  font-weight: 800 !important;
+  letter-spacing: .1em !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+}
+.entry-finery:hover:not(:disabled) { background: #e4b6531f !important; border-color: var(--gold) !important; }
+
+.vanity-panel {
+  width: min(560px, calc(100vw - 56px));
+  max-height: calc(100dvh - 120px);
+  overflow-y: auto;
+}
+.vanity-panel > p { margin-bottom: 14px; color: #f7f0d4b0; font-size: 12px; line-height: 1.5; }
+.finery-list { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.finery-item {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  background: #0a1811b8;
+  border: 1px solid #f7f0d425;
+  border-radius: 3px;
+}
+.finery-swatch {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: radial-gradient(circle at 32% 30%, var(--a), var(--b) 78%);
+  border: 1px solid #f7f0d43d;
+  box-shadow: 0 0 14px #00000066;
+}
+.finery-item-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.finery-item-copy b { color: var(--cream); font-size: 13px; letter-spacing: .02em; }
+.finery-item-copy span { color: #f7f0d48c; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+.finery-item-copy small { color: #f7f0d47a; font-size: 11px; line-height: 1.4; }
+.finery-item-price { color: var(--gold); font-size: 11px; font-weight: 800; letter-spacing: .05em; }
+.finery-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.finery-actions button {
+  padding: 7px 10px;
+  color: var(--cream);
+  background: #294632;
+  border: 1px solid #e4b6535e;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .1em;
+  white-space: nowrap;
+}
+.finery-actions button.finery-buy { color: var(--ink); background: var(--gold); border-color: #ffe49c; }
+.finery-actions button.finery-equip { border-color: #b7cd8b8c; color: #d9e8ae; }
+.finery-actions button.finery-equipped { color: #f7f0d48a; background: transparent; border-color: #f7f0d42c; }
+.finery-actions button:disabled { opacity: .45; cursor: default; }
+.finery-note { display: block; margin-top: 16px; color: #f7f0d47a; font-size: 10px; line-height: 1.5; }

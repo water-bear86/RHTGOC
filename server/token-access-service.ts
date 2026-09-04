@@ -125,23 +125,39 @@ function integerSetting(value: string | undefined, fallback: number, minimum: nu
   return result
 }
 
-export function createTokenAccessServiceFromEnv(): TokenAccessService | null {
-  const supabaseUrl = process.env.SUPABASE_URL
-  const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY
-  const rpcUrl = process.env.ROBINHOOD_RPC_URL
-  const tokenContract = process.env.TOKEN_CONTRACT_ADDRESS
-  const treasuryAddress = process.env.TOKEN_TREASURY_ADDRESS
-  const amount = process.env.TOKEN_ACCESS_AMOUNT
-  const tokenSymbol = process.env.TOKEN_SYMBOL?.trim()
+/**
+ * Single source of truth for the Robinhood Chain token payment environment.
+ * The token pass gate and the Sherwood Finery vanity shop share the same
+ * chain, ERC-20 contract, treasury, decimals, and confirmation policy so a
+ * production deployment only supplies TOKEN_CONTRACT_ADDRESS as its
+ * game-token-specific contract value. Addresses are never hardcoded.
+ */
+export interface ResolvedTokenPaymentEnvironment {
+  supabaseUrl: string
+  supabaseSecretKey: string
+  rpcUrl: string
+  payment: TokenPaymentConfig
+}
+
+export function resolveTokenPaymentEnvironment(
+  env: NodeJS.ProcessEnv = process.env,
+): ResolvedTokenPaymentEnvironment | null {
+  const supabaseUrl = env.SUPABASE_URL
+  const supabaseSecretKey = env.SUPABASE_SECRET_KEY
+  const rpcUrl = env.ROBINHOOD_RPC_URL
+  const tokenContract = env.TOKEN_CONTRACT_ADDRESS
+  const treasuryAddress = env.TOKEN_TREASURY_ADDRESS
+  const amount = env.TOKEN_ACCESS_AMOUNT
+  const tokenSymbol = env.TOKEN_SYMBOL?.trim()
   if (!supabaseUrl || !supabaseSecretKey || !rpcUrl || !tokenContract || !treasuryAddress || !amount || !tokenSymbol) return null
   if (!isAddress(tokenContract) || !isAddress(treasuryAddress)) throw new Error("Token contract and treasury must be valid EVM addresses")
   if (!/^[A-Za-z0-9._-]{1,16}$/.test(tokenSymbol)) throw new Error("TOKEN_SYMBOL must contain 1-16 safe display characters")
 
-  const mainnet = process.env.ROBINHOOD_CHAIN === "mainnet"
+  const mainnet = env.ROBINHOOD_CHAIN === "mainnet"
   const chainId = mainnet ? 4663 : 46630
-  const tokenDecimals = integerSetting(process.env.TOKEN_DECIMALS, 18, 0, 36, "TOKEN_DECIMALS")
-  const passDays = integerSetting(process.env.TOKEN_ACCESS_DAYS, 30, 1, 365, "TOKEN_ACCESS_DAYS")
-  const confirmations = integerSetting(process.env.TOKEN_PAYMENT_CONFIRMATIONS, 2, 1, 100, "TOKEN_PAYMENT_CONFIRMATIONS")
+  const tokenDecimals = integerSetting(env.TOKEN_DECIMALS, 18, 0, 36, "TOKEN_DECIMALS")
+  const passDays = integerSetting(env.TOKEN_ACCESS_DAYS, 30, 1, 365, "TOKEN_ACCESS_DAYS")
+  const confirmations = integerSetting(env.TOKEN_PAYMENT_CONFIRMATIONS, 2, 1, 100, "TOKEN_PAYMENT_CONFIRMATIONS")
   const amountBaseUnits = parseUnits(amount, tokenDecimals)
   if (amountBaseUnits <= 0n) throw new Error("TOKEN_ACCESS_AMOUNT must be positive")
   const payment: TokenPaymentConfig = {
@@ -156,8 +172,18 @@ export function createTokenAccessServiceFromEnv(): TokenAccessService | null {
     passDays,
     confirmations,
   }
-  const database = createClient<Database>(supabaseUrl, supabaseSecretKey, {
+  return { supabaseUrl, supabaseSecretKey, rpcUrl, payment }
+}
+
+export function createTokenAccessServiceFromEnv(): TokenAccessService | null {
+  const resolved = resolveTokenPaymentEnvironment()
+  if (!resolved) return null
+  const database = createClient<Database>(resolved.supabaseUrl, resolved.supabaseSecretKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   })
-  return new TokenAccessService(database, new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true }), payment)
+  return new TokenAccessService(
+    database,
+    new JsonRpcProvider(resolved.rpcUrl, resolved.payment.chainId, { staticNetwork: true }),
+    resolved.payment,
+  )
 }

@@ -19,6 +19,8 @@ import { createSeasonStoreFromEnv } from "./season-store"
 import { createSocialStoreFromEnv } from "./social-store"
 import { PublicHubService, type HubParticipant } from "./public-hub"
 import { createTokenAccessServiceFromEnv, REFERENCE_PRICE_USD, walletAddressFromIdentities } from "./token-access-service"
+import { createVanityServiceFromEnv } from "./vanity-service"
+import { VANITY_CATALOG } from "../shared/vanity-catalog"
 import { normalizeBuildId, staticCacheControl } from "../shared/release"
 import { GameplayAnalyticsAggregator } from "./gameplay-analytics"
 import { createGameplayAnalyticsStoreFromEnv } from "./gameplay-analytics-store"
@@ -40,6 +42,7 @@ let publicCampChatEnabled = false
 const publicHub = new PublicHubService()
 const tokenAccessService = createTokenAccessServiceFromEnv()
 const tokenAccessGate = false
+const vanityService = createVanityServiceFromEnv()
 const gameplayAnalyticsEnabled = process.env.GAMEPLAY_ANALYTICS_ENABLED === "true"
 const gameplayAnalyticsStore = gameplayAnalyticsEnabled ? createGameplayAnalyticsStoreFromEnv() : null
 const gameplayAnalytics = gameplayAnalyticsStore ? new GameplayAnalyticsAggregator() : null
@@ -362,6 +365,43 @@ async function verifySupabaseUser(accessToken: string | undefined): Promise<stri
   return (await verifySupabaseIdentity(accessToken))?.id ?? null
 }
 
+function vanityFallbackBrowsePayload(authenticated: boolean): Record<string, unknown> {
+  return {
+    authenticated,
+    paymentConfigured: false,
+    payment: null,
+    items: VANITY_CATALOG.map((item) => ({
+      id: item.id,
+      slot: item.slot,
+      name: item.name,
+      description: item.description,
+      colors: item.colors,
+      priceMultiplierDisplay: `${item.priceNumerator}/${item.priceDenominator}`,
+      amountBaseUnits: null,
+      amountDisplay: null,
+    })),
+    ownedItemIds: [],
+    equippedItemIds: [],
+  }
+}
+
+function vanityPublicError(message: string): { status: number; message: string } {
+  if (message === "VANITY_ITEM_UNKNOWN") return { status: 400, message: "That Finery item is not in the catalog" }
+  if (message === "VANITY_ITEM_NOT_OWNED") return { status: 403, message: "That Finery item is not owned by this outlaw" }
+  if (message === "VANITY_EQUIP_INVALID") return { status: 400, message: "That Finery equipment is invalid" }
+  if (message === "VANITY_PAYMENT_ALREADY_CLAIMED") return { status: 409, message: "That token payment has already granted a Finery item" }
+  if (message === "VANITY_PAYMENT_NOT_CONFIGURED") return { status: 503, message: "Sherwood Finery payments are not configured on this server" }
+  const pending = message === "TOKEN_PAYMENT_NOT_CONFIRMED" || message.includes("CONFIRMATIONS")
+  const conflict = pending
+  const invalid = message === "TOKEN_PAYMENT_INVALID_HASH"
+    || (message.startsWith("TOKEN_PAYMENT_") && !message.startsWith("TOKEN_PAYMENT_WRITE") && message !== "TOKEN_PAYMENT_BLOCK_UNAVAILABLE" && !pending)
+  const writeFailure = message.startsWith("TOKEN_PAYMENT_WRITE") || message.startsWith("VANITY_PAYMENT_WRITE") || message.startsWith("VANITY_OWNED_LOOKUP") || message.startsWith("VANITY_STATE_LOOKUP") || message.startsWith("VANITY_EQUIP_WRITE")
+  if (conflict) return { status: 409, message: "The token payment is still confirming on Robinhood Chain" }
+  if (invalid) return { status: 400, message: "That transaction does not match the required token payment" }
+  if (writeFailure) return { status: 503, message: "Sherwood Finery could not be saved — try again shortly" }
+  return { status: 503, message: "Sherwood Finery is temporarily unavailable" }
+}
+
 function isPersistentUserId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
@@ -594,7 +634,7 @@ const httpServer = createServer(async (request, response) => {
     response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     response.setHeader("Vary", "Origin")
   }
-  if (request.method === "OPTIONS" && pathname.startsWith("/access")) {
+  if (request.method === "OPTIONS" && (pathname.startsWith("/access") || pathname.startsWith("/vanity"))) {
     response.writeHead(requestOrigin === publicOrigin ? 204 : 403)
     response.end()
     return
@@ -670,6 +710,78 @@ const httpServer = createServer(async (request, response) => {
             ? "That transaction does not match the required token payment"
             : "Token payment verification is temporarily unavailable"
       json(response, conflict ? 409 : invalid ? 400 : 503, { error: publicMessage })
+    }
+    return
+  }
+  if (pathname === "/vanity/state" && request.method === "GET") {
+    const identity = await verifySupabaseIdentity(bearerToken(request))
+    if (!vanityService) {
+      json(response, 200, vanityFallbackBrowsePayload(identity !== null))
+      return
+    }
+    try {
+      const payload = await vanityService.state(identity?.id ?? null)
+      telemetry.increment("vanity_browse_total")
+      json(response, 200, payload)
+    } catch (error) {
+      telemetry.increment("vanity_browse_failure_total")
+      json(response, 503, { error: "Sherwood Finery is temporarily unavailable" })
+    }
+    return
+  }
+  if (pathname === "/vanity/equip" && request.method === "POST") {
+    if (!vanityService) {
+      json(response, 503, { error: "Sherwood Finery is not configured on this server" })
+      return
+    }
+    const identity = await verifySupabaseIdentity(bearerToken(request))
+    if (!identity) {
+      json(response, 401, { error: "Sign in with Robinhood Wallet first" })
+      return
+    }
+    try {
+      const body = await readJsonBody(request) as { itemIds?: unknown }
+      const itemIds = Array.isArray(body.itemIds)
+        ? body.itemIds.map((itemId) => String(itemId))
+        : []
+      const payload = await vanityService.equip(identity.id, itemIds)
+      telemetry.increment("vanity_equip_total")
+      json(response, 200, payload)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "VANITY_EQUIP_FAILED"
+      telemetry.increment("vanity_equip_failure_total")
+      structuredLog("vanity_equip_failed", { reason: message }, "error")
+      const publicError = vanityPublicError(message)
+      json(response, publicError.status, { error: publicError.message })
+    }
+    return
+  }
+  if (pathname === "/vanity/purchase" && request.method === "POST") {
+    if (!vanityService) {
+      json(response, 503, { error: "Sherwood Finery payments are not configured" })
+      return
+    }
+    const identity = await verifySupabaseIdentity(bearerToken(request))
+    if (!identity?.walletAddress) {
+      json(response, 401, { error: "Sign in with Robinhood Wallet first" })
+      return
+    }
+    try {
+      const body = await readJsonBody(request) as { itemId?: unknown; transactionHash?: unknown }
+      const result = await vanityService.purchase(
+        identity.id,
+        identity.walletAddress,
+        String(body.itemId ?? ""),
+        String(body.transactionHash ?? ""),
+      )
+      telemetry.increment(result.newlyGranted ? "vanity_purchase_new_total" : "vanity_purchase_duplicate_total")
+      json(response, 200, result.state)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "VANITY_PAYMENT_VERIFICATION_FAILED"
+      telemetry.increment("vanity_purchase_failure_total")
+      structuredLog("vanity_purchase_failed", { reason: message }, "error")
+      const publicError = vanityPublicError(message)
+      json(response, publicError.status, { error: publicError.message })
     }
     return
   }
@@ -838,6 +950,7 @@ const httpServer = createServer(async (request, response) => {
       experiments: experimentService !== null,
       tokenAccessGate,
       tokenPaymentConfigured: tokenAccessService !== null,
+      vanityConfigured: vanityService !== null,
       missionId: defaultMission.id,
       missionVersion: defaultMission.missionVersion,
       missionContentHash: defaultMission.contentHash,
@@ -1520,6 +1633,7 @@ async function startServer(): Promise<void> {
       experiments: experimentService !== null,
       tokenAccessGate,
       tokenPaymentConfigured: tokenAccessService !== null,
+      vanityConfigured: vanityService !== null,
       seasonSlug: seasonService.snapshot().slug,
       seasonPhase: seasonService.snapshot().phase,
       missionId: defaultMission.id,

@@ -61,6 +61,8 @@ import { MUSIC_TRACKS, musicStateForSituation, type MusicState } from "./music-s
 import { blockSocialPlayer, loadSocialState, registerSocialProfile, removeFriend, respondDirectInvite, respondFriendRequest, sendFriendRequest, updateSocialPresence, type SocialState } from "./social"
 import { currentWalletSession, disconnectRobinhoodWallet, shortWalletAddress, signInWithRobinhoodWallet, walletAddress } from "./wallet-auth"
 import type { AccessState } from "./token-access"
+import { equipVanityItems, loadVanityState, purchaseVanityItem, vanityDisplayItems, vanityPriceLabel, type VanityState } from "./vanity"
+import { createVanityPresenter } from "./vanity-visuals"
 import { createVillageCottage, createVillageWagonShell } from "./village-assets"
 import { createAuthoredTreePlacements, TREE_VARIANT_NAMES } from "./tree-placements"
 import {
@@ -244,6 +246,12 @@ const resetSettings = document.querySelector<HTMLButtonElement>("#reset-settings
 const settingsStatus = document.querySelector<HTMLElement>("#settings-status")!
 const spectatorBanner = document.querySelector<HTMLElement>("#spectator-banner")!
 const introControls = document.querySelector<HTMLElement>("#intro-controls")!
+const fineryButton = document.querySelector<HTMLButtonElement>("#finery-button")!
+const vanityPanel = document.querySelector<HTMLElement>("#vanity-panel")!
+const closeVanity = document.querySelector<HTMLButtonElement>("#close-vanity")!
+const vanityStateElement = document.querySelector<HTMLElement>("#vanity-state")!
+const fineryList = document.querySelector<HTMLUListElement>("#finery-list")!
+const vanityStatusNote = document.querySelector<HTMLElement>("#vanity-status")!
 const helpMove = document.querySelector<HTMLElement>("#help-move")!
 const helpInteract = document.querySelector<HTMLElement>("#help-interact")!
 const helpFire = document.querySelector<HTMLElement>("#help-fire")!
@@ -376,6 +384,9 @@ let state = createInitialState(selectedCharacter)
 let accessState: AccessState = { gateEnabled: false, authenticated: false, entitled: true, accessExpiresAt: null, referencePriceUsd: 6, payment: null }
 let soloRunSequence = 0
 const clock = new THREE.Clock()
+const vanityPresenter = createVanityPresenter(scene)
+let vanityState: VanityState | null = null
+let vanityRefreshPending: Promise<void> | null = null
 const keys = new Set<string>()
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
@@ -1517,6 +1528,7 @@ attachNatureDressing()
 
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
+vanityPresenter.attach(playerView)
 state.guards.forEach((guardState) => {
   const guard = createGuardVisual(guardState.id)
   guardViews.push(guard)
@@ -2228,7 +2240,7 @@ function startSoloMission(): void {
 }
 
 const controllerActions = GAME_ACTIONS.filter((action) => !action.startsWith("move")) as Array<keyof InputSettings["controller"]>
-const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel, socialPanel, tutorialPanel, fieldMapPanel]
+const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel, socialPanel, vanityPanel, tutorialPanel, fieldMapPanel]
 const controllerButtonLabels = ["A / Cross", "B / Circle", "X / Square", "Y / Triangle", "LB / L1", "RB / R1", "LT / L2", "RT / R2", "View / Share", "Menu / Options", "Left stick", "Right stick", "D-pad up", "D-pad down", "D-pad left", "D-pad right"]
 const pointerActionLabels: Record<PointerAction, string> = {
   move: "Move to ground",
@@ -3218,6 +3230,127 @@ async function refreshSocialPanel(): Promise<void> {
   }
 }
 
+function applyVanityEquipped(): void {
+  vanityPresenter.setEquipped(vanityState?.equippedItemIds ?? [])
+}
+
+function renderVanityUI(): void {
+  fineryList.replaceChildren()
+  const cards = vanityDisplayItems(vanityState)
+  const signedIn = vanityState?.authenticated === true
+  for (const card of cards) {
+    const item = document.createElement("li")
+    item.className = "finery-item"
+
+    const swatch = document.createElement("i")
+    swatch.className = "finery-swatch"
+    swatch.style.setProperty("--a", card.item.colors.primary)
+    swatch.style.setProperty("--b", card.item.colors.secondary)
+    swatch.setAttribute("aria-hidden", "true")
+
+    const copy = document.createElement("div")
+    copy.className = "finery-item-copy"
+    const name = document.createElement("b")
+    name.textContent = card.item.name
+    const slot = document.createElement("span")
+    slot.textContent = card.item.slot.toUpperCase()
+    const description = document.createElement("small")
+    description.textContent = card.item.description
+    copy.append(name, slot, description)
+
+    const actions = document.createElement("div")
+    actions.className = "finery-actions"
+    if (!card.owned) {
+      const buy = document.createElement("button")
+      buy.className = "finery-buy"
+      buy.textContent = vanityPriceLabel(card.offer, card.payment)
+        ? `BUY · ${vanityPriceLabel(card.offer, card.payment)}`
+        : "BUY · UNAVAILABLE"
+      buy.disabled = !vanityState?.paymentConfigured
+      buy.addEventListener("click", () => void buyFineryItem(card.item.id, buy))
+      actions.append(buy)
+    } else if (card.equipped) {
+      const unequip = document.createElement("button")
+      unequip.className = "finery-equipped"
+      unequip.textContent = "EQUIPPED ✓"
+      unequip.addEventListener("click", () => void setFineryEquipped(card.item.id, false))
+      actions.append(unequip)
+    } else {
+      const equip = document.createElement("button")
+      equip.className = "finery-equip"
+      equip.textContent = "EQUIP"
+      equip.addEventListener("click", () => void setFineryEquipped(card.item.id, true))
+      actions.append(equip)
+    }
+    item.append(swatch, copy, actions)
+    fineryList.append(item)
+  }
+  vanityStateElement.textContent = vanityState
+    ? signedIn
+      ? "Owned keepsakes persist with your outlaw."
+      : "Browsing as a guest · sign in with Robinhood Wallet to buy and wear."
+    : "The Finery shelf could not be loaded — Sherwood stays free to play."
+}
+
+async function refreshVanity(): Promise<void> {
+  if (vanityRefreshPending) return vanityRefreshPending
+  vanityRefreshPending = (async () => {
+    try {
+      vanityState = await loadVanityState()
+      applyVanityEquipped()
+      renderVanityUI()
+    } catch (error) {
+      vanityState = null
+      renderVanityUI()
+      vanityStatusNote.textContent = error instanceof Error ? error.message : "Sherwood Finery is temporarily unavailable."
+    } finally {
+      vanityRefreshPending = null
+    }
+  })()
+  return vanityRefreshPending
+}
+
+async function buyFineryItem(itemId: string, button: HTMLButtonElement): Promise<void> {
+  const original = button.textContent
+  button.disabled = true
+  button.textContent = "SIGNING IN…"
+  try {
+    if (vanityState?.authenticated !== true) await connectWalletAndRefresh()
+    if (!vanityState || !vanityState.authenticated) throw new Error("Sign in with Robinhood Wallet to buy Finery")
+    button.textContent = "CHECKING PAYMENT…"
+    const next = await purchaseVanityItem(itemId, vanityState)
+    vanityState = next
+    applyVanityEquipped()
+    renderVanityUI()
+    showToast("Finery granted — it persists with your outlaw", { cue: "ui.confirm" })
+    vanityStatusNote.textContent = "Your new keepsake is ready to wear. Equipment changes apply instantly."
+  } catch (error) {
+    vanityStatusNote.textContent = error instanceof Error ? error.message : "Finery purchase could not be completed."
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false
+      button.textContent = original
+    }
+  }
+}
+
+async function setFineryEquipped(itemId: string, equipping: boolean): Promise<void> {
+  try {
+    if (vanityState?.authenticated !== true) await connectWalletAndRefresh()
+    if (!vanityState || !vanityState.authenticated) throw new Error("Sign in with Robinhood Wallet to wear Finery")
+    const current = new Set(vanityState.equippedItemIds)
+    const next = equipping
+      ? [...current, itemId].filter((id, index, all) => all.indexOf(id) === index)
+      : [...current].filter((id) => id !== itemId)
+    vanityState = await equipVanityItems(next)
+    applyVanityEquipped()
+    renderVanityUI()
+    showToast(equipping ? "Finery equipped" : "Finery stowed", { cue: "ui.confirm" })
+  } catch (error) {
+    vanityStatusNote.textContent = error instanceof Error ? error.message : "Finery equipment could not be saved."
+  }
+}
+
 function renderPublicEntryAuthState(_authenticated: boolean): void {
   if (publicHubEntryPending) return
   if (isMobileSpectator()) {
@@ -3302,7 +3435,7 @@ function connectWalletAndRefresh(): Promise<void> {
       walletSignOut.classList.remove("hidden")
       accessStatus.textContent = "WALLET SIGNED · LOADING SHERWOOD IDENTITY"
       socialStatus.textContent = "Robinhood Wallet signed. Loading identity…"
-      await Promise.all([refreshAccessPanel(), refreshSocialPanel()])
+      await Promise.all([refreshAccessPanel(), refreshSocialPanel(), refreshVanity()])
     } catch (error) {
       failed = true
       const message = error instanceof Error ? error.message : "Unable to connect Robinhood Wallet"
@@ -4719,6 +4852,13 @@ function syncViews(elapsed: number, dt: number): void {
   if (footstepCue) audioDirector.playCue(footstepCue)
   if (playerMoving) playerView.rotation.y = Math.atan2(dx, dz)
   lastPlayerPosition = { ...player }
+  vanityPresenter.update({
+    elapsed,
+    dt,
+    motionScale: renderProfile.motionScale,
+    position: { x: player.x, y: playerGroundY, z: player.z },
+    moving: playerMoving,
+  })
   const soloBowActionProgress = !multiplayerActive && state.bowAction
     ? THREE.MathUtils.clamp(state.bowAction.elapsedSeconds / BOW_TOTAL_SECONDS, 0, 1)
     : null
@@ -5242,6 +5382,7 @@ function selectLocalCharacter(characterId: CharacterId, notifyServer: boolean): 
   scene.remove(playerView)
   playerView = createCharacter(selectedCharacter)
   scene.add(playerView)
+  vanityPresenter.attach(playerView)
   if (notifyServer && multiplayer.playerId) multiplayer.selectCharacter(selectedCharacter)
   refreshSelectedOutlawSummary()
   if (!running) outlawDisclosure.open = false
@@ -5297,19 +5438,28 @@ socialButton.addEventListener("click", () => {
   void refreshSocialPanel()
 })
 closeSocial.addEventListener("click", () => closePanel(socialPanel))
+fineryButton.addEventListener("click", () => {
+  openPanel(vanityPanel, fineryButton)
+  void refreshVanity()
+})
+closeVanity.addEventListener("click", () => closePanel(vanityPanel))
 socialSignIn.addEventListener("click", () => void connectWalletAndRefresh()
   .then(() => { socialStatus.textContent = "Robinhood Wallet connected." })
   .catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to connect Robinhood Wallet" }))
 socialSignOut.addEventListener("click", () => void disconnectRobinhoodWallet().then(async () => {
   currentSocial = null
-  await Promise.all([refreshAccessPanel(), refreshSocialPanel()])
+  vanityState = null
+  applyVanityEquipped()
+  await Promise.all([refreshAccessPanel(), refreshSocialPanel(), refreshVanity()])
 }).catch((error) => { socialStatus.textContent = error instanceof Error ? error.message : "Unable to sign out" }))
 walletSignIn.addEventListener("click", () => void connectWalletAndRefresh().catch((error) => {
   accessStatus.textContent = error instanceof Error ? error.message : "Unable to connect Robinhood Wallet"
 }))
 walletSignOut.addEventListener("click", () => void disconnectRobinhoodWallet().then(async () => {
   currentSocial = null
-  await Promise.all([refreshAccessPanel(), refreshSocialPanel()])
+  vanityState = null
+  applyVanityEquipped()
+  await Promise.all([refreshAccessPanel(), refreshSocialPanel(), refreshVanity()])
 }).catch((error) => { accessStatus.textContent = error instanceof Error ? error.message : "Unable to sign out" }))
 socialAddFriend.addEventListener("click", () => void sendFriendRequest(socialFriendInput.value).then(async () => {
   socialFriendInput.value = ""
@@ -5529,6 +5679,7 @@ setIntroVisible(true)
 updateMissionDebug()
 renderChatChrome()
 void refreshAccessPanel()
+void refreshVanity()
 for (const panel of panelElements) panel.setAttribute("aria-hidden", String(panel.classList.contains("hidden")))
 updateUI()
 syncViews(0, 0.016)

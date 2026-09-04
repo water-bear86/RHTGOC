@@ -52,7 +52,7 @@ async function waitForReceipt(provider: ConnectedWallet["provider"], transaction
   throw new Error("Token payment confirmation timed out")
 }
 
-async function accessToken(): Promise<string | null> {
+export async function readAccessToken(): Promise<string | null> {
   const supabase = getSupabase()
   if (!supabase) return null
   const { data, error } = await supabase.auth.getSession()
@@ -60,8 +60,8 @@ async function accessToken(): Promise<string | null> {
   return data.session?.access_token ?? null
 }
 
-async function accessRequest(path: string, method = "GET", body?: unknown): Promise<Response> {
-  const token = await accessToken()
+export async function tokenBackendRequest(path: string, method = "GET", body?: unknown): Promise<Response> {
+  const token = await readAccessToken()
   const baseUrl = roomServerHttpUrl(import.meta.env.VITE_ROOM_SERVER_URL, location.origin)
   const headers: Record<string, string> = {}
   if (token) headers.Authorization = `Bearer ${token}`
@@ -73,17 +73,31 @@ async function accessRequest(path: string, method = "GET", body?: unknown): Prom
   })
 }
 
-async function responseJson<T>(response: Response, fallback: string): Promise<T> {
+export async function tokenBackendJson<T>(response: Response, fallback: string): Promise<T> {
   const value = await response.json().catch(() => null) as ({ error?: unknown } & T) | null
   if (!response.ok || !value) throw new Error(typeof value?.error === "string" ? value.error : fallback)
   return value
+}
+
+async function accessRequest(path: string, method = "GET", body?: unknown): Promise<Response> {
+  return tokenBackendRequest(path, method, body)
+}
+
+async function responseJson<T>(response: Response, fallback: string): Promise<T> {
+  return tokenBackendJson<T>(response, fallback)
 }
 
 export async function loadAccessState(): Promise<AccessState> {
   return responseJson<AccessState>(await accessRequest("/access"), "Access status is temporarily unavailable")
 }
 
-export async function purchaseTokenPass(payment: TokenPaymentConfig): Promise<AccessState> {
+/**
+ * Connects the Robinhood Wallet, enforces the configured chain, sends the
+ * ERC-20 transfer to the configured treasury, and waits for an on-chain
+ * receipt. Shared by the token pass claim and the Sherwood Finery shop so a
+ * purchase never needs a browser-side ABI or a hardcoded contract address.
+ */
+export async function sendTokenTransferToTreasury(payment: TokenPaymentConfig): Promise<string> {
   const connected = await connectedRobinhoodWallet()
   const chainId = await connected.provider.request<string>({ method: "eth_chainId" })
   if (BigInt(chainId) !== BigInt(payment.chainId)) throw new Error(`Switch Robinhood Wallet to ${payment.chainName}`)
@@ -98,6 +112,11 @@ export async function purchaseTokenPass(payment: TokenPaymentConfig): Promise<Ac
   if (!/^0x[0-9a-f]{64}$/i.test(transactionHash)) throw new Error("Robinhood Wallet returned an invalid transaction hash")
   const receipt = await waitForReceipt(connected.provider, transactionHash)
   if (receipt.status !== "0x1") throw new Error("Token payment did not confirm")
+  return transactionHash
+}
+
+export async function purchaseTokenPass(payment: TokenPaymentConfig): Promise<AccessState> {
+  const transactionHash = await sendTokenTransferToTreasury(payment)
   return responseJson<AccessState>(
     await accessRequest("/access/claim", "POST", { transactionHash }),
     "Token payment could not be verified",
