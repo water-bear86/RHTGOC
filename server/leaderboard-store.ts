@@ -4,6 +4,38 @@ import type { MissionResult } from "../shared/protocol"
 import type { CharacterId } from "../shared/protocol"
 import type { RpcClient } from "./band-store"
 
+export type LeaderboardKind = "master-outlaws" | "peoples-champions" | "clean-escapes" | "rescuers" | "swift-arrows"
+
+export const LEADERBOARD_KINDS: readonly LeaderboardKind[] = ["master-outlaws", "peoples-champions", "clean-escapes", "rescuers", "swift-arrows"]
+
+export interface LeaderboardEntry {
+  id: string
+  playerName: string
+  characterId: CharacterId
+  score: number
+  grade: "S" | "A" | "B" | "C"
+  missionSeconds: number
+  delivered: number
+  verified: boolean
+  createdAt: string
+  partySize?: number
+  missionSlug?: string
+  rescues?: number
+  precision?: number
+  generosity?: number
+  cleanEscape?: boolean
+}
+
+export interface LeaderboardFilters {
+  kind?: LeaderboardKind
+  seasonSlug?: string
+  characterId?: CharacterId
+  partySize?: number
+  missionSlug?: string
+  bandId?: string
+  playerIds?: string[]
+}
+
 export interface VerifiedRun {
   missionId: string
   playerId: string
@@ -35,6 +67,26 @@ export interface LeaderboardReviewResult {
 export interface LeaderboardFinalizationResult {
   seasonsFinalized: number
   snapshotsCreated: number
+}
+
+export interface SeasonActivationResult {
+  seasonId: string
+  lifecycleState: "open" | "closing" | "finalized"
+  activated: boolean
+}
+
+export interface SeasonCloseResult {
+  seasonId: string
+  lifecycleState: "open" | "closing" | "finalized"
+  closedAt: string | null
+  finalizeAfter: string | null
+  changed: boolean
+}
+
+export interface SeasonRecoveryResult {
+  seasonsRecovered: number
+  snapshotsCreated: number
+  blocked: Array<{ seasonId: string; slug: string; reason: string }>
 }
 
 export function terminalLeaderboardFailure(error: unknown): string | null {
@@ -119,6 +171,68 @@ export class SupabaseLeaderboardStore {
     if (!Number.isSafeInteger(value.seasonsFinalized) || !Number.isSafeInteger(value.snapshotsCreated)) throw new Error("LEADERBOARD_FINALIZATION_FAILED: invalid result")
     return { seasonsFinalized: value.seasonsFinalized as number, snapshotsCreated: value.snapshotsCreated as number }
   }
+
+  /** Opens the next season. Idempotent on slug; refuses to reopen a finalized season. */
+  async activateSeason(input: { slug: string; name: string; startsAt: number; endsAt: number }): Promise<SeasonActivationResult> {
+    const { data, error } = await this.client.rpc("activate_leaderboard_season", {
+      p_slug: input.slug,
+      p_name: input.name,
+      p_starts_at: new Date(input.startsAt).toISOString(),
+      p_ends_at: new Date(input.endsAt).toISOString(),
+    })
+    if (error) throw new Error(`SEASON_ACTIVATE_FAILED: ${error.message}`)
+    const value = asRecord(data, "SEASON_ACTIVATE_FAILED")
+    if (typeof value.season_id !== "string" || !isLifecycleState(value.lifecycle_state) || typeof value.activated !== "boolean") {
+      throw new Error("SEASON_ACTIVATE_FAILED: invalid result")
+    }
+    return { seasonId: value.season_id, lifecycleState: value.lifecycle_state, activated: value.activated }
+  }
+
+  /** Moves an open season to 'closing' with a bounded drain window. Idempotent. */
+  async closeSeason(seasonId: string, drainMinutes = 30): Promise<SeasonCloseResult> {
+    const { data, error } = await this.client.rpc("close_leaderboard_season", {
+      p_season_id: seasonId,
+      p_drain_minutes: drainMinutes,
+    })
+    if (error) throw new Error(`SEASON_CLOSE_FAILED: ${error.message}`)
+    const value = asRecord(data, "SEASON_CLOSE_FAILED")
+    if (typeof value.season_id !== "string" || !isLifecycleState(value.lifecycle_state) || typeof value.changed !== "boolean") {
+      throw new Error("SEASON_CLOSE_FAILED: invalid result")
+    }
+    return {
+      seasonId: value.season_id,
+      lifecycleState: value.lifecycle_state,
+      closedAt: typeof value.closed_at === "string" ? value.closed_at : null,
+      finalizeAfter: typeof value.finalize_after === "string" ? value.finalize_after : null,
+      changed: value.changed,
+    }
+  }
+
+  /** Retries snapshot + finalize for stuck 'closing' seasons; reports what remains blocked and why. */
+  async recoverSeasonDrain(): Promise<SeasonRecoveryResult> {
+    const { data, error } = await this.client.rpc("recover_leaderboard_season_drain", {})
+    if (error) throw new Error(`SEASON_RECOVER_FAILED: ${error.message}`)
+    const value = asRecord(data, "SEASON_RECOVER_FAILED")
+    if (!Number.isSafeInteger(value.seasons_recovered) || !Number.isSafeInteger(value.snapshots_created)) {
+      throw new Error("SEASON_RECOVER_FAILED: invalid result")
+    }
+    const blocked = Array.isArray(value.blocked) ? value.blocked.flatMap((row: unknown) => {
+      if (!row || typeof row !== "object") return []
+      const r = row as Record<string, unknown>
+      if (typeof r.season_id !== "string" || typeof r.reason !== "string") return []
+      return [{ seasonId: r.season_id, slug: typeof r.slug === "string" ? r.slug : "", reason: r.reason }]
+    }) : []
+    return { seasonsRecovered: value.seasons_recovered as number, snapshotsCreated: value.snapshots_created as number, blocked }
+  }
+}
+
+function asRecord(data: unknown, context: string): Record<string, unknown> {
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error(`${context}: invalid result`)
+  return data as Record<string, unknown>
+}
+
+function isLifecycleState(value: unknown): value is "open" | "closing" | "finalized" {
+  return value === "open" || value === "closing" || value === "finalized"
 }
 
 export function createLeaderboardStoreFromEnv(): SupabaseLeaderboardStore | null {
