@@ -52,23 +52,23 @@ describe("camera controls", () => {
     }
   })
 
-  it("silhouettes a character when the sightline passes through the occluder disc", () => {
+  it("silhouettes a character when nearby cover crosses the sightline", () => {
     const base = {
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
       radius: 0.8,
     }
-    expect(characterCoveredByScenery({ ...base, occluder: { x: 0.3, z: 1.0 } })).toBe(true)
+    expect(characterCoveredByScenery({ ...base, occluder: { x: 0.3, z: 0.4 } })).toBe(true)
     expect(characterCoveredByScenery({ ...base, occluder: { x: 1.0, z: 1.0 } })).toBe(false)
   })
 
-  it("silhouettes a character when the sightline passes through a midpoint crown", () => {
+  it("does not silhouette when a distant wide crown only clips the sightline", () => {
     expect(characterCoveredByScenery({
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
       occluder: { x: 0.5, z: 5 },
       radius: 1.2,
-    })).toBe(true)
+    })).toBe(false)
   })
 
   it("does not silhouette a character standing inside a canopy they have reached", () => {
@@ -139,7 +139,7 @@ describe("camera controls", () => {
     expect(characterCoveredByScenery({
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
-      occluder: { x: 0, z: 2 },
+      occluder: { x: 0, z: 0.8 },
       radius: 1.5,
       cameraHeight: 14.5,
       focusHeight: 0.9,

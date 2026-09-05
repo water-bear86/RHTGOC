@@ -82,9 +82,12 @@ export function cameraRelativeMove(screenMove: Vec2, cameraPosition: Vec2, focus
  * character can become a readable silhouette through the forest.
  *
  * The horizontal test rejects scenery that is not strictly between the camera
- * and character, or whose footprint does not cross the sightline. Authored
- * trees additionally receive a vertical test so the elevated camera does not
- * treat every crown as an infinitely tall cylinder.
+ * and character, whose footprint does not cross the sightline, or whose crown
+ * does not reach the character in the ground plane. The proximity check keeps
+ * a distant, wide crown from turning a character into a silhouette while they
+ * are still standing in open ground. Authored trees additionally receive a
+ * vertical test so the elevated camera does not treat every crown as an
+ * infinitely tall cylinder.
  */
 export function characterCoveredByScenery(query: CharacterCoverQuery): boolean {
   const cameraToFocusX = query.focus.x - query.camera.x
@@ -104,6 +107,12 @@ export function characterCoveredByScenery(query: CharacterCoverQuery): boolean {
     cameraToOccluderX * cameraToFocusZ - cameraToOccluderZ * cameraToFocusX,
   ) / corridorLength
   if (lateralDistance >= query.radius) return false
+
+  const playerToOccluderDistance = Math.hypot(
+    query.occluder.x - query.focus.x,
+    query.occluder.z - query.focus.z,
+  )
+  if (playerToOccluderDistance >= query.radius) return false
 
   const explicitVerticals = (
     query.cameraHeight !== undefined
