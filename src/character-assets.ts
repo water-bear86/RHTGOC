@@ -3,13 +3,7 @@ import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js"
 import { HERO_ATTACK_RELEASE_PROGRESS } from "./character-animation"
 import type { CharacterId } from "./simulation"
-import {
-  createHeroCharacter,
-  disposeHeroCharacter,
-  poseHeroCharacter,
-  type CharacterPose,
-  type HeroAction,
-} from "./character-visuals"
+import type { HeroAction } from "./character-animation"
 import {
   cloneObjectMaterialsForInstance,
   convertObjectToToon,
@@ -42,14 +36,33 @@ interface AuthoredBowStringMorph {
   drawIndex: number
 }
 
+/** Pose contract shared by the simulation, the network snapshot, and the hero visuals. */
+export interface CharacterPose {
+  elapsed: number
+  moving: boolean
+  action?: HeroAction
+  actionProgress?: number
+  downed?: boolean
+  stealth?: boolean
+  motionScale?: number
+}
+
 interface CharacterVisualRuntime {
   characterId: CharacterId
-  fallback: THREE.Group
   authored: AuthoredHeroRuntime | null
   disposed: boolean
   lastPose: CharacterPose
   ready: Promise<void>
 }
+
+// Heroes are KayKit models only. There is no procedural stand-in: until the GLB
+// arrives the hero root is simply empty, and a failed load is retried rather than
+// replaced. The downed pose is authored here on the same model because the
+// KayKit export ships Idle/Walk/Attack/Signature and no lying clip.
+const AUTHORED_LOAD_ATTEMPTS = 3
+const AUTHORED_RETRY_DELAY_MS = 1200
+export const DOWNED_MODEL_ROTATION_X = -Math.PI / 2 + 0.12
+export const DOWNED_MODEL_LIFT = 0.22
 
 // Attack uses the complete 0.6s draw before its release. Robin's existing
 // signature keeps its shorter 0.12s draw, so the two bow clips need separate
@@ -111,6 +124,11 @@ const AUTHORED_HEROES: Readonly<Partial<Record<CharacterId, AuthoredHeroDefiniti
 
 const gltfLoader = new GLTFLoader()
 const assetPromises = new Map<string, Promise<GLTF>>()
+
+/** Drops cached GLB loads so the next hero forces a fresh fetch (tests, asset hot-swap). */
+export function clearAuthoredHeroCache(): void {
+  assetPromises.clear()
+}
 
 function definitionFor(characterId: CharacterId): AuthoredHeroDefinition | undefined {
   return AUTHORED_HEROES[characterId]
@@ -278,15 +296,26 @@ function applyAuthoredStealthPose(runtime: AuthoredHeroRuntime, pose: CharacterP
   rotateX("upperarm.r", -0.12)
 }
 
+function applyDownedPose(runtime: AuthoredHeroRuntime, downed: boolean): void {
+  // Lay the whole model on its back around the feet; the lift keeps the torso
+  // out of the ground since the mesh pivot is at the soles.
+  runtime.model.rotation.x = downed ? DOWNED_MODEL_ROTATION_X : 0
+  runtime.model.position.y = runtime.baseModelY + (downed ? DOWNED_MODEL_LIFT : 0)
+}
+
 function poseAuthoredHero(runtime: AuthoredHeroRuntime, pose: CharacterPose): void {
   clearAuthoredStealthPose(runtime)
-  runtime.model.position.y = runtime.baseModelY + (pose.stealth ? -0.18 : 0)
-  runtime.model.visible = !pose.downed
+  runtime.model.visible = true
+  applyDownedPose(runtime, Boolean(pose.downed))
   if (pose.downed) {
+    // Freeze on the idle clip so a downed outlaw does not keep walking in place.
+    switchAuthoredAnimation(runtime, { ...pose, moving: false, action: "idle" })
+    runtime.mixer.update(0)
     setBowStringDraw(runtime, 0)
     runtime.lastElapsed = pose.elapsed
     return
   }
+  runtime.model.position.y = runtime.baseModelY + (pose.stealth ? -0.18 : 0)
 
   switchAuthoredAnimation(runtime, pose)
   sampleOneShot(runtime, pose)
@@ -319,13 +348,35 @@ function poseAuthoredHero(runtime: AuthoredHeroRuntime, pose: CharacterPose): vo
   )
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function loadAuthoredHeroWithRetry(definition: AuthoredHeroDefinition, runtime: CharacterVisualRuntime): Promise<GLTF> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= AUTHORED_LOAD_ATTEMPTS; attempt += 1) {
+    try {
+      return await loadAuthoredHero(definition)
+    } catch (error) {
+      lastError = error
+      if (runtime.disposed || attempt === AUTHORED_LOAD_ATTEMPTS) break
+      await delay(AUTHORED_RETRY_DELAY_MS * attempt)
+    }
+  }
+  throw lastError
+}
+
 async function attachAuthoredHero(root: THREE.Group, runtime: CharacterVisualRuntime): Promise<void> {
   const definition = definitionFor(runtime.characterId)
-  if (!definition) return
+  if (!definition) {
+    root.userData.assetStatus = "failed"
+    root.userData.assetError = `No authored KayKit model for ${runtime.characterId}`
+    return
+  }
 
   root.userData.assetStatus = "loading"
   try {
-    const asset = await loadAuthoredHero(definition)
+    const asset = await loadAuthoredHeroWithRetry(definition, runtime)
     if (runtime.disposed) return
 
     const model = cloneSkeleton(asset.scene) as THREE.Group
@@ -354,18 +405,18 @@ async function attachAuthoredHero(root: THREE.Group, runtime: CharacterVisualRun
     }
     runtime.authored = authored
     root.add(model)
-    runtime.fallback.visible = Boolean(runtime.lastPose.downed)
     poseAuthoredHero(authored, runtime.lastPose)
     root.userData.assetStatus = "authored"
   } catch (error) {
-    root.userData.assetStatus = "fallback"
+    root.userData.assetStatus = "failed"
     root.userData.assetError = error instanceof Error ? error.message : String(error)
+    console.warn(`[sherwood] hero model unavailable for ${runtime.characterId}: ${root.userData.assetError}`)
   }
 }
 
 function characterVisualRuntime(root: THREE.Group): CharacterVisualRuntime | null {
   const runtime = root.userData.characterVisualRuntime as CharacterVisualRuntime | undefined
-  return runtime?.fallback instanceof THREE.Group ? runtime : null
+  return runtime && typeof runtime.characterId === "string" ? runtime : null
 }
 
 export function createCharacterVisual(
@@ -375,18 +426,15 @@ export function createCharacterVisual(
   const root = new THREE.Group()
   root.name = `character.${characterId}.visual`
   root.userData.characterId = characterId
-  const fallback = createHeroCharacter(characterId)
-  root.add(fallback)
   const runtime: CharacterVisualRuntime = {
     characterId,
-    fallback,
     authored: null,
     disposed: false,
     lastPose: { elapsed: 0, moving: false, action: "idle" },
     ready: Promise.resolve(),
   }
   root.userData.characterVisualRuntime = runtime
-  root.userData.assetStatus = definitionFor(characterId) ? "pending" : "procedural"
+  root.userData.assetStatus = "pending"
   if (options.loadAuthoredAssets !== false) runtime.ready = attachAuthoredHero(root, runtime)
   return root
 }
@@ -397,25 +445,15 @@ export function waitForCharacterVisual(root: THREE.Group): Promise<void> {
 
 export function poseCharacterVisual(root: THREE.Group, pose: CharacterPose): void {
   const runtime = characterVisualRuntime(root)
-  if (!runtime) {
-    poseHeroCharacter(root, pose)
-    return
-  }
+  if (!runtime) return
   runtime.lastPose = pose
-  poseHeroCharacter(runtime.fallback, pose)
-  runtime.fallback.visible = !runtime.authored || Boolean(pose.downed)
   if (runtime.authored) poseAuthoredHero(runtime.authored, pose)
 }
 
 export function disposeCharacterVisual(root: THREE.Group): void {
   const runtime = characterVisualRuntime(root)
-  if (!runtime) {
-    disposeHeroCharacter(root)
-    return
-  }
-  if (runtime.disposed) return
+  if (!runtime || runtime.disposed) return
   runtime.disposed = true
-  disposeHeroCharacter(runtime.fallback)
   if (runtime.authored) {
     runtime.authored.mixer.stopAllAction()
     runtime.authored.mixer.uncacheRoot(runtime.authored.model)

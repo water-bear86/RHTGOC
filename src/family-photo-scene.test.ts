@@ -30,7 +30,7 @@ function syntheticCatalog(names: readonly string[]): THREE.Group {
 }
 
 describe("Merry Band family photo", () => {
-  it("assembles every procedural hero and every guard appearance in a real village scene", () => {
+  it("assembles every KayKit hero slot and every guard appearance in a real village scene", () => {
     const portrait = createFamilyPhotoScene()
 
     expect(portrait.scene.name).toBe("SherwoodMerryBandFamilyPhoto")
@@ -46,7 +46,9 @@ describe("Merry Band family photo", () => {
       expect(hero?.name).toBe(`FamilyPhotoHero:${characterId}`)
       expect(hero?.userData.characterId).toBe(characterId)
       expect(hero?.userData.familyPhotoRole).toBe("hero")
-      expect(hero?.getObjectByName("RigBodyRoot")).toBeTruthy()
+      // Heroes are KayKit-only: no procedural rig exists, the slot waits for the GLB.
+      expect(hero?.getObjectByName("RigBodyRoot")).toBeUndefined()
+      expect(["pending", "loading", "authored"]).toContain(hero?.userData.assetStatus)
     }
 
     expect(portrait.guards.map((guard) => guard.userData.guardId)).toEqual(FAMILY_PHOTO_GUARD_IDS)
