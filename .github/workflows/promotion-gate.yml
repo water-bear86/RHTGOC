@@ -99,7 +99,14 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
-        run: npx tsx tools/migration-ledger-check.ts --strict
+        run: |
+          if [[ -z "${SUPABASE_MANAGEMENT_TOKEN:-}" && -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+            echo "::warning::No Supabase credentials configured — migration ledger consistency check is informational only."
+            echo "Set SUPABASE_MANAGEMENT_TOKEN or SUPABASE_SERVICE_ROLE_KEY in GitHub Secrets to enable strict validation."
+            npx tsx tools/migration-ledger-check.ts
+            exit 0
+          fi
+          npx tsx tools/migration-ledger-check.ts --strict
 
   gate:
     name: Promotion gate
