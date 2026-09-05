@@ -22,7 +22,8 @@
     "build:village-assets": "node tools/build-sherwood-village-slice.mjs",
     "build:regional-maps": "tsx tools/bake-regional-maps.ts",
     "validate:assets": "node tools/validate-assets.mjs",
-    "validate:missions": "tsx tools/validate-missions.ts"
+    "validate:missions": "tsx tools/validate-missions.ts",
+    "validate:migration-ledger": "tsx tools/migration-ledger-check.ts"
   },
   "dependencies": {
     "@reown/appkit": "1.8.22",

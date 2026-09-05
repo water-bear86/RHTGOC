@@ -1,0 +1,18 @@
+name: Deploy RHTGOC to AWS
+
+on:
+  workflow_run:
+    workflows: ["Promotion gate"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rhtgoc-production
+  cancel-in-progress: false

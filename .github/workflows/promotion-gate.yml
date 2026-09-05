@@ -1,0 +1,149 @@
+name: Promotion gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promotion-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test-suite:
+    name: Test suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test -- --testTimeout=15000
+
+  production-build:
+    name: Production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_REOWN_PROJECT_ID: ${{ vars.VITE_REOWN_PROJECT_ID }}
+      VITE_ROBINHOOD_CHAIN: ${{ vars.VITE_ROBINHOOD_CHAIN }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
+  asset-validation:
+    name: Asset validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run validate:assets
+
+  mission-validation:
+    name: Mission validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run validate:missions
+
+  migration-ledger:
+    name: Migration ledger consistency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Verify migration ledger matches remote
+        env:
+          SUPABASE_MANAGEMENT_TOKEN: ${{ secrets.SUPABASE_MANAGEMENT_TOKEN }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+        run: npx tsx tools/migration-ledger-check.ts --strict
+
+  gate:
+    name: Promotion gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs:
+      - test-suite
+      - production-build
+      - asset-validation
+      - mission-validation
+      - migration-ledger
+    if: always()
+    steps:
+      - name: Summarize required checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          results=()
+          for job in test-suite production-build asset-validation mission-validation migration-ledger; do
+            outcome="${{ needs.test-suite.result }}"
+            case "$job" in
+              test-suite) outcome="${{ needs.test-suite.result }}" ;;
+              production-build) outcome="${{ needs.production-build.result }}" ;;
+              asset-validation) outcome="${{ needs.asset-validation.result }}" ;;
+              mission-validation) outcome="${{ needs.mission-validation.result }}" ;;
+              migration-ledger) outcome="${{ needs.migration-ledger.result }}" ;;
+            esac
+            results+=("$job=$outcome")
+          done
+
+          failed=0
+          for r in "${results[@]}"; do
+            job="${r%%=*}"
+            outcome="${r##*=}"
+            if [[ "$outcome" != "success" ]]; then
+              echo "::error::Required check '${job}' did not pass (outcome: ${outcome})"
+              failed=1
+            else
+              echo "OK: ${job}"
+            fi
+          done
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "::error::Promotion gate failed — one or more required checks did not pass"
+            exit 1
+          fi
+          echo "All required checks passed — promotion gate open"
