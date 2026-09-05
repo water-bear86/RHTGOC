@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as THREE from "three"
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js"
 import {
+  DOWNED_MODEL_LIFT,
+  DOWNED_MODEL_ROTATION_X,
+  clearAuthoredHeroCache,
   createCharacterVisual,
   disposeCharacterVisual,
   normalizeAuthoredHero,
@@ -57,14 +60,17 @@ function authoredRuntime(visual: THREE.Group): AuthoredRuntimeProbe {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  clearAuthoredHeroCache()
 })
 
 describe("authored character visuals", () => {
-  it("keeps a synchronous procedural fallback while an authored asset loads", () => {
+  it("has no procedural stand-in: the hero root stays empty until the KayKit model arrives", () => {
     const visual = createCharacterVisual("robin", { loadAuthoredAssets: false })
     expect(visual.name).toBe("character.robin.visual")
     expect(visual.userData.assetStatus).toBe("pending")
-    expect(visual.getObjectByName("character.robin.procedural")).toBeTruthy()
+    expect(visual.children).toHaveLength(0)
+    expect(() => poseCharacterVisual(visual, { elapsed: 0.4, moving: true, action: "idle" })).not.toThrow()
+    expect(visual.children).toHaveLength(0)
   })
 
   it("loads every KayKit role with distinct clips, proportional heights, and a bow string", async () => {
@@ -175,7 +181,15 @@ describe("authored character visuals", () => {
         downed: true,
       })
       expect(draw()).toBe(0)
-      expect(authoredRuntime(visual).model.visible).toBe(false)
+      // Downed keeps the KayKit model on screen, laid on its back around the feet.
+      const model = authoredRuntime(visual).model
+      expect(model.visible).toBe(true)
+      expect(model.rotation.x).toBeCloseTo(DOWNED_MODEL_ROTATION_X, 8)
+      expect(model.position.y).toBeGreaterThan(DOWNED_MODEL_LIFT - 1e-6)
+      expect(authoredRuntime(visual).activeState).toBe("idle")
+
+      poseCharacterVisual(visual, { elapsed: 1.1, moving: false, action: "idle" })
+      expect(model.rotation.x).toBe(0)
     }
 
     visuals.forEach(disposeCharacterVisual)
@@ -260,12 +274,50 @@ describe("authored character visuals", () => {
     ;(bow.material as THREE.Material).dispose()
   })
 
-  it("preserves procedural poses and disposal when authored loading is disabled", () => {
+  it("disposes idempotently whether or not a model ever arrived", () => {
     const visual = createCharacterVisual("marian", { loadAuthoredAssets: false })
-    poseCharacterVisual(visual, { elapsed: 0.4, moving: true, action: "idle" })
-    expect(visual.getObjectByName("RigLeftLeg")?.rotation.x).not.toBe(0)
     expect(() => disposeCharacterVisual(visual)).not.toThrow()
     expect(() => disposeCharacterVisual(visual)).not.toThrow()
+  })
+
+  it("retries a failed KayKit load instead of falling back to a procedural body", async () => {
+    vi.useFakeTimers()
+    try {
+      let calls = 0
+      vi.spyOn(GLTFLoader.prototype, "loadAsync").mockImplementation(async () => {
+        calls += 1
+        if (calls < 3) throw new Error("network")
+        return createAuthoredAsset()
+      })
+      const visual = createCharacterVisual("much")
+      const ready = waitForCharacterVisual(visual)
+      await vi.runAllTimersAsync()
+      await ready
+      expect(calls).toBe(3)
+      expect(visual.userData.assetStatus).toBe("authored")
+      expect(visual.getObjectByName("character.much.authored")).toBeTruthy()
+      disposeCharacterVisual(visual)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("reports a failed load and leaves the root empty after the last retry", async () => {
+    vi.useFakeTimers()
+    try {
+      vi.spyOn(GLTFLoader.prototype, "loadAsync").mockRejectedValue(new Error("404"))
+      vi.spyOn(console, "warn").mockImplementation(() => {})
+      const visual = createCharacterVisual("robin")
+      const ready = waitForCharacterVisual(visual)
+      await vi.runAllTimersAsync()
+      await ready
+      expect(visual.userData.assetStatus).toBe("failed")
+      expect(visual.userData.assetError).toBe("404")
+      expect(visual.children).toHaveLength(0)
+      disposeCharacterVisual(visual)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("exposes an immediately settled readiness contract when authored loading is disabled", async () => {

@@ -74,7 +74,7 @@ import { SHERWOOD_GUARD_SEPARATION, activeGuardPositions } from "../shared/guard
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
 import { createArcheryEquipment } from "./archery-equipment"
-import type { HeroAction } from "./character-visuals"
+import type { HeroAction } from "./character-animation"
 import { createCharacterVisual, disposeCharacterVisual, poseCharacterVisual } from "./character-assets"
 import { HERO_ACTION_DURATIONS, HERO_ATTACK_RELEASE_PROGRESS, normalizedHeroActionProgress } from "./character-animation"
 import {
