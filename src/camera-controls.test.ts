@@ -52,23 +52,26 @@ describe("camera controls", () => {
     }
   })
 
-  it("silhouettes a character when cover sits between the camera and their body", () => {
+  it("silhouettes a character when the sightline passes through the occluder disc", () => {
     const base = {
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
       radius: 0.8,
     }
+    // Lateral distance = 0.3 — sightline passes through the disc (radius 0.8).
     expect(characterCoveredByScenery({ ...base, occluder: { x: 0.3, z: 1.0 } })).toBe(true)
-    expect(characterCoveredByScenery({ ...base, occluder: { x: 0.3, z: 1.6 } })).toBe(false)
+    // Lateral distance = 1.0 — sightline misses the disc.
+    expect(characterCoveredByScenery({ ...base, occluder: { x: 1.0, z: 1.0 } })).toBe(false)
   })
 
-  it("keeps the character readable when a crown crosses the corridor further ahead", () => {
+  it("silhouettes a character when the sightline passes through a midpoint crown", () => {
+    // Occluder halfway between camera and character, sightline passes through it.
     expect(characterCoveredByScenery({
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
       occluder: { x: 0.5, z: 5 },
       radius: 1.2,
-    })).toBe(false)
+    })).toBe(true)
   })
 
   it("does not silhouette a character standing inside a canopy they have reached", () => {
@@ -104,13 +107,13 @@ describe("camera controls", () => {
     })).toBe(true)
   })
 
-  it("moves the measured body point toward the camera as body depth grows", () => {
+  it("does not silhouette when the occluder disc is offset laterally past its radius", () => {
+    // Lateral distance = 0.9 which exceeds radius 0.8 — sightline misses the disc.
     expect(characterCoveredByScenery({
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
-      occluder: { x: 0, z: 1.2 },
+      occluder: { x: 0.9, z: 1.2 },
       radius: 0.8,
-      bodyDepth: 0.2,
     })).toBe(false)
   })
 

@@ -7,7 +7,6 @@ export interface CharacterCoverQuery {
   focus: Vec2
   occluder: Vec2
   radius: number
-  bodyDepth?: number
 }
 
 export function rotateCameraOffset(offset: Vec2, quarterTurns: number): Vec2 {
@@ -62,9 +61,11 @@ export function cameraRelativeMove(screenMove: Vec2, cameraPosition: Vec2, focus
  * - The cover's centre must sit strictly between the camera and the character.
  *   A crown the character has already reached (projection at or beyond the
  *   character) hangs overhead rather than in front, so it is not cover.
- * - The cover must actually reach the character's body, measured to a point one
- *   body-depth toward the camera from the character's feet. A crown that merely
- *   crosses the corridor further ahead never hides the outlaw behind it.
+ * - The camera-to-character sightline must actually pass through the occluder's
+ *   disc. This is tested as the perpendicular (lateral) distance from the
+ *   occluder centre to the sightline, which fires exactly when the disc
+ *   visually crosses the line of sight — not merely when the player wanders
+ *   close to the object's radius.
  */
 export function characterCoveredByScenery(query: CharacterCoverQuery): boolean {
   const cameraToFocusX = query.focus.x - query.camera.x
@@ -80,8 +81,10 @@ export function characterCoveredByScenery(query: CharacterCoverQuery): boolean {
   ) / (corridorLength * corridorLength)
   if (projection <= 0 || projection >= 1) return false
 
-  const bodyDepth = Math.max(0, query.bodyDepth ?? 0.55)
-  const bodyX = query.focus.x - (cameraToFocusX / corridorLength) * bodyDepth
-  const bodyZ = query.focus.z - (cameraToFocusZ / corridorLength) * bodyDepth
-  return Math.hypot(query.occluder.x - bodyX, query.occluder.z - bodyZ) < query.radius
+  // Perpendicular distance from the occluder centre to the sightline.
+  // (cross product magnitude of the two 2-D vectors divided by corridor length)
+  const lateralDistance = Math.abs(
+    cameraToOccluderX * cameraToFocusZ - cameraToOccluderZ * cameraToFocusX,
+  ) / corridorLength
+  return lateralDistance < query.radius
 }
