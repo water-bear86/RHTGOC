@@ -7,7 +7,7 @@
   "name": "The People's Purse",
   "environment": {
     "scene": "environment.sherwood.common",
-    "characters": ["character.robin.ranger", "character.marian.scout", "character.little-john.vanguard", "character.much.saboteur", "character.sheriff.guard"],
+    "characters": ["character.robin.ranger", "character.marian.scout", "character.little-john.vanguard", "character.much.saboteur", "character.sheriff.guard", "character.nonexistent.test"],
     "props": ["prop.tax-cart", "prop.reinforcement-signal", "prop.road-snare", "prop.village-fire"],
     "audio": ["audio.mission.forest-bed", "audio.fx.bow", "audio.fx.impact"],
     "effects": ["fx.ping.symbols", "fx.vanguard.oak-sweep", "fx.saboteur.road-snare"]
