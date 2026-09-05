@@ -1,4 +1,7 @@
 import type { Vec2 } from "./simulation"
+import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
+import { createAuthoredTreePlacements } from "./tree-placements"
+import { sherwoodHeightAt } from "./sherwood-terrain"
 
 export const CAMERA_QUARTER_TURN = Math.PI / 2
 
@@ -7,6 +10,27 @@ export interface CharacterCoverQuery {
   focus: Vec2
   occluder: Vec2
   radius: number
+  cameraHeight?: number
+  focusHeight?: number
+  occluderBaseHeight?: number
+  occluderHeight?: number
+}
+
+const AUTHORED_TREE_VERTICALS = createAuthoredTreePlacements(SHERWOOD_TREE_LAYOUT).map((tree) => ({
+  x: tree.x,
+  z: tree.z,
+  radius: tree.visualRadius,
+  baseHeight: sherwoodHeightAt(tree.x, tree.z),
+  height: tree.height,
+}))
+
+function authoredTreeVerticals(query: CharacterCoverQuery): { baseHeight: number; height: number } | null {
+  const tree = AUTHORED_TREE_VERTICALS.find((candidate) => (
+    Math.abs(candidate.x - query.occluder.x) < 0.0001
+    && Math.abs(candidate.z - query.occluder.z) < 0.0001
+    && Math.abs(candidate.radius - query.radius) < 0.0001
+  ))
+  return tree ? { baseHeight: tree.baseHeight, height: tree.height } : null
 }
 
 export function rotateCameraOffset(offset: Vec2, quarterTurns: number): Vec2 {
@@ -55,17 +79,12 @@ export function cameraRelativeMove(screenMove: Vec2, cameraPosition: Vec2, focus
 
 /**
  * Decides whether scenery truly hides a character from the camera, so the
- * character can become a readable silhouette through the forest. Two
- * conditions keep the trigger honest:
+ * character can become a readable silhouette through the forest.
  *
- * - The cover's centre must sit strictly between the camera and the character.
- *   A crown the character has already reached (projection at or beyond the
- *   character) hangs overhead rather than in front, so it is not cover.
- * - The camera-to-character sightline must actually pass through the occluder's
- *   disc. This is tested as the perpendicular (lateral) distance from the
- *   occluder centre to the sightline, which fires exactly when the disc
- *   visually crosses the line of sight — not merely when the player wanders
- *   close to the object's radius.
+ * The horizontal test rejects scenery that is not strictly between the camera
+ * and character, or whose footprint does not cross the sightline. Authored
+ * trees additionally receive a vertical test so the elevated camera does not
+ * treat every crown as an infinitely tall cylinder.
  */
 export function characterCoveredByScenery(query: CharacterCoverQuery): boolean {
   const cameraToFocusX = query.focus.x - query.camera.x
@@ -81,10 +100,41 @@ export function characterCoveredByScenery(query: CharacterCoverQuery): boolean {
   ) / (corridorLength * corridorLength)
   if (projection <= 0 || projection >= 1) return false
 
-  // Perpendicular distance from the occluder centre to the sightline.
-  // (cross product magnitude of the two 2-D vectors divided by corridor length)
   const lateralDistance = Math.abs(
     cameraToOccluderX * cameraToFocusZ - cameraToOccluderZ * cameraToFocusX,
   ) / corridorLength
-  return lateralDistance < query.radius
+  if (lateralDistance >= query.radius) return false
+
+  const explicitVerticals = (
+    query.cameraHeight !== undefined
+    && query.focusHeight !== undefined
+    && query.occluderBaseHeight !== undefined
+    && query.occluderHeight !== undefined
+  )
+    ? {
+        cameraHeight: query.cameraHeight,
+        focusHeight: query.focusHeight,
+        baseHeight: query.occluderBaseHeight,
+        height: query.occluderHeight,
+      }
+    : null
+
+  const treeVerticals = explicitVerticals ? null : authoredTreeVerticals(query)
+  const verticals = explicitVerticals ?? (treeVerticals
+    ? {
+        cameraHeight: sherwoodHeightAt(query.focus.x, query.focus.z) + 14.5,
+        focusHeight: sherwoodHeightAt(query.focus.x, query.focus.z) + 0.9,
+        baseHeight: treeVerticals.baseHeight,
+        height: treeVerticals.height,
+      }
+    : null)
+
+  if (verticals) {
+    const sightlineHeight = verticals.cameraHeight
+      + (verticals.focusHeight - verticals.cameraHeight) * projection
+    const occluderTop = verticals.baseHeight + verticals.height
+    if (sightlineHeight < verticals.baseHeight || sightlineHeight > occluderTop) return false
+  }
+
+  return true
 }
