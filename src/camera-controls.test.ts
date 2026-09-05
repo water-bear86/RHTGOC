@@ -58,14 +58,11 @@ describe("camera controls", () => {
       focus: { x: 0, z: 0 },
       radius: 0.8,
     }
-    // Lateral distance = 0.3 — sightline passes through the disc (radius 0.8).
     expect(characterCoveredByScenery({ ...base, occluder: { x: 0.3, z: 1.0 } })).toBe(true)
-    // Lateral distance = 1.0 — sightline misses the disc.
     expect(characterCoveredByScenery({ ...base, occluder: { x: 1.0, z: 1.0 } })).toBe(false)
   })
 
   it("silhouettes a character when the sightline passes through a midpoint crown", () => {
-    // Occluder halfway between camera and character, sightline passes through it.
     expect(characterCoveredByScenery({
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
@@ -108,7 +105,6 @@ describe("camera controls", () => {
   })
 
   it("does not silhouette when the occluder disc is offset laterally past its radius", () => {
-    // Lateral distance = 0.9 which exceeds radius 0.8 — sightline misses the disc.
     expect(characterCoveredByScenery({
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
@@ -124,5 +120,31 @@ describe("camera controls", () => {
       occluder: { x: 2, z: 2 },
       radius: 4,
     })).toBe(false)
+  })
+
+  it("does not silhouette when the 3D sightline passes above the occluder", () => {
+    expect(characterCoveredByScenery({
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      occluder: { x: 0, z: 5 },
+      radius: 1.5,
+      cameraHeight: 14.5,
+      focusHeight: 0.9,
+      occluderBaseHeight: 0,
+      occluderHeight: 5,
+    })).toBe(false)
+  })
+
+  it("silhouettes when the 3D sightline passes through the occluder's vertical extent", () => {
+    expect(characterCoveredByScenery({
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      occluder: { x: 0, z: 2 },
+      radius: 1.5,
+      cameraHeight: 14.5,
+      focusHeight: 0.9,
+      occluderBaseHeight: 0,
+      occluderHeight: 5,
+    })).toBe(true)
   })
 })
