@@ -21,6 +21,7 @@ import { loadLeaderboard, loadLeaderboardSeasons, submitLeaderboardEntry, subscr
 import { classifyBowPredictionSnapshot, MultiplayerClient } from "./multiplayer"
 import { SnapshotBuffer } from "./snapshot-buffer"
 import { chooseRenderProfile } from "./render-profile"
+import { applyShadowFrustum } from "./render-shadow"
 import {
   cloneObjectMaterialsForInstance,
   convertObjectToToon,
@@ -901,11 +902,13 @@ function mesh(
   return object
 }
 
+let sun: THREE.DirectionalLight
+
 function addLighting(): void {
   const hemisphere = new THREE.HemisphereLight(0xe9efce, 0x243823, 1.35)
   scene.add(hemisphere)
 
-  const sun = new THREE.DirectionalLight(0xffedc8, 2.8)
+  sun = new THREE.DirectionalLight(0xffedc8, 2.8)
   sun.position.set(-18, 28, 14)
   sun.castShadow = true
   sun.shadow.mapSize.set(2048, 2048)
@@ -915,8 +918,9 @@ function addLighting(): void {
   sun.shadow.camera.bottom = -75
   sun.shadow.camera.near = 1
   sun.shadow.camera.far = 150
-  sun.shadow.bias = -0.0004
-  sun.shadow.intensity = 0.3
+  sun.shadow.bias = -0.0002
+  sun.shadow.normalBias = 0.03
+  sun.shadow.intensity = 0.45
   scene.add(sun)
 }
 
@@ -5122,6 +5126,7 @@ function animate(): void {
   }
   syncAdaptiveMusic()
   syncViews(elapsed, dt)
+  if (sun) applyShadowFrustum(sun, state.player.position)
   renderer.render(scene, camera)
 }
 
