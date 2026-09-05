@@ -134,9 +134,16 @@ describe("operator season lifecycle authorization", () => {
   it("never routes a GET to lifecycle mutations (falls through to static serving)", async () => {
     for (const path of ["activate", "close", "recover"]) {
       const response = await fetch(`${BASE}/admin/leaderboard/season/${path}`)
-      // The mutation handlers only match POST; a GET falls through to the SPA
-      // fallback and must not produce a lifecycle JSON response.
-      expect(response.headers.get("content-type") ?? "").not.toContain("application/json")
+      // The mutation handlers only match POST; a GET falls through to static
+      // serving. Depending on whether the checkout has a built dist/ (a dev
+      // machine) or not (a fresh CI runner), that is either the SPA fallback
+      // document or the static 404 — never a lifecycle auth/JSON response.
+      if (response.status === 404) {
+        expect(await response.json(), path).toEqual({ error: "Not found" })
+      } else {
+        expect(response.status, path).toBe(200)
+        expect(response.headers.get("content-type") ?? "", path).toContain("text/html")
+      }
     }
   })
 })
