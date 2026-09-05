@@ -224,6 +224,38 @@ export class SupabaseLeaderboardStore {
     }) : []
     return { seasonsRecovered: value.seasons_recovered as number, snapshotsCreated: value.snapshots_created as number, blocked }
   }
+
+  async moderateEntry(input: { entryId: string; action: string; reasonCode: string; actor: string; note?: string }): Promise<{ entryId: string; action: string; changed: boolean }> {
+    const { data, error } = await this.client.rpc("moderate_leaderboard_entry", {
+      p_entry_id: input.entryId,
+      p_action: input.action,
+      p_reason_code: input.reasonCode,
+      p_actor: input.actor,
+      p_note: input.note ?? null,
+    })
+    if (error) throw new Error(`LEADERBOARD_MODERATION_FAILED: ${error.message}`)
+    const value = asRecord(data, "LEADERBOARD_MODERATION_FAILED")
+    if (typeof value.entry_id !== "string" || typeof value.action !== "string" || typeof value.changed !== "boolean") {
+      throw new Error("LEADERBOARD_MODERATION_FAILED: invalid result")
+    }
+    return { entryId: value.entry_id, action: value.action, changed: value.changed }
+  }
+
+  async moderatePlayer(input: { playerId: string; action: string; reasonCode: string; actor: string; note?: string }): Promise<{ playerRef: string; action: string; changedEntries: number }> {
+    const { data, error } = await this.client.rpc("moderate_leaderboard_player", {
+      p_player_id: input.playerId,
+      p_action: input.action,
+      p_reason_code: input.reasonCode,
+      p_actor: input.actor,
+      p_note: input.note ?? null,
+    })
+    if (error) throw new Error(`LEADERBOARD_MODERATION_FAILED: ${error.message}`)
+    const value = asRecord(data, "LEADERBOARD_MODERATION_FAILED")
+    if (typeof value.player_ref !== "string" || typeof value.action !== "string" || !Number.isSafeInteger(value.changed_entries)) {
+      throw new Error("LEADERBOARD_MODERATION_FAILED: invalid result")
+    }
+    return { playerRef: value.player_ref, action: value.action, changedEntries: value.changed_entries as number }
+  }
 }
 
 function asRecord(data: unknown, context: string): Record<string, unknown> {
