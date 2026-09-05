@@ -219,6 +219,7 @@ jobs:
                 | .[$container].environment = (.[$container].environment // {})
                 | .[$container].environment.BUILD_ID = $build
                 | .[$container].environment.SHERWOOD_BUILD_COMMIT = $commit
+                | .[$container].environment.SHERWOOD_CONTAINER_IMAGE = $image
               end
             ' \
             "$previous" > "$next"

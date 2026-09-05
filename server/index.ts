@@ -21,7 +21,7 @@ import { PublicHubService, type HubParticipant } from "./public-hub"
 import { createTokenAccessServiceFromEnv, REFERENCE_PRICE_USD, walletAddressFromIdentities } from "./token-access-service"
 import { createVanityServiceFromEnv } from "./vanity-service"
 import { VANITY_CATALOG } from "../shared/vanity-catalog"
-import { normalizeBuildId, staticCacheControl } from "../shared/release"
+import { normalizeBuildId, staticCacheControl, GODOT_LANE_PREFIX } from "../shared/release"
 import { GameplayAnalyticsAggregator } from "./gameplay-analytics"
 import { createGameplayAnalyticsStoreFromEnv } from "./gameplay-analytics-store"
 import { createExperimentServiceFromEnv } from "./experiment-service"
@@ -30,6 +30,7 @@ import { StartupDependencyTimeoutError, withStartupDeadline } from "./startup"
 
 const port = Number(process.env.PORT ?? 8787)
 const buildId = normalizeBuildId(process.env.BUILD_ID)
+const processStartedAt = new Date().toISOString()
 const rooms = new Map<string, Room>()
 const bandStore = createBandStoreFromEnv()
 const leaderboardStore = createLeaderboardStoreFromEnv()
@@ -299,6 +300,7 @@ function reservePublicBand(group: HubParticipant[], automatic: boolean): void {
 const contentTypes: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".png": "image/png",
   ".svg": "image/svg+xml",
@@ -306,6 +308,8 @@ const contentTypes: Record<string, string> = {
   ".glb": "model/gltf-binary",
   ".webp": "image/webp",
   ".woff2": "font/woff2",
+  ".wasm": "application/wasm",
+  ".pck": "application/octet-stream",
 }
 
 function json(response: import("node:http").ServerResponse, status: number, value: unknown): void {
@@ -921,6 +925,19 @@ const httpServer = createServer(async (request, response) => {
     }
     return
   }
+  if (request.url === "/build-info") {
+    response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" })
+    response.end(JSON.stringify({
+      buildId,
+      commitSha: process.env.SHERWOOD_BUILD_COMMIT ?? null,
+      protocolVersion: PROTOCOL_VERSION,
+      missionContentHash: defaultMission.contentHash,
+      containerImage: process.env.SHERWOOD_CONTAINER_IMAGE ?? null,
+      roomBackend: "lightsail",
+      startedAt: processStartedAt,
+    }))
+    return
+  }
   if (request.url === "/metrics") {
     response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" })
     response.end(JSON.stringify(telemetry.snapshot()))
@@ -966,6 +983,16 @@ const httpServer = createServer(async (request, response) => {
   }
   const requested = pathname === "/" ? "index.html" : normalize(pathname).replace(/^(\.\.(\/|\\|$))+/, "")
   const filePath = join(process.cwd(), "dist", requested)
+  // The Godot Web export needs cross-origin isolation (SharedArrayBuffer), so
+  // its lane is served with COOP/COEP. The Three.js lane is deliberately left
+  // untouched: credentialless embedding could break its existing third-party
+  // fetches, and only the Godot documents opt in via their own scope.
+  const godotLaneRequest = pathname.startsWith(GODOT_LANE_PREFIX)
+  if (godotLaneRequest) {
+    response.setHeader("Cross-Origin-Opener-Policy", "same-origin")
+    response.setHeader("Cross-Origin-Embedder-Policy", "require-corp")
+    response.setHeader("Cross-Origin-Resource-Policy", "same-origin")
+  }
   try {
     const body = await readFile(filePath)
     response.writeHead(200, {
@@ -975,6 +1002,14 @@ const httpServer = createServer(async (request, response) => {
     if (request.method === "HEAD") response.end()
     else response.end(body)
   } catch {
+    // Never let the SPA fallback answer for a Godot artifact path: a missing
+    // artifact file must surface as 404, not silently become the Three.js
+    // index (which is how stale mixed-version clients are born).
+    if (godotLaneRequest) {
+      response.writeHead(404, { "Content-Type": "application/json", "Cache-Control": "no-store" })
+      response.end(JSON.stringify({ error: "Godot artifact file not found" }))
+      return
+    }
     try {
       const body = await readFile(join(process.cwd(), "dist", "index.html"))
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" })
