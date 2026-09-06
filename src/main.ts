@@ -128,6 +128,8 @@ import type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "
 import { ChatState, truncateChatInput } from "./chat-state"
 import { BOW_TOTAL_SECONDS, BOW_TOTAL_TICKS, hasBowMovement, type BowActionSnapshot } from "../shared/archery"
 import { createScrollController } from "./scroll-controller"
+import { HORIZON_COLOR, HORIZON_FOG_DENSITY, createHorizonBackdrop, type HorizonBackdrop } from "./horizon-backdrop"
+import { resolveDebugView } from "./debug-views"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const hud = document.querySelector<HTMLElement>("#hud")!
@@ -353,8 +355,8 @@ let diagnosticReporter: ClientDiagnosticReporter | null = null
 let lastDiagnosticSnapshotAt = 0
 
 const scene = new THREE.Scene()
-scene.background = new THREE.Color(0x91aa83)
-scene.fog = new THREE.FogExp2(0x91aa83, 0.012)
+scene.background = new THREE.Color(HORIZON_COLOR)
+scene.fog = new THREE.FogExp2(HORIZON_COLOR, HORIZON_FOG_DENSITY)
 
 const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 280)
 camera.position.set(6, 14, 20)
@@ -372,6 +374,7 @@ const renderProfile = chooseRenderProfile({
   devicePixelRatio: window.devicePixelRatio,
   reducedMotion: inputSettings.reducedMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
 }, new URLSearchParams(location.search).get("render") === "degraded")
+const debugView = resolveDebugView(location.search)
 renderer.setPixelRatio(renderProfile.pixelRatio)
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.shadowMap.enabled = renderProfile.shadows
@@ -379,13 +382,14 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.outputColorSpace = THREE.SRGBColorSpace
 renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.toneMappingExposure = 1.05
-renderer.setClearColor(0x91aa83, 1)
+renderer.setClearColor(HORIZON_COLOR, 1)
 renderer.domElement.tabIndex = 0
 renderer.domElement.setAttribute("aria-label", "Sherwood game field")
 container.appendChild(renderer.domElement)
 
 let selectedCharacter: CharacterId = "robin"
 let state = createInitialState(selectedCharacter)
+if (debugView?.player) state.player.position = { x: debugView.player.x, z: debugView.player.z }
 let accessState: AccessState = { gateEnabled: false, authenticated: false, entitled: true, accessExpiresAt: null, referencePriceUsd: 6, payment: null }
 let soloRunSequence = 0
 const clock = new THREE.Clock()
@@ -563,6 +567,7 @@ let composedWorld: ComposedWorld | null = null
 let settlementWorldView: THREE.Group | null = null
 let composedWorldLayoutKey = ""
 let terrainView: THREE.Mesh | null = null
+let horizonBackdrop: HorizonBackdrop | null = null
 let missionWorldVisible = false
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
@@ -977,6 +982,7 @@ function positionMissionCampfire(anchor: Vec2): void {
 function createWorld(): void {
   terrainView = createSherwoodTerrain()
   scene.add(terrainView)
+  scene.add((horizonBackdrop = createHorizonBackdrop({ groundMaterial: terrainView.material as THREE.Material })).group)
 
   water.group.rotation.x = -Math.PI / 2
   water.group.rotation.z = -0.1
@@ -1545,6 +1551,13 @@ attachNatureDressing()
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
 vanityPresenter.attach(playerView)
+if (debugView?.camera) {
+  const [camX, camZ] = debugView.camera.position
+  const [targetX, targetZ] = debugView.camera.target
+  camera.position.set(camX, sherwoodHeightAt(camX, camZ) + 14.5, camZ)
+  camera.lookAt(targetX, sherwoodHeightAt(targetX, targetZ) + 0.75, targetZ)
+  playerView.visible = false
+}
 state.guards.forEach((guardState) => {
   const guard = createGuardVisual(guardState.id)
   guardViews.push(guard)
@@ -5007,10 +5020,13 @@ function syncViews(elapsed: number, dt: number): void {
     if (child.userData.coin) child.visible = state.cartCoin > 0
   })
 
-  const cameraOffset = rotateCameraOffset(BASE_CAMERA_OFFSET, cameraQuarterTurns)
-  const desiredCamera = new THREE.Vector3(player.x + cameraOffset.x, playerGroundY + 14.5, player.z + cameraOffset.z)
-  camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt))
-  camera.lookAt(player.x, playerGroundY + 0.75, player.z)
+  if (!debugView?.camera) {
+    const cameraOffset = rotateCameraOffset(BASE_CAMERA_OFFSET, cameraQuarterTurns)
+    const desiredCamera = new THREE.Vector3(player.x + cameraOffset.x, playerGroundY + 14.5, player.z + cameraOffset.z)
+    camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt))
+    camera.lookAt(player.x, playerGroundY + 0.75, player.z)
+  }
+  horizonBackdrop?.update(camera)
   const cameraPosition = { x: camera.position.x, z: camera.position.z }
   const visibleOccluders: Array<{ x: number; z: number; radius: number }> = []
   for (const occluder of cameraOccluders) {

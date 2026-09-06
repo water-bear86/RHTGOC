@@ -4,9 +4,9 @@
 //   node tools/visual-check.mjs --tag before          # build, serve, capture
 //   node tools/visual-check.mjs --tag iter3 --no-build
 //
-// Output: /tmp/visual-check/<tag>-{hub,hub-degraded,mobile}.png
-// Captures the public camp hub (intro dismissed, no room needed). Exit code 1 on any
-// page error so a loop can treat a crashed client as a failed iteration.
+// Output: /tmp/visual-check/<tag>-{hub,hub-degraded,mobile,horizon,horizon-degraded,horizon-x}.png
+// Captures the solo default layout at its campfire plus the `?view=` debug views. Exit code 1
+// on any page error so a loop can treat a crashed client as a failed iteration.
 
 import { spawn, execSync } from "node:child_process"
 import { mkdirSync } from "node:fs"
@@ -44,6 +44,9 @@ try {
   await shoot("hub", { width: 1440, height: 900 })
   await shoot("hub-degraded", { width: 1440, height: 900, query: "?render=degraded" })
   await shoot("mobile", { width: 390, height: 844 })
+  await shoot("horizon", { width: 1440, height: 900, query: "?view=horizon" })
+  await shoot("horizon-degraded", { width: 1440, height: 900, query: "?view=horizon&render=degraded" })
+  await shoot("horizon-x", { width: 1440, height: 900, query: "?view=horizon-x" })
   await browser.close()
 } catch (error) {
   console.error(error)
