@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Crimson+Pro:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Crimson+Pro:ital,wght@0,400;0,600;0,700;1,400&family=New+Rocker&display=swap');
 
 /* ------------------------------------------------------------------ */
 /* Sherwood parchment & archery theme                                  */
@@ -63,6 +63,8 @@
 
   --label-size: 10px;
   --label-track: .16em;
+  /* Display face for large headings; blackletter, so headings only. */
+  --display: "New Rocker", "Cinzel", Georgia, serif;
 }
 
 * { box-sizing: border-box; }
@@ -384,6 +386,21 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .eyebrow { font-size: 11px; letter-spacing: .24em; }
 h1 { margin: 12px 0 16px; color: var(--ink); font: 700 clamp(34px, min(5vw, 6vh), 54px)/.98 Cinzel, serif; letter-spacing: -.02em; }
 h1 em { color: var(--lincoln); font-style: normal; }
+
+/* New Rocker display face on the large headings only. Blackletter needs its
+   natural spacing and its single 400 weight — Cinzel and the small caps labels
+   stay as they are for legibility. */
+h1,
+.panel h2,
+.chat-drawer h2,
+.public-hub-panel h2,
+.hub-heading h2,
+.role-choice-panel h2 {
+  font-family: var(--display);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+h1 { line-height: 1.02; }
 .intro > .intro-card > p { max-width: 590px; margin: 0 0 20px; color: var(--ink-2); font-size: 17px; line-height: 1.5; }
 .entry-actions { max-width: 590px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .intro button, .entry-disclosure summary, .outlaw-disclosure summary { min-height: 44px; padding: 11px 14px; font-size: 10px; letter-spacing: .09em; }
