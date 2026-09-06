@@ -46,8 +46,10 @@ jobs:
     steps:
       - name: Refuse a manual dispatch off main
         if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        env:
+          DISPATCH_REF: ${{ github.ref }}
         run: |
-          echo "::error::Manual dispatch must target main (got ${{ github.ref }}). Production deploys only ever run from main."
+          echo "::error::Manual dispatch must target main (got $DISPATCH_REF). Production deploys only ever run from main."
           exit 1
 
       - name: Check out the release commit

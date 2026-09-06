@@ -37,4 +37,16 @@ grant select (slug, name, is_public, starts_at) on public.leaderboard_seasons to
 -- review, including a full-row realtime firehose (player_id,
 -- verification_id, score_breakdown).
 drop policy if exists "Verified leaderboard entries are readable" on public.leaderboard_entries;
-alter publication supabase_realtime drop table if exists public.leaderboard_entries;
+-- ALTER PUBLICATION ... DROP TABLE does not accept IF EXISTS; guard via catalog.
+do $$
+begin
+  if exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'leaderboard_entries'
+  ) then
+    execute 'alter publication supabase_realtime drop table public.leaderboard_entries';
+  end if;
+end
+$$;

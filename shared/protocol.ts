@@ -21,7 +21,7 @@ export const PROTOCOL_VERSION = protocolVersion.version
  * their mission instead of all being kicked at once. Drop a version from the
  * list only for a genuinely breaking change, and expect the cutover.
  */
-export const SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [PROTOCOL_VERSION]
+export const SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [PROTOCOL_VERSION, 20]
 
 export function isSupportedProtocolVersion(value: unknown): boolean {
   return typeof value === "number" && SUPPORTED_PROTOCOL_VERSIONS.includes(value)
