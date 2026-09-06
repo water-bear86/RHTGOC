@@ -71,6 +71,7 @@ import {
   resolveSherwoodCombinedMovement,
   resolveSherwoodPlayerMovement,
 } from "../shared/world-collisions"
+import { SHERWOOD_CAMP_HUT_LAYOUT, type SherwoodCampHutPlacement } from "../shared/world-obstacles"
 import { SHERWOOD_GUARD_SEPARATION, activeGuardPositions } from "../shared/guard-rules"
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
@@ -127,11 +128,29 @@ import { completeTutorialPlan, loadTutorialProgress, saveTutorialProgress } from
 import type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "../shared/chat"
 import { ChatState, truncateChatInput } from "./chat-state"
 import { BOW_TOTAL_SECONDS, BOW_TOTAL_TICKS, hasBowMovement, type BowActionSnapshot } from "../shared/archery"
+import { createScrollController } from "./scroll-controller"
+import { roughBorder, roughBorderAll } from "./rough-ui"
+import { HORIZON_COLOR, HORIZON_FOG_DENSITY, createHorizonBackdrop, type HorizonBackdrop } from "./horizon-backdrop"
+import { resolveDebugView } from "./debug-views"
+import { attachMajorOak, type MajorOakHandle } from "./major-oak"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const hud = document.querySelector<HTMLElement>("#hud")!
 const walletDock = document.querySelector<HTMLElement>(".wallet-dock")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
+
+// The entry gate: the carved medallion the player clicks to enter Sherwood.
+// The site is already mounted behind it; dismissing just fades the gate away.
+const entryGate = document.querySelector<HTMLElement>("#entry-gate")
+if (entryGate) {
+  const enterSherwood = (): void => {
+    if (entryGate.classList.contains("dismissed")) return
+    entryGate.classList.add("dismissed")
+    window.setTimeout(() => entryGate.remove(), 900)
+    document.querySelector<HTMLElement>(".intro-card")?.focus()
+  }
+  entryGate.addEventListener("click", enterSherwood)
+}
 const introCard = document.querySelector<HTMLElement>(".intro-card")!
 const introEyebrow = document.querySelector<HTMLElement>("#intro-eyebrow")!
 const introTitle = document.querySelector<HTMLElement>("#intro-title")!
@@ -163,6 +182,9 @@ const signatureKeyElement = document.querySelector<HTMLElement>(".signature-stat
 const leaderboardButton = document.querySelector<HTMLButtonElement>("#leaderboard-button")!
 const leaderboardPanel = document.querySelector<HTMLDivElement>("#leaderboard-panel")!
 const closeLeaderboard = document.querySelector<HTMLButtonElement>("#close-leaderboard")!
+const scrollButton = document.querySelector<HTMLButtonElement>("#scroll-button")!
+const scrollPanel = document.querySelector<HTMLDivElement>("#scroll-panel")!
+const closeScroll = document.querySelector<HTMLButtonElement>("#close-scroll")!
 const leaderboardList = document.querySelector<HTMLOListElement>("#leaderboard-list")!
 const leaderboardState = document.querySelector<HTMLElement>("#leaderboard-state")!
 const boardKind = document.querySelector<HTMLSelectElement>("#board-kind")!
@@ -349,8 +371,8 @@ let diagnosticReporter: ClientDiagnosticReporter | null = null
 let lastDiagnosticSnapshotAt = 0
 
 const scene = new THREE.Scene()
-scene.background = new THREE.Color(0x91aa83)
-scene.fog = new THREE.FogExp2(0x91aa83, 0.012)
+scene.background = new THREE.Color(HORIZON_COLOR)
+scene.fog = new THREE.FogExp2(HORIZON_COLOR, HORIZON_FOG_DENSITY)
 
 const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 280)
 camera.position.set(6, 14, 20)
@@ -368,6 +390,7 @@ const renderProfile = chooseRenderProfile({
   devicePixelRatio: window.devicePixelRatio,
   reducedMotion: inputSettings.reducedMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
 }, new URLSearchParams(location.search).get("render") === "degraded")
+const debugView = resolveDebugView(location.search)
 renderer.setPixelRatio(renderProfile.pixelRatio)
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.shadowMap.enabled = renderProfile.shadows
@@ -375,13 +398,14 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.outputColorSpace = THREE.SRGBColorSpace
 renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.toneMappingExposure = 1.05
-renderer.setClearColor(0x91aa83, 1)
+renderer.setClearColor(HORIZON_COLOR, 1)
 renderer.domElement.tabIndex = 0
 renderer.domElement.setAttribute("aria-label", "Sherwood game field")
 container.appendChild(renderer.domElement)
 
 let selectedCharacter: CharacterId = "robin"
 let state = createInitialState(selectedCharacter)
+if (debugView?.player) state.player.position = { x: debugView.player.x, z: debugView.player.z }
 let accessState: AccessState = { gateEnabled: false, authenticated: false, entitled: true, accessExpiresAt: null, referencePriceUsd: 6, payment: null }
 let soloRunSequence = 0
 const clock = new THREE.Clock()
@@ -405,6 +429,31 @@ const unsubscribePresentationEvents = presentationEvents.subscribe((event) => {
   toastTimer = event.lifetimeSeconds ?? (event.priority === "critical" ? 4 : event.priority === "important" ? 3 : 2.4)
   if (event.cue) audioDirector.playCue(event.cue)
 })
+// The Scroll of Deeds: the player's record and their save file. Entirely
+// optional to the running game — if the panel is missing this is null and
+// every call below is a no-op.
+const scroll = createScrollController({
+  notify: (message) => presentationEvents.publish({ message, channel: "reward", priority: "important", dedupeKey: "scroll-deed" }),
+})
+scroll?.setOutlawName(playerNameInput.value)
+
+// Hand-drawn RoughJS borders on the parchment surfaces. Panels are drawn on
+// first open (so they are measured at their real size); the always-present
+// intro, HUD scraps and primary buttons are drawn now.
+function applyRoughBorders(): void {
+  roughBorderAll(".intro-card", { roughness: 1.8, bowing: 1.2, strokeWidth: 2.4, inset: 1, radius: 20, double: true })
+  roughBorderAll(".objective, .status span, .heat, .party-hud, .wallet-dock, .prompt, .region-map", { roughness: 2.3, bowing: 1.7, strokeWidth: 1.7, inset: 1, radius: 16 })
+  roughBorderAll(".entry-primary, .entry-public, .intro button", { roughness: 2.1, bowing: 1.5, strokeWidth: 2, inset: 1, radius: 16 })
+}
+requestAnimationFrame(applyRoughBorders)
+const roughlyBorderedPanels = new WeakSet<HTMLElement>()
+function roughBorderPanelOnOpen(panel: HTMLElement): void {
+  if (roughlyBorderedPanels.has(panel)) return
+  roughlyBorderedPanels.add(panel)
+  roughBorder(panel, { roughness: 1.9, bowing: 1.3, strokeWidth: 2.2, inset: 1, radius: 20, double: true })
+  panel.querySelectorAll<HTMLElement>(".panel-actions button, .board-filters select, .vote-choices button").forEach((el) => roughBorder(el, { roughness: 2.4, bowing: 1.6, strokeWidth: 1.6, inset: 1, radius: 14 }))
+}
+
 let ended = false
 let lastPlayerPosition = { ...state.player.position }
 const movementSoundState = createMovementSoundState()
@@ -551,6 +600,8 @@ let composedWorld: ComposedWorld | null = null
 let settlementWorldView: THREE.Group | null = null
 let composedWorldLayoutKey = ""
 let terrainView: THREE.Mesh | null = null
+let horizonBackdrop: HorizonBackdrop | null = null
+let majorOakHandle: MajorOakHandle | null = null
 let missionWorldVisible = false
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
@@ -925,36 +976,43 @@ function addLighting(): void {
 }
 
 function createFallbackTree(x: number, z: number, scale = 1): THREE.Group {
+  // Hero-scale the fallback tree so it matches the authored catalog trees
+  // (every authored dimension is ~2.12x its old 1u=1m size).
+  const s = scale * 2.12
   const tree = new THREE.Group()
   tree.position.set(x, 0, z)
-  const trunk = mesh(new THREE.CylinderGeometry(0.22 * scale, 0.34 * scale, 2.4 * scale, 7), palette.trunk)
-  trunk.position.y = 1.2 * scale
+  // Trunk radii stay at the un-hero-scaled size so the rendered trunk matches
+  // the authoritative SHERWOOD_TREE_OBSTACLES footprint (0.34 * scale); only
+  // the height and canopy are hero-scaled, which do not affect XZ collision.
+  const trunk = mesh(new THREE.CylinderGeometry(0.22 * scale, 0.34 * scale, 2.4 * s, 7), palette.trunk)
+  trunk.position.y = 1.2 * s
   tree.add(trunk)
 
-  const crownA = mesh(new THREE.ConeGeometry(1.25 * scale, 2.8 * scale, 7), palette.leaf)
-  crownA.position.y = 3 * scale
+  const crownA = mesh(new THREE.ConeGeometry(1.25 * s, 2.8 * s, 7), palette.leaf)
+  crownA.position.y = 3 * s
   crownA.rotation.y = x * 0.15
-  const crownB = mesh(new THREE.ConeGeometry(0.92 * scale, 2.2 * scale, 7), palette.leafLight)
-  crownB.position.set(0.35 * scale, 3.8 * scale, 0.12 * scale)
+  const crownB = mesh(new THREE.ConeGeometry(0.92 * s, 2.2 * s, 7), palette.leafLight)
+  crownB.position.set(0.35 * s, 3.8 * s, 0.12 * s)
   crownB.rotation.y = z * 0.12
   tree.add(crownA, crownB)
   scene.add(tree)
-  cameraOccluders.push({ view: tree, radius: 1.2 * scale, maxDistance: 42 })
+  cameraOccluders.push({ view: tree, radius: 2.5 * scale, maxDistance: 42 })
   return tree
 }
 
-function createHut(x: number, z: number, rotation = 0): THREE.Group {
+function createHut(placement: SherwoodCampHutPlacement): THREE.Group {
+  const { x, z, rotation, halfExtents } = placement
   const hut = createStylizedBuildingVisual({
-    id: `CampCottage:${x}:${z}`,
+    id: `CampCottage:${placement.id}`,
     kind: "cottage",
     palette: "village",
-    width: 3.2,
-    depth: 2.6,
+    width: halfExtents.x * 2,
+    depth: halfExtents.z * 2,
   }, { castShadow: renderProfile.shadows })
-  hut.position.set(x, sherwoodFootprintGroundY(x, z, 1.6, 1.3, rotation), z)
+  hut.position.set(x, sherwoodFootprintGroundY(x, z, halfExtents.x, halfExtents.z, rotation), z)
   hut.rotation.y = rotation
   scene.add(hut)
-  cameraOccluders.push({ view: hut, radius: 2.2 })
+  cameraOccluders.push({ view: hut, radius: Math.hypot(halfExtents.x, halfExtents.z) })
   return hut
 }
 
@@ -965,6 +1023,13 @@ function positionMissionCampfire(anchor: Vec2): void {
 function createWorld(): void {
   terrainView = createSherwoodTerrain()
   scene.add(terrainView)
+  scene.add((horizonBackdrop = createHorizonBackdrop({ groundMaterial: terrainView.material as THREE.Material })).group)
+  majorOakHandle = attachMajorOak(scene, {
+    castShadow: renderProfile.shadows,
+    resolveUrl: versionedAssetUrl,
+    loader: gltfLoader,
+  })
+  cameraOccluders.push({ view: majorOakHandle.group, radius: 2.6 })
 
   water.group.rotation.x = -Math.PI / 2
   water.group.rotation.z = -0.1
@@ -975,10 +1040,11 @@ function createWorld(): void {
   rebuildCrossingInfrastructure(state.layout)
   rebuildBowCaches(state.layout)
 
-  legacyVillageViews.push(createHut(-14, 11, 0.35))
-  villageCottageFallback = createHut(-10, 14, -0.55)
+  const [cottageHut, campHutA, campHutC] = SHERWOOD_CAMP_HUT_LAYOUT
+  villageCottageFallback = createHut(cottageHut)
+  legacyVillageViews.push(createHut(campHutA))
   legacyVillageViews.push(villageCottageFallback)
-  legacyVillageViews.push(createHut(-15, 6, 1.1))
+  legacyVillageViews.push(createHut(campHutC))
   const villageCircle = mesh(new THREE.TorusGeometry(2.35, 0.08, 6, 48), palette.gold, { cast: false })
   villageCircle.name = "MissionCampfireHalo"
   villageCircle.position.set(0, 0.06, 0)
@@ -1143,12 +1209,12 @@ function rebuildBowCaches(layout: RegionalMissionLayout): void {
   for (const [index, position] of layout.bowCachePositions.entries()) {
     const cache = new THREE.Group()
     cache.userData.sherwoodOwnedGeometry = true
-    const crate = mesh(new THREE.BoxGeometry(1.4, 0.62, 0.85), 0x6d4b2c)
-    crate.position.y = 0.32
-    const band = mesh(new THREE.BoxGeometry(1.48, 0.1, 0.92), 0xd1a94b)
-    band.position.y = 0.5
+    const crate = mesh(new THREE.BoxGeometry(1.65, 0.8, 1), 0x6d4b2c)
+    crate.position.y = 0.4
+    const band = mesh(new THREE.BoxGeometry(1.75, 0.12, 1.08), 0xd1a94b)
+    band.position.y = 0.64
     const { bow } = createArcheryEquipment(index % 2 === 0 ? "longbow" : "shortbow", 0.72)
-    bow.position.set(0, 0.9, 0)
+    bow.position.set(0, 1.08, 0)
     bow.rotation.set(Math.PI / 2, 0, Math.PI / 2)
     cache.add(crate, band, bow)
     cache.position.set(position.x, sherwoodHeightAt(position.x, position.z), position.z)
@@ -1244,6 +1310,8 @@ function attachNatureDressing(): void {
   }).catch(() => showToast("Textured forest dressing could not be loaded; using the lightweight fallback"))
 }
 
+const MEDIEVAL_PROP_SCALE = 1.3
+
 function rebuildMedievalProps(): void {
   for (const prop of medievalPropViews.splice(0)) scene.remove(prop)
   if (!medievalPropsCatalogSource || !composedWorld) return
@@ -1251,6 +1319,7 @@ function rebuildMedievalProps(): void {
     const source = medievalPropsCatalogSource.getObjectByName(placement.name)
     if (!source) continue
     const prop = source.clone(true)
+    prop.scale.setScalar(MEDIEVAL_PROP_SCALE)
     prop.position.set(
       placement.position.x,
       sherwoodHeightAt(placement.position.x, placement.position.z),
@@ -1291,7 +1360,7 @@ function prepareVillageRuntimeObject<T extends THREE.Object3D>(root: T): T {
 function attachVillageSlice(cart: THREE.Group): void {
   void loadVillageCatalog().then((source) => {
     const cottage = prepareVillageRuntimeObject(createVillageCottage(source))
-    cottage.position.set(-10, sherwoodFootprintGroundY(-10, 14, 2.2, 2.3, -0.55), 14)
+    cottage.position.set(-10, sherwoodFootprintGroundY(-10, 14, 2.65, 2.85, -0.55), 14)
     cottage.rotation.y = -0.55
     cottage.visible = false
     const wagonShell = prepareVillageRuntimeObject(createVillageWagonShell(source))
@@ -1306,7 +1375,7 @@ function attachVillageSlice(cart: THREE.Group): void {
     }
 
     villageCottageView = cottage
-    cameraOccluders.push({ view: cottage, radius: 3.2 })
+    cameraOccluders.push({ view: cottage, radius: 3.9 })
     scene.add(cottage)
     villageWagonShellView = wagonShell
     cart.add(wagonShell)
@@ -1399,17 +1468,20 @@ function createCart(): THREE.Group {
       proceduralShell.add(wheel)
     }
   }
+  proceduralShell.scale.setScalar(1.25)
   proceduralWagonShellView = proceduralShell
   cart.add(proceduralShell)
   for (let i = 0; i < 5; i += 1) {
     const coin = mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.08, 12), palette.gold)
-    coin.position.set(-0.6 + i * 0.3, 1.45 + (i % 2) * 0.1, 0)
+    coin.position.set((-0.6 + i * 0.3) * 1.25, (1.45 + (i % 2) * 0.1) * 1.25, 0)
+    coin.scale.setScalar(1.25)
     coin.rotation.x = Math.PI / 2
     coin.userData.coin = true
     cart.add(coin)
   }
   const cage = new THREE.Group()
   cage.userData.prison = true
+  cage.scale.setScalar(1.25)
   const cageRoof = mesh(new THREE.BoxGeometry(2.25, 0.12, 1.45), 0x3f3428)
   cageRoof.position.y = 2.75
   cage.add(cageRoof)
@@ -1533,6 +1605,13 @@ attachNatureDressing()
 let playerView = createCharacter(selectedCharacter)
 scene.add(playerView)
 vanityPresenter.attach(playerView)
+if (debugView?.camera) {
+  const [camX, camZ] = debugView.camera.position
+  const [targetX, targetZ] = debugView.camera.target
+  camera.position.set(camX, sherwoodHeightAt(camX, camZ) + 14.5, camZ)
+  camera.lookAt(targetX, sherwoodHeightAt(targetX, targetZ) + 0.75, targetZ)
+  playerView.visible = false
+}
 state.guards.forEach((guardState) => {
   const guard = createGuardVisual(guardState.id)
   guardViews.push(guard)
@@ -1817,6 +1896,10 @@ function setMissionWorldVisible(visible: boolean): void {
   if (villageCottageView) {
     villageCottageView.userData.lodVisible = !visible
     villageCottageView.visible = !visible
+  }
+  if (majorOakHandle) {
+    majorOakHandle.group.userData.lodVisible = !visible
+    majorOakHandle.group.visible = !visible
   }
   if (!visible) {
     syncTrapViews([])
@@ -2187,6 +2270,15 @@ function enterHub(online: boolean): void {
   roomSessionActive = online
   if (!online) roomConnected = false
   if (!online) currentMissionSlug = PEOPLES_PURSE_MISSION.slug
+  if (!online) {
+    // Solo entry must carry the chosen outlaw name onto the Scroll too; only
+    // the quick-play path did this before, so a solo player's scroll and save
+    // kept the previous stored name until a reload.
+    const soloName = playerNameInput.value.trim().slice(0, 20) || "Greenhood"
+    playerNameInput.value = soloName
+    localStorage.setItem("sherwood-rebellion:player-name", soloName)
+    scroll?.setOutlawName(soloName)
+  }
   running = true
   ended = false
   resetMissionRuntimeState()
@@ -2244,7 +2336,7 @@ function startSoloMission(): void {
 }
 
 const controllerActions = GAME_ACTIONS.filter((action) => !action.startsWith("move")) as Array<keyof InputSettings["controller"]>
-const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel, socialPanel, vanityPanel, tutorialPanel, fieldMapPanel]
+const panelElements = [helpPanel, leaderboardPanel, scrollPanel, resultsPanel, safetyPanel, settingsPanel, socialPanel, vanityPanel, tutorialPanel, fieldMapPanel]
 const controllerButtonLabels = ["A / Cross", "B / Circle", "X / Square", "Y / Triangle", "LB / L1", "RB / R1", "LT / L2", "RT / R2", "View / Share", "Menu / Options", "Left stick", "Right stick", "D-pad up", "D-pad down", "D-pad left", "D-pad right"]
 const pointerActionLabels: Record<PointerAction, string> = {
   move: "Move to ground",
@@ -2554,6 +2646,7 @@ function renderBindingControls(): void {
 }
 
 function openPanel(panel: HTMLElement, trigger?: HTMLElement): void {
+  roughBorderPanelOnOpen(panel)
   keys.clear()
   closeQuickChat(false)
   closeChatDrawer(false)
@@ -2949,13 +3042,13 @@ function syncTrapViews(traps: MissionTrap[]): void {
 function createPreparationView(preparation: MissionPreparation): THREE.Group {
   const group = new THREE.Group()
   if (preparation.type === "supplies") {
-    const crate = mesh(new THREE.BoxGeometry(1.05, 0.62, 0.72), 0x6d4b2c)
-    crate.position.y = 0.34
-    const band = mesh(new THREE.BoxGeometry(1.12, 0.12, 0.78), 0xd1a94b)
-    band.position.y = 0.52
+    const crate = mesh(new THREE.BoxGeometry(1.3, 0.8, 0.9), 0x6d4b2c)
+    crate.position.y = 0.4
+    const band = mesh(new THREE.BoxGeometry(1.4, 0.12, 0.98), 0xd1a94b)
+    band.position.y = 0.65
     const arrows = mesh(new THREE.CylinderGeometry(0.11, 0.15, 0.86, 8), 0x315f37)
     arrows.rotation.z = Math.PI / 2
-    arrows.position.set(0, 0.84, 0)
+    arrows.position.set(0, 1, 0)
     group.add(crate, band, arrows)
   } else if (preparation.type === "intelligence") {
     const stand = mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.35, 6), 0x4f3522)
@@ -3386,6 +3479,7 @@ async function refreshAccessPanel(): Promise<void> {
     accessState = { ...accessState, gateEnabled: false, authenticated: Boolean(session), entitled: true, payment: null }
     const address = session ? walletAddress(session) : null
     walletState.textContent = address ? shortWalletAddress(address) : session ? "CONNECTED" : "NOT CONNECTED"
+    scroll?.setWallet(address ?? null)
     walletSignIn.classList.toggle("hidden", Boolean(session))
     walletSignOut.classList.toggle("hidden", !session)
     startButton.disabled = false
@@ -3539,8 +3633,57 @@ function createPingView(ping: WorldPing): THREE.Group {
   return group
 }
 
+/**
+ * Write a finished mission onto the player's scroll.
+ *
+ * Everything here comes from the server's own mission snapshot, never from
+ * local counters, and every deed id is derived from the mission id so that
+ * re-rendering the results panel cannot double-count.
+ */
+function recordMissionOnScroll(mission: MissionSnapshot): void {
+  if (!scroll || !mission.result || mission.status !== "succeeded") return
+  const at = Date.now()
+  const partySize = Math.max(1, Math.min(4, currentRoomPlayers.length || 1))
+  // Deed ids are scoped to this run instance, so completing the same mission
+  // definition again records fresh deeds instead of colliding with the first.
+  const run = mission.instanceId
+  scroll.record({
+    id: `mission:${run}`,
+    kind: "mission-completed",
+    at,
+    missionId: mission.missionId,
+    grade: mission.result.grade,
+    score: mission.result.score,
+    partySize,
+  })
+  if (mission.result.communityCoin > 0) {
+    scroll.record({ id: `coin:${run}`, kind: "coin-returned", at, amount: mission.result.communityCoin })
+  }
+  // Authoritative per-player raw counts from the server — never the normalized
+  // mastery percentages, and never another player's contribution.
+  const selfId = multiplayer.playerId
+  const outcome = (selfId ? mission.playerOutcomes[selfId] : undefined) ?? { rescues: 0, captures: 0, regionCells: [] }
+  if (outcome.rescues > 0) {
+    scroll.record({ id: `rescue:${run}`, kind: "ally-rescued", at, amount: outcome.rescues })
+  }
+  if (outcome.captures > 0) {
+    scroll.record({ id: `capture:${run}`, kind: "guard-captured", at, amount: outcome.captures })
+  }
+  if (mission.result.cleanEscape) {
+    scroll.record({ id: `unseen:${run}`, kind: "clean-escape", at })
+  }
+  // One deed per global region cell with a stable id, so a region walked in an
+  // earlier run is not counted again toward Cartographer (permanent idempotency
+  // dedupes across runs; the per-player cell set prevents crediting a teammate's
+  // exploration).
+  for (const cell of outcome.regionCells) {
+    scroll.record({ id: `region:${cell}`, kind: "region-explored", at, amount: 1 })
+  }
+}
+
 function renderMissionResolution(mission: MissionSnapshot): void {
   if (!mission.result) return
+  recordMissionOnScroll(mission)
   if (resultsPanel.classList.contains("hidden")) openPanel(resultsPanel)
   resultGrade.textContent = mission.result.grade
   resultScore.textContent = mission.result.score.toLocaleString()
@@ -3646,8 +3789,8 @@ function applyVillageState(village: VillageState): void {
     const view = new THREE.Group()
     if (choice === "granary") {
       for (let index = 0; index < 4; index += 1) {
-        const crate = mesh(new THREE.BoxGeometry(0.65, 0.55, 0.65), 0xa87a43)
-        crate.position.set((index % 2) * 0.75, 0.28, Math.floor(index / 2) * 0.75)
+        const crate = mesh(new THREE.BoxGeometry(0.85, 0.72, 0.85), 0xa87a43)
+        crate.position.set((index % 2) * 0.95, 0.36, Math.floor(index / 2) * 0.95)
         view.add(crate)
       }
       view.userData.campOffset = { x: 2.4, z: 0 }
@@ -4957,10 +5100,13 @@ function syncViews(elapsed: number, dt: number): void {
     if (child.userData.coin) child.visible = state.cartCoin > 0
   })
 
-  const cameraOffset = rotateCameraOffset(BASE_CAMERA_OFFSET, cameraQuarterTurns)
-  const desiredCamera = new THREE.Vector3(player.x + cameraOffset.x, playerGroundY + 14.5, player.z + cameraOffset.z)
-  camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt))
-  camera.lookAt(player.x, playerGroundY + 0.75, player.z)
+  if (!debugView?.camera) {
+    const cameraOffset = rotateCameraOffset(BASE_CAMERA_OFFSET, cameraQuarterTurns)
+    const desiredCamera = new THREE.Vector3(player.x + cameraOffset.x, playerGroundY + 14.5, player.z + cameraOffset.z)
+    camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt))
+    camera.lookAt(player.x, playerGroundY + 0.75, player.z)
+  }
+  horizonBackdrop?.update(camera)
   const cameraPosition = { x: camera.position.x, z: camera.position.z }
   const visibleOccluders: Array<{ x: number; z: number; radius: number }> = []
   for (const occluder of cameraOccluders) {
@@ -5186,6 +5332,7 @@ joinPublicHubButton.addEventListener("click", () => void (async () => {
     const displayName = playerNameInput.value.trim().slice(0, 20) || "Greenhood"
     playerNameInput.value = displayName
     localStorage.setItem("sherwood-rebellion:player-name", displayName)
+    scroll?.setOutlawName(displayName)
     joinPublicHubButton.textContent = "ENTERING QUICK PLAY…"
     entryAccessNote.textContent = "ENTERING QUICK PLAY…"
     multiplayer.joinPublicHub(displayName, selectedCharacter)
@@ -5433,6 +5580,11 @@ if (new URLSearchParams(location.search).get("debug") === "webgl") {
 }
 leaderboardButton.addEventListener("click", () => void openLeaderboard())
 closeLeaderboard.addEventListener("click", () => closePanel(leaderboardPanel))
+scrollButton.addEventListener("click", () => {
+  openPanel(scrollPanel, scrollButton)
+  scroll?.open()
+})
+closeScroll.addEventListener("click", () => closePanel(scrollPanel))
 for (const filter of [boardKind, boardCharacter, boardParty, boardScope, boardMission, boardSeason]) filter.addEventListener("change", () => void openLeaderboard())
 closeResults.addEventListener("click", () => closePanel(resultsPanel))
 voteButtons.forEach((button) => button.addEventListener("click", () => multiplayer.vote(button.dataset.vote as VoteChoice)))

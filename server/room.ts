@@ -10,8 +10,16 @@ import type { CompletedBandMission, PersistentBandRecord } from "./band-store"
 import type { VerifiedRun } from "./leaderboard-store"
 import type { RoomExperimentAssignment } from "../shared/experiments"
 
+function normalizeEvidenceWallet(wallet: string | null | undefined): string | null {
+  if (typeof wallet !== "string") return null
+  const candidate = wallet.trim().toLowerCase()
+  return /^0x[0-9a-f]{40}$/.test(candidate) ? candidate : null
+}
+
 interface ConnectedPlayer extends RoomPlayer {
   authUserId: string | null
+  /** Lowercased wallet from the verified Supabase identity, for Scroll evidence. */
+  walletAddress: string | null
   productAnalytics: boolean
   clientBuildId: string
   reconnectToken: string
@@ -29,6 +37,8 @@ interface ConnectedPlayer extends RoomPlayer {
   captureFor: number
   captured: boolean
   rescueCount: number
+  guardsStunned: number
+  exploredCells: Set<number>
   transferCount: number
   lastPingTick: number
   totalTransferred: number
@@ -160,7 +170,7 @@ export class Room {
     return true
   }
 
-  addPlayer(socket: WebSocket, displayName: string, characterId: CharacterId, authUserId: string | null = null, roleConfirmed = true, productAnalytics = true, clientBuildId = "dev"): ConnectedPlayer {
+  addPlayer(socket: WebSocket, displayName: string, characterId: CharacterId, authUserId: string | null = null, roleConfirmed = true, productAnalytics = true, clientBuildId = "dev", walletAddress: string | null = null): ConnectedPlayer {
     this.pruneDisconnected(Date.now())
     if (this.phase !== "lobby") throw new Error("MISSION_STARTED")
     if (this.players.size >= MAX_ROOM_PLAYERS) throw new Error("ROOM_FULL")
@@ -171,6 +181,7 @@ export class Room {
     const player: ConnectedPlayer = {
       id: randomUUID(),
       authUserId,
+      walletAddress: normalizeEvidenceWallet(walletAddress),
       productAnalytics,
       clientBuildId,
       reconnectToken: randomUUID(),
@@ -200,6 +211,8 @@ export class Room {
       captureFor: 0,
       captured: false,
       rescueCount: 0,
+      guardsStunned: 0,
+      exploredCells: new Set<number>(),
       transferCount: 0,
       lastPingTick: -20,
       totalTransferred: 0,
@@ -213,7 +226,7 @@ export class Room {
     return player
   }
 
-  reconnect(socket: WebSocket, token: string, now = Date.now(), authUserId: string | null = null, productAnalytics = true, clientBuildId = "dev"): ConnectedPlayer | null {
+  reconnect(socket: WebSocket, token: string, now = Date.now(), authUserId: string | null = null, productAnalytics = true, clientBuildId = "dev", walletAddress: string | null = null): ConnectedPlayer | null {
     if (this.bannedReconnectTokens.has(token)) return null
     const player = [...this.players.values()].find((candidate) => candidate.reconnectToken === token)
     if (!player || player.disconnectedAt === null || now - player.disconnectedAt > RECONNECT_GRACE_MS || (player.authUserId && player.authUserId !== authUserId)) return null
@@ -222,8 +235,22 @@ export class Room {
     player.disconnectedAt = null
     player.productAnalytics = productAnalytics
     player.clientBuildId = clientBuildId
+    const wallet = normalizeEvidenceWallet(walletAddress)
+    if (wallet) player.walletAddress = wallet
     this.mission?.cancelPlayerActions(player.id)
     return player
+  }
+
+  /**
+   * authUserId -> lowercased wallet, for authenticated players that presented a
+   * wallet. Used to key Soulbound Scroll evidence to a wallet at mission end.
+   */
+  evidenceWalletsByAuthUser(): Map<string, string> {
+    const wallets = new Map<string, string>()
+    for (const player of this.players.values()) {
+      if (player.authUserId && player.walletAddress) wallets.set(player.authUserId, player.walletAddress)
+    }
+    return wallets
   }
 
   hasProductAnalyticsConsent(playerId: string): boolean {

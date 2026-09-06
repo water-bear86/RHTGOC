@@ -4,8 +4,10 @@ import {
   SHERWOOD_CROSSING_HALF_LENGTH,
   SHERWOOD_PLAYER_RADIUS,
   SHERWOOD_RIDGE_ROCK_COLLIDERS,
+  SHERWOOD_STATIC_COLLIDERS,
   SHERWOOD_TREE_COLLIDERS,
   VILLAGE_COTTAGE_COLLIDER,
+  createSherwoodFarmColliders,
   createSherwoodSettlementColliders,
   createSherwoodMissionRockColliders,
   createSherwoodTopologyColliders,
@@ -13,10 +15,14 @@ import {
   resolveSherwoodCombinedMovement,
   resolveSherwoodPlayerMovement,
 } from "./world-collisions"
+import { SHERWOOD_FARM_LAYOUT } from "./world-landmarks-layout"
+import { SHERWOOD_MAJOR_OAK_OBSTACLES } from "./world-obstacles"
+import { SHERWOOD_MAJOR_OAK } from "./world-landmarks-layout"
 import { PEOPLES_PURSE_MISSION } from "./mission-catalog"
 import { regionalizeMissionDefinition, riverPointAt } from "./regional-layout"
 import { composeSherwoodWorld } from "./world-composer"
 import { SHERWOOD_RIDGE_SEGMENTS } from "./world-topology"
+import { SHERWOOD_CAMP_HUT_LAYOUT, SHERWOOD_CAMP_HUT_OBSTACLES, SHERWOOD_STATIC_OBSTACLES } from "./world-obstacles"
 
 function localPoint(x: number, z: number): { x: number; z: number } {
   const collider = VILLAGE_COTTAGE_COLLIDER
@@ -48,10 +54,89 @@ describe("shared Sherwood world collision contract", () => {
     expect(VILLAGE_COTTAGE_COLLIDER).toMatchObject({
       id: "sherwood-village-cottage",
       center: { x: -10, z: 14 },
-      halfExtents: { x: 2.75, z: 3 },
+      halfExtents: { x: 2.65, z: 2.85 },
       rotation: -0.55,
     })
+    // The cottage collider is exactly 1.25x the authored GLB envelope so the
+    // GLB LOD0 and the procedural LOD1 share one footprint.
+    expect(VILLAGE_COTTAGE_COLLIDER.halfExtents.x).toBeCloseTo(1.25 * 2.12, 3)
+    expect(VILLAGE_COTTAGE_COLLIDER.halfExtents.z).toBeCloseTo(1.25 * 2.28, 3)
     expect(SHERWOOD_PLAYER_RADIUS).toBe(0.45)
+  })
+
+  it("keeps the three hero-scaled camp huts solid, disjoint and clear of spawn, trees and the board", () => {
+    // Each obstacle mirrors the shared layout exactly (renderer reads the same).
+    expect(SHERWOOD_CAMP_HUT_OBSTACLES).toHaveLength(3)
+    SHERWOOD_CAMP_HUT_LAYOUT.forEach((hut, index) => {
+      const obstacle = SHERWOOD_CAMP_HUT_OBSTACLES[index]
+      expect(obstacle.center).toEqual({ x: hut.x, z: hut.z })
+      expect(obstacle.halfExtents).toEqual(hut.halfExtents)
+      expect(obstacle.rotation).toBe(hut.rotation)
+      // Every hut is a solid hub collider.
+      expect(SHERWOOD_STATIC_OBSTACLES.some((o) => o.id === hut.id)).toBe(true)
+      expect(isSherwoodPlayerPositionBlocked({ x: hut.x, z: hut.z }, 0)).toBe(true)
+    })
+
+    const toLocal = (px: number, pz: number, h: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+      const c = Math.cos(h.rotation)
+      const s = Math.sin(h.rotation)
+      const x = px - h.x
+      const z = pz - h.z
+      return { x: c * x - s * z, z: s * x + c * z }
+    }
+    const inside = (px: number, pz: number, h: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+      const l = toLocal(px, pz, h)
+      return Math.abs(l.x) <= h.halfExtents.x && Math.abs(l.z) <= h.halfExtents.z
+    }
+    const nearestEdge = (px: number, pz: number, h: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+      const l = toLocal(px, pz, h)
+      return Math.hypot(Math.max(0, Math.abs(l.x) - h.halfExtents.x), Math.max(0, Math.abs(l.z) - h.halfExtents.z))
+    }
+    const corners = (h: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+      const c = Math.cos(h.rotation)
+      const s = Math.sin(h.rotation)
+      const pts: { x: number; z: number }[] = []
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        const lx = sx * h.halfExtents.x
+        const lz = sz * h.halfExtents.z
+        pts.push({ x: h.x + c * lx + s * lz, z: h.z - s * lx + c * lz })
+      }
+      return pts
+    }
+    const overlaps = (a: typeof SHERWOOD_CAMP_HUT_LAYOUT[number], b: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+      const axesOf = (h: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+        const c = Math.cos(h.rotation)
+        const s = Math.sin(h.rotation)
+        return [{ x: c, z: -s }, { x: s, z: c }]
+      }
+      const ca = corners(a)
+      const cb = corners(b)
+      for (const ax of [...axesOf(a), ...axesOf(b)]) {
+        let amin = Infinity, amax = -Infinity, bmin = Infinity, bmax = -Infinity
+        for (const p of ca) { const d = p.x * ax.x + p.z * ax.z; amin = Math.min(amin, d); amax = Math.max(amax, d) }
+        for (const p of cb) { const d = p.x * ax.x + p.z * ax.z; bmin = Math.min(bmin, d); bmax = Math.max(bmax, d) }
+        if (amax < bmin || bmax < amin) return false
+      }
+      return true
+    }
+
+    // No two huts overlap.
+    for (let i = 0; i < SHERWOOD_CAMP_HUT_LAYOUT.length; i += 1) {
+      for (let j = i + 1; j < SHERWOOD_CAMP_HUT_LAYOUT.length; j += 1) {
+        expect(overlaps(SHERWOOD_CAMP_HUT_LAYOUT[i], SHERWOOD_CAMP_HUT_LAYOUT[j])).toBe(false)
+      }
+    }
+    // The two newly collidered huts clear the 4.5 spawn ring around (-11, 9)
+    // with the player radius to spare; the pre-existing front cottage is left
+    // in place (spawn depenetration already handles it).
+    for (const hut of SHERWOOD_CAMP_HUT_LAYOUT.filter((h) => h.id !== "sherwood-village-cottage")) {
+      expect(nearestEdge(-11, 9, hut)).toBeGreaterThanOrEqual(5.5)
+    }
+    // Hub-box layout trees and the mission board are outside every hut.
+    for (const [tx, tz] of [[-15.1, 5.9], [-17.2, 7.1], [-10.4, 4.0]] as const) {
+      expect(SHERWOOD_CAMP_HUT_LAYOUT.some((h) => inside(tx, tz, h))).toBe(false)
+    }
+    expect(SHERWOOD_CAMP_HUT_LAYOUT.some((h) => inside(-7.6, 8.6, h))).toBe(false)
   })
 
   it("keeps the fixed cottage solid in the hub but removes it from generated missions", () => {
@@ -251,6 +336,29 @@ describe("shared Sherwood world collision contract", () => {
     }
   })
 
+  it("gives the windmill and farmhouse solid footprints matching their rendered size (seeds 1..24)", () => {
+    for (let seed = 1; seed <= 24; seed += 1) {
+      const seedLayout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed).layout
+      const colliders = createSherwoodFarmColliders(seedLayout)
+      expect(colliders).toHaveLength(2)
+      const windmill = colliders.find((c) => c.id === "sherwood-farm-windmill")!
+      const farmhouse = colliders.find((c) => c.id === "sherwood-farm-farmhouse")!
+
+      // Windmill: base radius 3.9 boxed to ~3.9 * 0.87 half-square.
+      expect(Math.abs(windmill.halfExtents.x - 3.9 * 0.87)).toBeLessThanOrEqual(0.05)
+      expect(windmill.halfExtents.x).toBe(windmill.halfExtents.z)
+      // Farmhouse: equals the rendered visual half extents (7.5 x 5.6).
+      expect(Math.abs(farmhouse.halfExtents.x - SHERWOOD_FARM_LAYOUT.farmhouse.halfExtents.x)).toBeLessThanOrEqual(0.05)
+      expect(Math.abs(farmhouse.halfExtents.z - SHERWOOD_FARM_LAYOUT.farmhouse.halfExtents.z)).toBeLessThanOrEqual(0.05)
+      expect(farmhouse.halfExtents.x).toBeCloseTo(3.75, 5)
+      expect(farmhouse.halfExtents.z).toBeCloseTo(2.8, 5)
+
+      // Both are authoritative solids in their own mission layout.
+      expect(isSherwoodPlayerPositionBlocked(windmill.center, SHERWOOD_PLAYER_RADIUS, seedLayout)).toBe(true)
+      expect(isSherwoodPlayerPositionBlocked(farmhouse.center, SHERWOOD_PLAYER_RADIUS, seedLayout)).toBe(true)
+    }
+  })
+
   it("keeps authored ridge crests walkable without weakening visible obstacles", () => {
     const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 4219).layout
     const topology = createSherwoodTopologyColliders(layout)
@@ -270,5 +378,31 @@ describe("shared Sherwood world collision contract", () => {
     expect(isSherwoodPlayerPositionBlocked(SHERWOOD_TREE_COLLIDERS[0].center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
     expect(isSherwoodPlayerPositionBlocked(riverPointAt(0), SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
     expect(isSherwoodPlayerPositionBlocked(createSherwoodSettlementColliders(layout)[0].center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
+  })
+})
+
+describe("Major Oak landmark collider", () => {
+  it("stands as a two-square octagon at the oak position, in the hub statics", () => {
+    expect(SHERWOOD_MAJOR_OAK_OBSTACLES).toHaveLength(2)
+    for (const obstacle of SHERWOOD_MAJOR_OAK_OBSTACLES) {
+      expect(obstacle.center).toEqual({ x: SHERWOOD_MAJOR_OAK.x, z: SHERWOOD_MAJOR_OAK.z })
+      expect(obstacle.halfExtents.x).toBe(SHERWOOD_MAJOR_OAK.trunkHalfExtent)
+      expect(SHERWOOD_STATIC_COLLIDERS.some((collider) => collider.id === obstacle.id)).toBe(true)
+    }
+    const [a, b] = SHERWOOD_MAJOR_OAK_OBSTACLES
+    expect(a.rotation).toBe(0)
+    expect(b.rotation).toBeCloseTo(Math.PI / 4, 5)
+  })
+
+  it("blocks the trunk centre but not the walk-over ground a collider-width away", () => {
+    const centre = { x: SHERWOOD_MAJOR_OAK.x, z: SHERWOOD_MAJOR_OAK.z }
+    expect(isSherwoodPlayerPositionBlocked(centre, 0)).toBe(true)
+    // Well clear of the octagon (halfExtent 2.5 + player radius) is open.
+    expect(isSherwoodPlayerPositionBlocked({ x: centre.x - 4, z: centre.z }, 0)).toBe(false)
+  })
+
+  it("does not add the oak to generated mission worlds", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 19).layout
+    expect(isSherwoodPlayerPositionBlocked({ x: SHERWOOD_MAJOR_OAK.x, z: SHERWOOD_MAJOR_OAK.z }, 0, layout)).toBe(false)
   })
 })

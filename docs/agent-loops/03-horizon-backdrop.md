@@ -1,3 +1,5 @@
+> **SUPERSEDED by `04-horizon-backdrop.md`** — this draft never landed and its numbers were not re-verified. Do not run it.
+
 # Task 03 — Replace the empty expanse beyond the map with a painted horizon
 
 Follow `README.md` in this folder. Max 8 iterations. Write NOTES.md beside this file.

@@ -1,12 +1,13 @@
 import { createServer } from "node:http"
-import { randomInt, randomUUID } from "node:crypto"
+import { randomInt, randomUUID, timingSafeEqual } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { extname, join, normalize } from "node:path"
 import { WebSocket, WebSocketServer } from "ws"
-import { PROTOCOL_VERSION, parseClientMessage, type CharacterId, type ClientDiagnosticCode, type ServerMessage } from "../shared/protocol"
+import { PROTOCOL_VERSION, isSupportedProtocolVersion, parseClientMessage, type CharacterId, type ClientDiagnosticCode, type ServerMessage } from "../shared/protocol"
 import { Room, type ContributionTransition, type RescueOfferTransition } from "./room"
 import { createBandStoreFromEnv, type CompletedBandMission, type PersistentBandRecord } from "./band-store"
 import { createLeaderboardStoreFromEnv, terminalLeaderboardFailure, type VerifiedRun } from "./leaderboard-store"
+import { createScrollEvidenceIssuer } from "./scroll-evidence"
 import { createRankedLeaderboardStoreFromEnv, isLeaderboardKind } from "./ranked-leaderboard-store"
 import { LeaderboardCache } from "./leaderboard-cache"
 import { isModerationAction, isModerationReasonCode, sanitizeLeaderboardLogContext } from "./leaderboard-policy"
@@ -35,6 +36,10 @@ const port = Number(process.env.PORT ?? 8787)
 const buildId = normalizeBuildId(process.env.BUILD_ID)
 const processStartedAt = new Date().toISOString()
 const rooms = new Map<string, Room>()
+// Slots claimed by in-flight create_room handshakes that have not yet inserted
+// their Room. Counted against maxRooms so a burst of concurrent creates near
+// the ceiling cannot all pass the capacity check and over-allocate.
+let pendingRoomCreations = 0
 const bandStore = createBandStoreFromEnv()
 const leaderboardStore = createLeaderboardStoreFromEnv()
 const rankedLeaderboardStore = createRankedLeaderboardStoreFromEnv()
@@ -55,11 +60,27 @@ const gameplayAnalytics = gameplayAnalyticsStore ? new GameplayAnalyticsAggregat
 const experimentService = gameplayAnalyticsStore ? createExperimentServiceFromEnv() : null
 const STARTUP_DEPENDENCY_TIMEOUT_MS = 4_000
 const publicOrigin = process.env.PUBLIC_ORIGIN?.replace(/\/$/, "")
+// Other origins that serve the same client and are advertised to players (for
+// example the direct Lightsail URL still linked from README): browsers send
+// that hostname as Origin, so it must be accepted or a documented entry point
+// can load the page but never open the multiplayer socket.
+const extraAllowedOrigins = (process.env.EXTRA_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/$/, ""))
+  .filter(Boolean)
+const allowedOrigins = new Set<string>(
+  [publicOrigin, ...extraAllowedOrigins].filter((origin): origin is string => Boolean(origin)),
+)
+const isAllowedOrigin = (origin: string | undefined): boolean =>
+  !origin || allowedOrigins.size === 0 || allowedOrigins.has(origin.replace(/\/$/, ""))
 let seasonReady = seasonStore === null
 const telemetry = new Telemetry()
 const rotationService = new SheriffRotationService()
 const seasonService = new SherwoodSeasonService()
 const opsAdminSecret = process.env.OPS_ADMIN_SECRET
+// Soulbound Scroll progression evidence. Inert unless a signing key is set, so
+// this is safe to run before the Scroll backend is deployed: no key, no evidence.
+const scrollEvidenceIssuer = createScrollEvidenceIssuer({ signingKeyPem: process.env.SCROLL_EVIDENCE_SIGNING_KEY })
 const supabaseUrl = process.env.SUPABASE_URL
 const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY
 const defaultMission = getMissionDefinition()
@@ -78,6 +99,13 @@ interface QuickPlayReservation {
 const quickPlayReservations = new Map<string, QuickPlayReservation>()
 const quickPlayRooms = new Map<string, { expectedPlayers: number; joinedPlayerIds: Set<string>; expiresAt: number }>()
 let activeConnections = 0
+/**
+ * Capacity ceilings for this single node. Without them one socket can hold
+ * unbounded rooms open and starve every real player; both are sized from the
+ * container's memory and are deliberately enforced, not merely observed.
+ */
+const maxRooms = Math.max(1, Number(process.env.MAX_ROOMS ?? 500))
+const maxConnections = Math.max(1, Number(process.env.MAX_CONNECTIONS ?? 2_000))
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const pendingRescueTransitions = new Map<string, { transition: RescueOfferTransition; attempts: number; nextAttemptAt: number }>()
 let rescuePersistenceFlushing = false
@@ -277,6 +305,11 @@ async function flushGameplayAnalytics(now = Date.now()): Promise<void> {
 }
 
 function reservePublicBand(group: HubParticipant[], automatic: boolean): void {
+  if (rooms.size + pendingRoomCreations >= maxRooms) {
+    telemetry.increment("room_capacity_rejected_total")
+    structuredLog("quick_play_group_dropped_at_capacity", { partySize: group.length, automatic }, "warn")
+    return
+  }
   const code = roomCode()
   const room = new Room(code, (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)), (now) => seasonService.snapshot(now), null, assignRoomExperiments)
   rooms.set(code, room)
@@ -339,8 +372,21 @@ function bearerToken(request: import("node:http").IncomingMessage): string | und
   return authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined
 }
 
+/** Constant-time equality for secrets. String !== leaks timing on the first differing byte. */
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const bufferA = Buffer.from(a)
+  const bufferB = Buffer.from(b)
+  if (bufferA.length !== bufferB.length) {
+    // Still do a comparison of equal cost so a length mismatch alone doesn't
+    // return early with a different timing profile than a length match.
+    timingSafeEqual(bufferA, bufferA)
+    return false
+  }
+  return timingSafeEqual(bufferA, bufferB)
+}
+
 function operatorAuthorized(request: import("node:http").IncomingMessage): boolean {
-  return Boolean(opsAdminSecret && request.headers.authorization === `Bearer ${opsAdminSecret}`)
+  return Boolean(opsAdminSecret && request.headers.authorization && timingSafeStringEqual(request.headers.authorization, `Bearer ${opsAdminSecret}`))
 }
 
 interface SupabaseIdentity {
@@ -349,25 +395,57 @@ interface SupabaseIdentity {
   walletAddress: string | null
 }
 
-async function verifySupabaseIdentity(accessToken: string | undefined): Promise<SupabaseIdentity | null> {
-  if (!accessToken || !supabaseUrl || !supabasePublishableKey) return null
+/**
+ * The three genuinely different outcomes of checking a token.
+ *
+ * "rejected" means Supabase told us the token is not valid. "unavailable"
+ * means we could not ask — a timeout, a network error, or a 5xx. Callers must
+ * treat those differently: a rejected token is the player's problem, but an
+ * unreachable auth service is ours, and must never make the game unplayable.
+ */
+type SupabaseVerification =
+  | { outcome: "verified"; identity: SupabaseIdentity }
+  | { outcome: "rejected" }
+  | { outcome: "unavailable" }
+
+async function verifySupabaseVerification(accessToken: string | undefined): Promise<SupabaseVerification> {
+  if (!accessToken || !supabaseUrl || !supabasePublishableKey) return { outcome: "rejected" }
+  let response: Response
   try {
-    const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    response = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { apikey: supabasePublishableKey, Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(5_000),
     })
-    if (!response.ok) return null
+  } catch {
+    telemetry.increment("auth_verify_unavailable_total")
+    return { outcome: "unavailable" }
+  }
+  if (response.status >= 500 || response.status === 429) {
+    telemetry.increment("auth_verify_unavailable_total")
+    return { outcome: "unavailable" }
+  }
+  if (!response.ok) return { outcome: "rejected" }
+  try {
     const value = await response.json() as { id?: unknown; app_metadata?: unknown; identities?: unknown }
-    if (typeof value.id !== "string" || !value.id.match(/^[0-9a-f-]{36}$/)) return null
+    if (typeof value.id !== "string" || !value.id.match(/^[0-9a-f-]{36}$/)) return { outcome: "rejected" }
     const appMetadata = value.app_metadata && typeof value.app_metadata === "object" ? value.app_metadata as Record<string, unknown> : {}
     return {
-      id: value.id,
-      sherwoodOperator: appMetadata.sherwood_operator === true,
-      walletAddress: walletAddressFromIdentities(value.identities),
+      outcome: "verified",
+      identity: {
+        id: value.id,
+        sherwoodOperator: appMetadata.sherwood_operator === true,
+        walletAddress: walletAddressFromIdentities(value.identities),
+      },
     }
   } catch {
-    return null
+    telemetry.increment("auth_verify_unavailable_total")
+    return { outcome: "unavailable" }
   }
+}
+
+async function verifySupabaseIdentity(accessToken: string | undefined): Promise<SupabaseIdentity | null> {
+  const verification = await verifySupabaseVerification(accessToken)
+  return verification.outcome === "verified" ? verification.identity : null
 }
 
 async function verifySupabaseUser(accessToken: string | undefined): Promise<string | null> {
@@ -637,14 +715,15 @@ async function finalizeLeaderboardSeasons(): Promise<void> {
 const httpServer = createServer(async (request, response) => {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname
   const requestOrigin = request.headers.origin
-  if (publicOrigin && requestOrigin === publicOrigin) {
-    response.setHeader("Access-Control-Allow-Origin", publicOrigin)
+  const corsOrigin = requestOrigin && allowedOrigins.has(requestOrigin.replace(/\/$/, "")) ? requestOrigin.replace(/\/$/, "") : null
+  if (corsOrigin) {
+    response.setHeader("Access-Control-Allow-Origin", corsOrigin)
     response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type")
     response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     response.setHeader("Vary", "Origin")
   }
   if (request.method === "OPTIONS" && (pathname.startsWith("/access") || pathname.startsWith("/api/vanity"))) {
-    response.writeHead(requestOrigin === publicOrigin ? 204 : 403)
+    response.writeHead(corsOrigin ? 204 : 403)
     response.end()
     return
   }
@@ -1262,12 +1341,42 @@ function settleRoomOutcomes(code: string, room: Room): boolean {
   if (bandOutcome && bandStore) enqueueBandMission(room, bandOutcome, roomTraces.get(code) ?? null)
   const verifiedRuns = room.claimVerifiedRuns()
   if (verifiedRuns && leaderboardStore) for (const run of verifiedRuns) enqueueVerifiedRun(run, roomTraces.get(code) ?? null)
+  if (verifiedRuns && scrollEvidenceIssuer.enabled) {
+    const wallets = room.evidenceWalletsByAuthUser()
+    for (const run of verifiedRuns) {
+      const wallet = wallets.get(run.authUserId)
+      if (!wallet) continue
+      // Best-effort and non-blocking: issuing Scroll evidence must never fail or
+      // delay a completed mission for the player.
+      void scrollEvidenceIssuer.issue(wallet, run).catch((error: unknown) => {
+        structuredLog("scroll_evidence_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+      })
+    }
+  }
   return seasonChanged
 }
 
-const sockets = new WebSocketServer({ server: httpServer, path: "/rooms", maxPayload: 32 * 1_024 })
+const sockets = new WebSocketServer({
+  server: httpServer,
+  path: "/rooms",
+  maxPayload: 32 * 1_024,
+  // Browsers always send Origin on a WebSocket handshake; only reject when one
+  // is present and does not match. A missing Origin means a non-browser
+  // client — curl, a native app, the operator smoke-test scripts under
+  // tools/ — which cross-site scripting cannot forge, so it is not the thing
+  // this check defends against. Every message still needs its own explicit
+  // auth token regardless: this only narrows who can open the socket.
+  verifyClient: allowedOrigins.size > 0
+    ? (info: { origin?: string }) => isAllowedOrigin(info.origin)
+    : undefined,
+})
 sockets.on("connection", (socket) => {
   telemetry.increment("connections_total")
+  if (activeConnections >= maxConnections) {
+    telemetry.increment("connection_capacity_rejected_total")
+    socket.close(1013, "Server at capacity")
+    return
+  }
   activeConnections += 1
   telemetry.gauge("active_connections", activeConnections)
   let joinedRoom: Room | null = null
@@ -1276,6 +1385,16 @@ sockets.on("connection", (socket) => {
   let lastClientMetricsAt = 0
   let lastClientDiagnosticAt = 0
   let productAnalyticsConsent = false
+  // Serialize handshakes on this socket. ws does not await message listeners,
+  // so without this several create_room/join_room frames could interleave —
+  // each passing the "leave previous room" guard while joinedRoom is still
+  // null and leaving orphaned players a socket close never disconnects.
+  let handshakeChain: Promise<void> = Promise.resolve()
+  const serializeHandshake = (task: () => Promise<void>): Promise<void> => {
+    const run = handshakeChain.then(task, task)
+    handshakeChain = run.catch(() => {})
+    return run
+  }
 
   socket.on("message", async (raw) => {
     let value: unknown
@@ -1289,7 +1408,7 @@ sockets.on("connection", (socket) => {
     const initial = value && typeof value === "object" ? value as Record<string, unknown> : null
     const initialType = initial?.type
     const isHandshake = initialType === "create_room" || initialType === "join_room" || initialType === "join_public_hub"
-    if (isHandshake && initial?.version !== PROTOCOL_VERSION) {
+    if (isHandshake && !isSupportedProtocolVersion(initial?.version)) {
       telemetry.increment("protocol_version_mismatch_total")
       send(socket, { type: "error", code: "VERSION_MISMATCH", message: "A newer Sherwood build is ready. Refreshing…", buildId })
       return
@@ -1302,10 +1421,32 @@ sockets.on("connection", (socket) => {
     }
 
     if (message.type === "create_room" || message.type === "join_room") {
+      await serializeHandshake(async () => {
+      let reservedRoomSlot = false
       try {
         if (message.type === "create_room" && !acceptingNewSessions) {
           send(socket, { type: "error", code: "FORBIDDEN", message: "This server is draining for an update. Try again in a moment." })
           return
+        }
+        if (message.type === "create_room") {
+          if (rooms.size + pendingRoomCreations >= maxRooms) {
+            telemetry.increment("room_capacity_rejected_total")
+            send(socket, { type: "error", code: "FORBIDDEN", message: "Sherwood is full. Try again in a moment." })
+            return
+          }
+          // Claim the slot synchronously, before any await, and release it in
+          // the finally below whether creation succeeds (the Room now counts in
+          // rooms.size) or fails.
+          pendingRoomCreations += 1
+          reservedRoomSlot = true
+        }
+        // Leaving the previous room is what stops one socket from holding an
+        // unbounded number of rooms open: a room whose players are all still
+        // marked connected is never pruned, so it would tick forever.
+        if (joinedRoom && playerId) {
+          joinedRoom.disconnect(playerId)
+          joinedRoom = null
+          playerId = null
         }
         productAnalyticsConsent = message.productAnalytics
         if (hubParticipantId) {
@@ -1319,8 +1460,13 @@ sockets.on("connection", (socket) => {
           send(socket, { type: "error", code: "FORBIDDEN", message: "That quick-play seat expired. Find a new group." })
           return
         }
-        const verifiedAuthUserId = await verifySupabaseUser(message.accessToken)
-        if (message.accessToken && supabaseUrl && supabasePublishableKey && !verifiedAuthUserId && !quickPlayReservation) {
+        const verification = await verifySupabaseVerification(message.accessToken)
+        const verifiedAuthUserId = verification.outcome === "verified" ? verification.identity.id : null
+        // Only a definite rejection locks the player out. If Supabase itself is
+        // unreachable we let them in as a guest — playable, but with no
+        // progression persistence — rather than making the game unusable for
+        // everyone who happens to be signed in.
+        if (verification.outcome === "rejected" && message.accessToken && supabaseUrl && supabasePublishableKey && !quickPlayReservation) {
           send(socket, { type: "error", code: "FORBIDDEN", message: "Your Sherwood sign-in expired. Sign in again or continue as a guest." })
           return
         }
@@ -1361,10 +1507,11 @@ sockets.on("connection", (socket) => {
           }
         }
         if (message.type === "join_room" && message.reconnectToken) telemetry.increment("reconnect_attempts_total")
+        const verifiedWallet = verification.outcome === "verified" ? verification.identity.walletAddress : null
         const reconnected = message.type === "join_room" && message.reconnectToken
-          ? room.reconnect(socket, message.reconnectToken, Date.now(), authUserId, message.productAnalytics, message.buildId)
+          ? room.reconnect(socket, message.reconnectToken, Date.now(), authUserId, message.productAnalytics, message.buildId, verifiedWallet)
           : null
-        const player = reconnected ?? room.addPlayer(socket, displayName, characterId, authUserId, quickPlayReservation !== null, message.productAnalytics, message.buildId)
+        const player = reconnected ?? room.addPlayer(socket, displayName, characterId, authUserId, quickPlayReservation !== null, message.productAnalytics, message.buildId, verifiedWallet)
         telemetry.increment(reconnected ? "reconnect_success_total" : message.type === "create_room" ? "rooms_created_total" : "room_joins_total")
         if (message.type === "create_room") {
           const traceId = randomUUID()
@@ -1399,11 +1546,15 @@ sockets.on("connection", (socket) => {
             ? "That role is full — choose the other outlaw"
             : "This mission has already begun"
         send(socket, { type: "error", code, message })
+      } finally {
+        if (reservedRoomSlot) pendingRoomCreations -= 1
       }
+      })
       return
     }
 
     if (message.type === "join_public_hub") {
+      await serializeHandshake(async () => {
       if (!acceptingNewSessions) {
         send(socket, { type: "error", code: "FORBIDDEN", message: "This server is draining for an update. Try again in a moment." })
         return
@@ -1422,6 +1573,7 @@ sockets.on("connection", (socket) => {
       const participant = publicHub.join(socket, participantUserId, message.displayName, message.characterId, friendIds, Date.now(), blockedIds, authUserId)
       hubParticipantId = participant.id
       telemetry.increment(authUserId ? "quick_play_authenticated_joins_total" : "quick_play_guest_joins_total")
+      })
       return
     }
 
@@ -1909,6 +2061,45 @@ void startServer().catch((error) => {
   process.exit(1)
 })
 
+/** Total entries still queued across every durable persistence queue. */
+function totalPendingDurable(): number {
+  return (
+    pendingLeaderboardRuns.size +
+    pendingBandMissions.size +
+    pendingSeasonTransitions.size +
+    pendingContributionTransitions.size +
+    pendingRescueTransitions.size +
+    pendingRecentPlayers.size +
+    pendingGameplayAnalytics.size
+  )
+}
+
+/** During drain, make every queued entry eligible for an immediate retry so a
+ *  backoff window cannot outlast the drain deadline. */
+function forceDurableRetryNow(now: number): void {
+  for (const pending of pendingLeaderboardRuns.values()) pending.nextAttemptAt = now
+  for (const pending of pendingBandMissions.values()) pending.nextAttemptAt = now
+  for (const pending of pendingSeasonTransitions.values()) pending.nextAttemptAt = now
+  for (const pending of pendingContributionTransitions.values()) pending.nextAttemptAt = now
+  for (const pending of pendingRescueTransitions.values()) pending.nextAttemptAt = now
+  for (const pending of pendingRecentPlayers.values()) pending.nextAttemptAt = now
+  for (const pending of pendingGameplayAnalytics.values()) pending.nextAttemptAt = now
+}
+
+/** Kick every durable queue once. Each flush no-ops if already in flight, so
+ *  this is safe to call repeatedly on the drain interval. */
+function pumpDurableQueues(): void {
+  const now = Date.now()
+  forceDurableRetryNow(now)
+  void flushGameplayAnalytics(now)
+  void flushVerifiedRuns(now)
+  void flushBandMissions(now)
+  void flushSeasonTransitions(now)
+  void flushContributionTransitions(now)
+  void flushRescueTransitions(now)
+  void flushRecentPlayers(now)
+}
+
 function beginDrain(signal: NodeJS.Signals): void {
   if (draining) return
   draining = true
@@ -1917,10 +2108,14 @@ function beginDrain(signal: NodeJS.Signals): void {
   sockets.close()
   const now = Date.now()
   for (const batch of gameplayAnalytics?.flushAll(now) ?? []) enqueueGameplayAnalytics(batch)
-  let analyticsFlushComplete = gameplayAnalyticsStore === null
-  void flushGameplayAnalytics(Date.now()).finally(() => {
-    analyticsFlushComplete = true
-  })
+  // Flush every durable queue, not just analytics. These hold verified
+  // leaderboard runs and band progression; dropping them on a deploy loses
+  // real player progress with no dead-letter record.
+  // Kick every durable queue now, then keep pumping on the interval below.
+  // Completion is gated on the queues actually being empty — not on a single
+  // flush pass settling, which can leave future-scheduled or errored entries
+  // behind and drop verified runs / progression on a socket-idle deploy.
+  pumpDurableQueues()
 
   let finished = false
   const finish = (): void => {
@@ -1932,7 +2127,8 @@ function beginDrain(signal: NodeJS.Signals): void {
     setTimeout(() => process.exit(0), 1_000).unref()
   }
   const check = setInterval(() => {
-    if (activeConnections === 0 && analyticsFlushComplete) finish()
+    pumpDurableQueues()
+    if (activeConnections === 0 && totalPendingDurable() === 0) finish()
   }, 250)
   check.unref()
   const deadline = setTimeout(() => {

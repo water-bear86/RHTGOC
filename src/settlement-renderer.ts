@@ -128,11 +128,13 @@ const AUTHORED_COTTAGE_MAX_ABS_Z = 2.28
 const AUTHORED_COTTAGE_COLLISION_MARGIN = 0.99
 
 export function authoredCottageScaleForCollider(halfExtents: Readonly<{ x: number; z: number }>): Readonly<{ x: number; y: number; z: number }> {
-  return {
-    x: halfExtents.x / AUTHORED_COTTAGE_MAX_ABS_X * AUTHORED_COTTAGE_COLLISION_MARGIN,
-    y: 1,
-    z: halfExtents.z / AUTHORED_COTTAGE_MAX_ABS_Z * AUTHORED_COTTAGE_COLLISION_MARGIN,
-  }
+  // Uniform scale keeps the GLB cottage's authored proportions while its
+  // envelope stays just inside the authoritative collider on both axes.
+  const scale = Math.min(
+    halfExtents.x / AUTHORED_COTTAGE_MAX_ABS_X,
+    halfExtents.z / AUTHORED_COTTAGE_MAX_ABS_Z,
+  ) * AUTHORED_COTTAGE_COLLISION_MARGIN
+  return { x: scale, y: scale, z: scale }
 }
 
 function authoredCottageInstance(building: ComposedBuilding): VillageCottageInstance {

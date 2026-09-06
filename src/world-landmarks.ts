@@ -8,8 +8,10 @@ import {
   SHERWOOD_OBJECTIVE_STOCKADE_HALF_WIDTH,
 } from "../shared/world-obstacles"
 import {
+  SHERWOOD_FARM_LAYOUT,
   chooseFarmPosition,
   createSherwoodStandingStoneLayout,
+  sherwoodFarmRotation,
 } from "../shared/world-landmarks-layout"
 import { createStylizedBuildingVisual, disposeStylizedBuildingVisuals } from "./building-visuals"
 import { createToonMaterial } from "./toon-materials"
@@ -125,16 +127,16 @@ function addFence(
     z - Math.sin(rotation) * localX,
   )
   for (const localX of [-length / 2, 0, length / 2]) {
-    const post = mesh("FencePost", new THREE.BoxGeometry(0.16, 1.15, 0.16), 0x604329)
-    post.position.set(localX, terrainAt(localX) + 0.575, 0)
+    const post = mesh("FencePost", new THREE.BoxGeometry(0.2, 1.5, 0.2), 0x604329)
+    post.position.set(localX, terrainAt(localX) + 0.75, 0)
     fence.add(post)
   }
   const startY = terrainAt(-length / 2)
   const endY = terrainAt(length / 2)
   const railAngle = Math.atan2(endY - startY, length)
   const railLength = Math.hypot(length, endY - startY)
-  for (const y of [0.42, 0.85]) {
-    const rail = mesh("FenceRail", new THREE.BoxGeometry(railLength, 0.12, 0.12), 0x765536)
+  for (const y of [0.55, 1.1]) {
+    const rail = mesh("FenceRail", new THREE.BoxGeometry(railLength, 0.14, 0.14), 0x765536)
     rail.position.y = (startY + endY) / 2 + y
     rail.rotation.z = railAngle
     fence.add(rail)
@@ -155,7 +157,7 @@ function createStockadeWalls(spans: readonly StockadeSpanPlacement[]): THREE.Gro
   const postCounts = spans.map(({ length }) => Math.max(2, Math.ceil(length / 0.72)) + 1)
   const posts = instancedMesh(
     "StockadePosts",
-    new THREE.CylinderGeometry(0.17, 0.2, 2.35, 5),
+    new THREE.CylinderGeometry(0.17, 0.2, 3.3, 5),
     0x5a3822,
     postCounts.reduce((sum, count) => sum + count, 0),
   )
@@ -180,7 +182,7 @@ function createStockadeWalls(spans: readonly StockadeSpanPlacement[]): THREE.Gro
       const localX = (index / (postCount - 1) - 0.5) * span.length
       position.set(
         span.x + cosine * localX,
-        1.12 + (index % 3) * 0.035,
+        1.6 + (index % 3) * 0.05,
         span.z - sine * localX,
       )
       rotation.setFromEuler(new THREE.Euler(0, span.rotation + index * 0.47, 0))
@@ -189,7 +191,7 @@ function createStockadeWalls(spans: readonly StockadeSpanPlacement[]): THREE.Gro
       posts.setMatrixAt(postInstance, matrix)
       postInstance += 1
     }
-    for (const y of [0.55, 1.45]) {
+    for (const y of [0.7, 2.4]) {
       position.set(span.x, y, span.z)
       rotation.setFromEuler(new THREE.Euler(0, span.rotation, 0))
       scale.set(span.length, 1, 1)
@@ -234,7 +236,7 @@ function createObjectiveStockade(layout: RegionalMissionLayout): {
   gate.position.set(-gateHalfWidth, 0, halfDepth)
   const gatePlanks = instancedMesh(
     "StockadeGatePlanks",
-    new THREE.BoxGeometry(0.54, 2.15, 0.2),
+    new THREE.BoxGeometry(0.6, 3, 0.2),
     0x6a4226,
     5,
   )
@@ -246,17 +248,17 @@ function createObjectiveStockade(layout: RegionalMissionLayout): {
   )
   const gateMatrix = new THREE.Matrix4()
   for (let index = 0; index < 5; index += 1) {
-    gateMatrix.makeTranslation(0.3 + index * 0.6, 1.05 + (index % 2) * 0.04, 0)
+    gateMatrix.makeTranslation(0.3 + index * 0.6, 1.5 + (index % 2) * 0.05, 0)
     gatePlanks.setMatrixAt(index, gateMatrix)
   }
-  ;[0.52, 1.52].forEach((y, index) => {
+  ;[0.7, 2.4].forEach((y, index) => {
     gateMatrix.makeTranslation(gateHalfWidth, y, 0)
     gateBraces.setMatrixAt(index, gateMatrix)
   })
   gatePlanks.instanceMatrix.needsUpdate = true
   gateBraces.instanceMatrix.needsUpdate = true
   const chain = mesh("StockadeGateChain", new THREE.TorusGeometry(0.24, 0.045, 6, 14), 0x8b806c)
-  chain.position.set(gateHalfWidth, 1.12, 0.16)
+  chain.position.set(gateHalfWidth, 1.6, 0.16)
   gate.add(gatePlanks, gateBraces, chain)
   group.add(gate)
 
@@ -271,14 +273,14 @@ function createObjectiveStockade(layout: RegionalMissionLayout): {
     sherwoodHeightAt(layout.objectiveGateKeyPosition.x, layout.objectiveGateKeyPosition.z) - group.position.y,
     sine * keyDx + cosine * keyDz,
   )
-  const post = mesh("GateKeyPost", new THREE.CylinderGeometry(0.16, 0.2, 1.8, 6), 0x4c3020)
-  post.position.y = 0.9
+  const post = mesh("GateKeyPost", new THREE.CylinderGeometry(0.16, 0.2, 2.3, 6), 0x4c3020)
+  post.position.y = 1.15
   const pennant = mesh("GateKeyPennant", new THREE.BoxGeometry(0.72, 0.48, 0.05), 0x8f2f23)
-  pennant.position.set(0.42, 1.52, 0)
+  pennant.position.set(0.42, 2, 0)
   const keyParts = [
-    new THREE.TorusGeometry(0.2, 0.055, 7, 18).translate(0, 1.16, 0.22),
-    new THREE.BoxGeometry(0.08, 0.48, 0.08).translate(0, 0.88, 0.22),
-    new THREE.BoxGeometry(0.2, 0.08, 0.08).translate(0.07, 0.66, 0.22),
+    new THREE.TorusGeometry(0.2, 0.055, 7, 18).translate(0, 1.5, 0.22),
+    new THREE.BoxGeometry(0.08, 0.6, 0.08).translate(0, 1.12, 0.22),
+    new THREE.BoxGeometry(0.2, 0.08, 0.08).translate(0.07, 0.86, 0.22),
   ]
   const keyGeometry = mergeGeometries(keyParts)
   keyParts.forEach((geometry) => geometry.dispose())
@@ -334,32 +336,32 @@ function createWheatField(frame: TerrainFrame, natureCatalog?: NatureCatalog): {
 function createWindmill(): { group: THREE.Group; rotor: THREE.Group } {
   const group = new THREE.Group()
   group.name = "WindmillLandmark"
-  const base = mesh("WindmillStoneBase", new THREE.CylinderGeometry(2.45, 2.9, 4.8, 10), 0xb9aa88)
-  base.position.y = 2.4
-  const timberBand = mesh("WindmillTimberBand", new THREE.CylinderGeometry(2.52, 2.72, 0.28, 10), 0x59402a)
-  timberBand.position.y = 3.45
-  const roof = mesh("WindmillRoof", new THREE.ConeGeometry(3.05, 2.05, 10), 0x5c3828)
-  roof.position.y = 5.82
-  const door = mesh("WindmillDoor", new THREE.BoxGeometry(0.9, 1.75, 0.16), 0x4a3022)
-  door.position.set(0, 0.9, 2.61)
-  const window = mesh("WindmillWindow", new THREE.BoxGeometry(0.72, 0.72, 0.18), 0x4a3022)
-  window.position.set(0, 3.25, 2.47)
+  const base = mesh("WindmillStoneBase", new THREE.CylinderGeometry(3.3, 3.9, 6.6, 10), 0xb9aa88)
+  base.position.y = 3.3
+  const timberBand = mesh("WindmillTimberBand", new THREE.CylinderGeometry(3.38, 3.6, 0.38, 10), 0x59402a)
+  timberBand.position.y = 4.75
+  const roof = mesh("WindmillRoof", new THREE.ConeGeometry(3.55, 2.9, 10), 0x5c3828)
+  roof.position.y = 8.05
+  const door = mesh("WindmillDoor", new THREE.BoxGeometry(1.18, 2.7, 0.16), 0x4a3022)
+  door.position.set(0, 1.35, 3.6)
+  const window = mesh("WindmillWindow", new THREE.BoxGeometry(1, 1, 0.18), 0x4a3022)
+  window.position.set(0, 4.4, 3.4)
   group.add(base, timberBand, roof, door, window)
 
   const rotor = new THREE.Group()
   rotor.name = "WindmillRotor"
-  rotor.position.set(0, 4.35, 2.72)
+  rotor.position.set(0, 6.6, 3.7)
   for (let bladeIndex = 0; bladeIndex < 4; bladeIndex += 1) {
     const arm = new THREE.Group()
     arm.rotation.z = bladeIndex * Math.PI / 2
-    const spar = mesh("WindmillBladeSpar", new THREE.BoxGeometry(0.16, 4.8, 0.16), 0x4a3022)
-    spar.position.y = 2.15
-    const sail = mesh("WindmillBladeSail", new THREE.BoxGeometry(0.78, 3.25, 0.08), 0xd8cba5)
-    sail.position.set(0.42, 2.55, 0)
+    const spar = mesh("WindmillBladeSpar", new THREE.BoxGeometry(0.18, 6.5, 0.18), 0x4a3022)
+    spar.position.y = 3.25
+    const sail = mesh("WindmillBladeSail", new THREE.BoxGeometry(1.05, 4.4, 0.08), 0xd8cba5)
+    sail.position.set(0.55, 3.45, 0)
     arm.add(spar, sail)
     rotor.add(arm)
   }
-  const axle = mesh("WindmillAxle", new THREE.CylinderGeometry(0.27, 0.27, 0.7, 8), 0x3c2b21)
+  const axle = mesh("WindmillAxle", new THREE.CylinderGeometry(0.32, 0.32, 0.85, 8), 0x3c2b21)
   axle.rotation.x = Math.PI / 2
   rotor.add(axle)
   group.add(rotor)
@@ -371,8 +373,8 @@ function createFarmhouse(): THREE.Group {
     id: "FarmhouseLandmark",
     kind: "farmhouse",
     palette: "farm",
-    width: 4.7,
-    depth: 3.5,
+    width: SHERWOOD_FARM_LAYOUT.farmhouse.halfExtents.x * 2,
+    depth: SHERWOOD_FARM_LAYOUT.farmhouse.halfExtents.z * 2,
   })
 }
 
@@ -389,7 +391,7 @@ export function createSherwoodLandmarks(
   const farmPosition = chooseFarmPosition(layout, options.world)
   const farm = new THREE.Group()
   farm.name = "WindmillFarm"
-  const farmRotation = farmPosition.x * farmPosition.z > 0 ? -0.35 : 0.35
+  const farmRotation = sherwoodFarmRotation(farmPosition)
   const farmHeight = sherwoodHeightAt(farmPosition.x, farmPosition.z)
   const farmFrame: TerrainFrame = { x: farmPosition.x, z: farmPosition.z, y: farmHeight, rotation: farmRotation }
   farm.position.set(farmPosition.x, farmHeight, farmPosition.z)
@@ -398,9 +400,9 @@ export function createSherwoodLandmarks(
   const soil = createDrapedFarmSoil(farmFrame)
   const { group: wheat, count: wheatCount } = createWheatField(farmFrame, options.natureCatalog)
   const { group: windmill, rotor } = createWindmill()
-  setOnTerrainInFrame(windmill, farmFrame, 8.4, -1.2)
+  setOnTerrainInFrame(windmill, farmFrame, SHERWOOD_FARM_LAYOUT.windmill.localX, SHERWOOD_FARM_LAYOUT.windmill.localZ)
   const farmhouse = createFarmhouse()
-  setOnTerrainInFrame(farmhouse, farmFrame, 1.7, 7.1)
+  setOnTerrainInFrame(farmhouse, farmFrame, SHERWOOD_FARM_LAYOUT.farmhouse.localX, SHERWOOD_FARM_LAYOUT.farmhouse.localZ)
   farmhouse.rotation.y = Math.PI
   farm.add(soil, wheat, windmill, farmhouse)
   addFence(farm, farmFrame, -1, -5.3, 15, 0)

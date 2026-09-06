@@ -1,4 +1,6 @@
 import type { BandContribution, BowActionSnapshot, CharacterId, LoadoutId, MissionAlarm, MissionCaptive, MissionEvent, MissionKind, MissionLootCache, MissionPreparation, MissionResult, MissionSnapshot, MissionTrap, PingKind, PlayerAction, RedistributionVote, VillageState, VoteChoice, WorldPing } from "../shared/protocol"
+import { randomUUID } from "node:crypto"
+import type { MissionPlayerOutcome } from "../shared/protocol"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { MissionDefinition } from "../shared/mission-definition"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
@@ -51,6 +53,10 @@ export interface MissionPlayer {
   captureFor: number
   captured: boolean
   rescueCount: number
+  /** Guards this player has personally taken out of the fight (arrow/sweep/volley). */
+  guardsStunned: number
+  /** Global region-grid cells this player has personally entered this run. */
+  exploredCells: Set<number>
   transferCount: number
   lastPingTick: number
   totalTransferred: number
@@ -109,6 +115,9 @@ export function missionSeed(roomCode: string): number {
 }
 
 export class Mission {
+  /** Stable per-run id, so deeds derived from one completion cannot collide
+   *  with another run of the same mission definition. */
+  readonly instanceId = randomUUID()
   readonly seed: number
   readonly definition: MissionDefinition
   readonly layout: RegionalMissionLayout
@@ -413,7 +422,11 @@ export class Mission {
     }
 
     const activePlayers = [...this.players.values()].filter((player) => player.connected && !player.captured && player.captureFor <= 0)
-    for (const player of activePlayers) this.exploredCellIndices.add(regionCellIndexAt(player.position))
+    for (const player of activePlayers) {
+      const cell = regionCellIndexAt(player.position)
+      this.exploredCellIndices.add(cell)
+      player.exploredCells.add(cell)
+    }
     if (this.missionKind === "prison-wagon") this.updatePrisonWagon(activePlayers, dt)
     if (this.missionKind === "storehouse") this.updateStorehouse(activePlayers, dt)
     if (this.phase === "scout") this.detectRoute(activePlayers, routeMap(this.definition.routes.entry), "entry")
@@ -456,7 +469,9 @@ export class Mission {
         disguisePosition: { ...this.layout.disguisePosition },
         playerSpawns: this.layout.playerSpawns.map((position) => ({ ...position })),
       },
+      instanceId: this.instanceId,
       exploredCellIndices: [...this.exploredCellIndices].sort((left, right) => left - right),
+      playerOutcomes: this.buildPlayerOutcomes(),
       status: this.status,
       phase: this.phase,
       entryRoute: this.entryRoute,
@@ -511,6 +526,20 @@ export class Mission {
       rescueSourceMissionId: this.rescueSourceMissionId,
       preparations: this.preparations.map((preparation) => ({ ...preparation, position: { ...preparation.position } })),
     }
+  }
+
+  /** Per-player authoritative outcome for Scroll recording: raw counts, never
+   *  the normalized mastery percentages, keyed by player id. */
+  private buildPlayerOutcomes(): Record<string, MissionPlayerOutcome> {
+    const outcomes: Record<string, MissionPlayerOutcome> = {}
+    for (const [id, player] of this.players) {
+      outcomes[id] = {
+        rescues: player.rescueCount,
+        captures: player.guardsStunned,
+        regionCells: [...player.exploredCells].sort((left, right) => left - right),
+      }
+    }
+    return outcomes
   }
 
   isCleanEscape(): boolean {
@@ -916,6 +945,7 @@ export class Mission {
     target.alertFor = 0
     target.lastKnownPosition = null
     this.shotsHit += 1
+    player.guardsStunned += 1
     this.record("guard_stunned", player.id, target.id)
     if (this.phase === "ambush") {
       this.ambushStuns += 1
@@ -945,6 +975,7 @@ export class Mission {
         target.lastKnownPosition = null
       }
       for (const ally of allies) ally.invulnerableFor = Math.max(ally.invulnerableFor, 3.5)
+      player.guardsStunned += targets.length
       player.crowdControl += targets.length
       player.protectionScore += allies.length * 100
       if (targets.length > 0) this.record("crowd_controlled", player.id, targets.length, "little-john-sweep")
@@ -967,6 +998,7 @@ export class Mission {
         target.alertFor = 0
         target.lastKnownPosition = null
       }
+      player.guardsStunned += targets.length
       if (this.phase === "ambush") {
         this.ambushStuns += targets.length
         if (this.ambushStuns >= this.ambushTarget) this.setPhase("robbery", player.id)
@@ -1161,6 +1193,7 @@ export class Mission {
       thresholds,
       communityCoin: this.delivered,
       personalRenown: Math.round(score / playerCount),
+      cleanEscape: this.isCleanEscape(),
     }
   }
 

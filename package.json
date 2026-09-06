@@ -30,6 +30,7 @@
     "@reown/appkit-adapter-ethers": "1.8.22",
     "@supabase/supabase-js": "2.110.2",
     "ethers": "6.17.0",
+    "roughjs": "^4.6.6",
     "three": "^0.178.0",
     "tsx": "4.23.0",
     "ws": "^8.18.3",

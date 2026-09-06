@@ -4,6 +4,7 @@ import {
   type RegionalMissionLayout,
 } from "./regional-layout"
 import { SHERWOOD_RIDGE_ROCK_LAYOUT, SHERWOOD_TREE_LAYOUT } from "./world-layout"
+import { SHERWOOD_MAJOR_OAK } from "./world-landmarks-layout"
 
 export interface SherwoodObstacle {
   id: string
@@ -15,12 +16,38 @@ export interface SherwoodObstacle {
 export const SHERWOOD_RIVER_HALF_WIDTH = 3.5
 export const SHERWOOD_CROSSING_HALF_LENGTH = 3.4
 
-export const VILLAGE_COTTAGE_OBSTACLE: SherwoodObstacle = Object.freeze({
-  id: "sherwood-village-cottage",
-  center: Object.freeze({ x: -10, z: 14 }),
-  halfExtents: Object.freeze({ x: 2.75, z: 3 }),
-  rotation: -0.55,
-})
+export interface SherwoodCampHutPlacement {
+  id: string
+  x: number
+  z: number
+  rotation: number
+  halfExtents: { x: number; z: number }
+}
+
+/**
+ * The three public-camp huts share the hero-scaled cottage footprint
+ * (5.3 x 5.7). Both the renderer (`createHut`) and authoritative collision read
+ * their positions from this one layout so a walkable hub cannot desync.
+ */
+const CAMP_HUT_HALF_EXTENTS = Object.freeze({ x: 2.65, z: 2.85 })
+
+export const SHERWOOD_CAMP_HUT_LAYOUT: readonly SherwoodCampHutPlacement[] = Object.freeze([
+  Object.freeze({ id: "sherwood-village-cottage", x: -10, z: 14, rotation: -0.55, halfExtents: CAMP_HUT_HALF_EXTENTS }),
+  Object.freeze({ id: "sherwood-camp-hut-a", x: -17.77, z: 14.73, rotation: 0.35, halfExtents: CAMP_HUT_HALF_EXTENTS }),
+  Object.freeze({ id: "sherwood-camp-hut-c", x: -16.72, z: 1.73, rotation: 1.1, halfExtents: CAMP_HUT_HALF_EXTENTS }),
+])
+
+export const SHERWOOD_CAMP_HUT_OBSTACLES: readonly SherwoodObstacle[] = Object.freeze(
+  SHERWOOD_CAMP_HUT_LAYOUT.map((hut) => Object.freeze({
+    id: hut.id,
+    center: Object.freeze({ x: hut.x, z: hut.z }),
+    halfExtents: Object.freeze({ x: hut.halfExtents.x, z: hut.halfExtents.z }),
+    rotation: hut.rotation,
+  })),
+)
+
+/** The fixed camp cottage: the first camp hut, kept as a named export for callers. */
+export const VILLAGE_COTTAGE_OBSTACLE: SherwoodObstacle = SHERWOOD_CAMP_HUT_OBSTACLES[0]
 
 export const SHERWOOD_TREE_OBSTACLES: readonly SherwoodObstacle[] = Object.freeze(
   SHERWOOD_TREE_LAYOUT.map((tree, index) => Object.freeze({
@@ -44,8 +71,18 @@ export const SHERWOOD_RIDGE_ROCK_OBSTACLES: readonly SherwoodObstacle[] = Object
   })),
 )
 
+/**
+ * The Major Oak trunk as an octagon: two rotated squares approximate the round
+ * trunk without a new collider type. The wide root flare is walk-over ground.
+ */
+export const SHERWOOD_MAJOR_OAK_OBSTACLES: readonly SherwoodObstacle[] = Object.freeze([
+  Object.freeze({ id: "sherwood-major-oak-a", center: Object.freeze({ x: SHERWOOD_MAJOR_OAK.x, z: SHERWOOD_MAJOR_OAK.z }), halfExtents: Object.freeze({ x: SHERWOOD_MAJOR_OAK.trunkHalfExtent, z: SHERWOOD_MAJOR_OAK.trunkHalfExtent }), rotation: 0 }),
+  Object.freeze({ id: "sherwood-major-oak-b", center: Object.freeze({ x: SHERWOOD_MAJOR_OAK.x, z: SHERWOOD_MAJOR_OAK.z }), halfExtents: Object.freeze({ x: SHERWOOD_MAJOR_OAK.trunkHalfExtent, z: SHERWOOD_MAJOR_OAK.trunkHalfExtent }), rotation: Math.PI / 4 }),
+])
+
 export const SHERWOOD_STATIC_OBSTACLES: readonly SherwoodObstacle[] = Object.freeze([
-  VILLAGE_COTTAGE_OBSTACLE,
+  ...SHERWOOD_CAMP_HUT_OBSTACLES,
+  ...SHERWOOD_MAJOR_OAK_OBSTACLES,
   ...SHERWOOD_TREE_OBSTACLES,
 ])
 

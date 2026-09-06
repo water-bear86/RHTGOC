@@ -1,6 +1,6 @@
 # Bounded Band and Camp chat
 
-Sherwood Rebellion has one typed-chat surface with two deliberately small channels. `Band` belongs to the current private Merry Band room. `Camp` belongs only to the current authenticated public-camp instance, which contains at most 12 players. Neither channel is global, and neither follows a player between rooms or instances.
+Sherwood The Game has one typed-chat surface with two deliberately small channels. `Band` belongs to the current private Merry Band room. `Camp` belongs only to the current authenticated public-camp instance, which contains at most 12 players. Neither channel is global, and neither follows a player between rooms or instances.
 
 ## Player experience
 

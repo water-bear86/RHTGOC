@@ -113,13 +113,38 @@ describe("settlement renderer", () => {
   })
 
   it("fits the fingerprinted authored cottage envelope inside authoritative collision", () => {
-    const halfExtents = { x: 1.9, z: 1.45 }
+    const halfExtents = { x: 2.65, z: 2.85 }
     const scale = authoredCottageScaleForCollider(halfExtents)
 
+    // Uniform on all three axes so the GLB keeps its authored proportions.
+    expect(scale.x).toBe(scale.y)
+    expect(scale.y).toBe(scale.z)
     expect(scale.x * 2.12).toBeLessThanOrEqual(halfExtents.x)
     expect(scale.z * 2.28).toBeLessThanOrEqual(halfExtents.z)
-    expect(scale.x).toBeCloseTo(0.8873, 4)
-    expect(scale.z).toBeCloseTo(0.6296, 4)
+    expect(scale.x).toBeCloseTo(1.2375, 4)
+  })
+
+  it("keeps every composed building's descriptor and cottage scale aligned to its collider (seeds 1..24)", () => {
+    for (let seed = 1; seed <= 24; seed += 1) {
+      const seedLayout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed).layout
+      const world = composeSherwoodWorld(seedLayout)
+      for (const settlement of world.settlements) {
+        for (const building of settlement.buildings) {
+          // Composer publishes the hero-scaled footprints for every kind; the
+          // renderer maps width/depth to exactly 2x these half extents.
+          const expected = building.kind === "watchtower" ? { x: 1.8, z: 1.8 }
+            : building.kind === "barn" ? { x: 4, z: 2.8 }
+              : { x: 2.65, z: 2.85 }
+          expect(building.halfExtents).toEqual(expected)
+          if (building.kind !== "cottage") continue
+          const scale = authoredCottageScaleForCollider(building.halfExtents)
+          expect(scale.x).toBe(scale.y)
+          expect(scale.y).toBe(scale.z)
+          expect(building.halfExtents.x - 2.12 * scale.x).toBeLessThanOrEqual(0.05)
+          expect(building.halfExtents.z - 2.28 * scale.z).toBeLessThanOrEqual(0.05)
+        }
+      }
+    }
   })
 
   it("releases only renderer-owned instance buffers", () => {

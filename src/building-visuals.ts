@@ -101,6 +101,19 @@ function createGableGeometry(): THREE.BufferGeometry {
 
 const gableGeometry = createGableGeometry()
 
+/**
+ * Hero-relative component constants (H = 2.35). These are authored at human
+ * scale and are absolute: they are NEVER multiplied by a shell scale. Only wall
+ * height, roof height and the footprint width/depth scale with the descriptor.
+ */
+const DOOR_WIDTH = 1.18
+const DOOR_HEIGHT = 2.7
+const WINDOW_PANE_WIDTH = 1.06
+const WINDOW_PANE_HEIGHT = 1.18
+const WINDOW_FRAME = 0.1
+const TIMBER = 0.18
+const LINTEL = 0.14
+
 export function stylizedBuildingVariant(id: string): number {
   let hash = 2166136261
   for (let index = 0; index < id.length; index += 1) {
@@ -162,11 +175,11 @@ function addFrontBackTimber(
   dense: boolean,
 ): void {
   const faceZ = depth / 2 - 0.035
-  const uprightHeight = wallHeight - 0.18
+  const uprightHeight = wallHeight - TIMBER
   for (const z of [-faceZ, faceZ]) {
-    box(boxes, building, timber, [0, base + wallHeight * 0.58, z], [width * 0.94, 0.13, 0.09])
+    box(boxes, building, timber, [0, base + wallHeight * 0.86, z], [width * 0.94, TIMBER, 0.09])
     for (const x of [-width * 0.43, width * 0.43]) {
-      box(boxes, building, timber, [x, base + wallHeight / 2, z], [0.12, uprightHeight, 0.09])
+      box(boxes, building, timber, [x, base + wallHeight / 2, z], [0.16, uprightHeight, 0.09])
     }
     if (dense) {
       const braceLength = Math.hypot(width * 0.38, wallHeight * 0.52)
@@ -187,20 +200,22 @@ function addWindow(
   height: number,
 ): void {
   const paneColor = palette.window[(variant >>> 2) % palette.window.length]
-  const frame = 0.07
+  const frame = WINDOW_FRAME
+  const halfW = WINDOW_PANE_WIDTH / 2
+  const halfH = WINDOW_PANE_HEIGHT / 2
   if (face === "front" || face === "back") {
     const z = (face === "front" ? 1 : -1) * (building.depth / 2 - 0.028)
-    box(boxes, building, paneColor, [offset, height, z], [0.5, 0.44, 0.055])
-    for (const x of [offset - 0.29, offset + 0.29]) box(boxes, building, palette.timber, [x, height, z], [frame, 0.58, 0.075])
-    for (const y of [height - 0.25, height + 0.25]) box(boxes, building, palette.timber, [offset, y, z], [0.65, frame, 0.075])
-    box(boxes, building, palette.timber, [offset, height, z], [frame, 0.5, 0.08])
+    box(boxes, building, paneColor, [offset, height, z], [WINDOW_PANE_WIDTH, WINDOW_PANE_HEIGHT, 0.055])
+    for (const x of [offset - (halfW + 0.04), offset + (halfW + 0.04)]) box(boxes, building, palette.timber, [x, height, z], [frame, WINDOW_PANE_HEIGHT + 0.14, 0.075])
+    for (const y of [height - (halfH + 0.03), height + (halfH + 0.03)]) box(boxes, building, palette.timber, [offset, y, z], [WINDOW_PANE_WIDTH + 0.22, frame, 0.075])
+    box(boxes, building, palette.timber, [offset, height, z], [frame, WINDOW_PANE_HEIGHT, 0.08])
     return
   }
   const x = (face === "right" ? 1 : -1) * (building.width / 2 - 0.028)
-  box(boxes, building, paneColor, [x, height, offset], [0.055, 0.44, 0.5])
-  for (const z of [offset - 0.29, offset + 0.29]) box(boxes, building, palette.timber, [x, height, z], [0.075, 0.58, frame])
-  for (const y of [height - 0.25, height + 0.25]) box(boxes, building, palette.timber, [x, y, offset], [0.075, frame, 0.65])
-  box(boxes, building, palette.timber, [x, height, offset], [0.08, 0.5, frame])
+  box(boxes, building, paneColor, [x, height, offset], [0.055, WINDOW_PANE_HEIGHT, WINDOW_PANE_WIDTH])
+  for (const z of [offset - (halfW + 0.04), offset + (halfW + 0.04)]) box(boxes, building, palette.timber, [x, height, z], [0.075, WINDOW_PANE_HEIGHT + 0.14, frame])
+  for (const y of [height - (halfH + 0.03), height + (halfH + 0.03)]) box(boxes, building, palette.timber, [x, y, offset], [0.075, frame, WINDOW_PANE_WIDTH + 0.22])
+  box(boxes, building, palette.timber, [x, height, offset], [0.08, WINDOW_PANE_HEIGHT, frame])
 }
 
 function addCottage(
@@ -211,9 +226,9 @@ function addCottage(
 ): void {
   const palette = PALETTES[building.palette]
   const variant = stylizedBuildingVariant(building.id)
-  const foundationHeight = farmhouse ? 0.3 : 0.24
-  const wallHeight = farmhouse ? 2.55 : 2.12
-  const roofHeight = farmhouse ? 1.65 : 1.25 + (variant % 3) * 0.08
+  const foundationHeight = farmhouse ? 0.28 : 0.26
+  const wallHeight = farmhouse ? 3.95 : 3.5
+  const roofHeight = farmhouse ? 2.55 : 2 + (variant % 3) * 0.1
   const wallColor = palette.walls[variant % palette.walls.length]
   const roofColor = palette.roof[(variant >>> 1) % palette.roof.length]
   const width = building.width
@@ -228,20 +243,20 @@ function addCottage(
   addFrontBackTimber(boxes, building, palette.timber, width, depth, foundationHeight, wallHeight, farmhouse || (variant & 2) !== 0)
   for (const x of [-width * 0.45, width * 0.45]) {
     for (const z of [-depth * 0.45, depth * 0.45]) {
-      box(boxes, building, palette.timber, [x, foundationHeight + wallHeight / 2, z], [0.12, wallHeight, 0.12])
+      box(boxes, building, palette.timber, [x, foundationHeight + wallHeight / 2, z], [0.16, wallHeight, 0.16])
     }
   }
 
   const doorX = doorSide * width * 0.22
   const frontZ = depth / 2 - 0.045
-  box(boxes, building, palette.door, [doorX, foundationHeight + 0.67, frontZ], [0.72, 1.34, 0.09])
-  box(boxes, building, palette.timber, [doorX, foundationHeight + 1.38, frontZ], [0.82, 0.11, 0.105])
-  box(boxes, building, palette.accent, [doorX + 0.21 * doorSide, foundationHeight + 0.67, frontZ + 0.052], [0.055, 0.055, 0.035])
+  box(boxes, building, palette.door, [doorX, foundationHeight + DOOR_HEIGHT / 2, frontZ], [DOOR_WIDTH, DOOR_HEIGHT, 0.09])
+  box(boxes, building, palette.timber, [doorX, foundationHeight + DOOR_HEIGHT + 0.05, frontZ], [DOOR_WIDTH + 0.12, LINTEL, 0.105])
+  box(boxes, building, palette.accent, [doorX + 0.42 * doorSide, foundationHeight + DOOR_HEIGHT * 0.5, frontZ + 0.052], [0.06, 0.06, 0.035])
 
-  addWindow(boxes, building, palette, variant, "front", -doorX, foundationHeight + 1.25)
-  addWindow(boxes, building, palette, variant, "back", doorX * 0.65, foundationHeight + 1.2)
-  addWindow(boxes, building, palette, variant, "left", 0, foundationHeight + 1.22)
-  if (farmhouse || (variant & 4) !== 0) addWindow(boxes, building, palette, variant, "right", 0, foundationHeight + 1.22)
+  addWindow(boxes, building, palette, variant, "front", -doorX, foundationHeight + 1.44)
+  addWindow(boxes, building, palette, variant, "back", doorX * 0.65, foundationHeight + 1.44)
+  addWindow(boxes, building, palette, variant, "left", 0, foundationHeight + 1.44)
+  if (farmhouse || (variant & 4) !== 0) addWindow(boxes, building, palette, variant, "right", 0, foundationHeight + 1.44)
 
   if (farmhouse || (variant & 8) !== 0) {
     const chimneyX = doorSide * width * 0.28
@@ -259,8 +274,8 @@ function addBarn(building: StylizedBuildingDescriptor, boxes: Component[], roofs
   const palette = PALETTES[building.palette]
   const variant = stylizedBuildingVariant(building.id)
   const foundationHeight = 0.28
-  const wallHeight = 2.7
-  const roofHeight = 1.85 + (variant % 2) * 0.15
+  const wallHeight = 4.2
+  const roofHeight = 2.6 + (variant % 2) * 0.15
   const width = building.width
   const depth = building.depth
   box(boxes, building, palette.stone, [0, foundationHeight / 2, 0], [width, foundationHeight, depth])
@@ -270,52 +285,53 @@ function addBarn(building: StylizedBuildingDescriptor, boxes: Component[], roofs
   addFrontBackTimber(boxes, building, palette.timber, width, depth, foundationHeight, wallHeight, true)
 
   const frontZ = depth / 2 - 0.045
-  for (const x of [-0.58, 0.58]) box(boxes, building, palette.door, [x, foundationHeight + 0.92, frontZ], [1.08, 1.84, 0.1])
-  box(boxes, building, palette.timber, [0, foundationHeight + 1.88, frontZ], [2.35, 0.14, 0.12])
+  for (const x of [-0.78, 0.78]) box(boxes, building, palette.door, [x, foundationHeight + 1.6, frontZ], [1.5, 3.2, 0.1])
+  box(boxes, building, palette.timber, [0, foundationHeight + 3.25, frontZ], [3.2, LINTEL, 0.12])
   for (const direction of [-1, 1]) {
-    box(boxes, building, palette.timber, [direction * 0.58, foundationHeight + 0.92, frontZ + 0.055], [1.18, 0.12, 0.075], [0, 0, direction * 0.72])
+    box(boxes, building, palette.timber, [direction * 0.78, foundationHeight + 1.6, frontZ + 0.055], [2.6, LINTEL, 0.075], [0, 0, direction * 0.72])
   }
-  addWindow(boxes, building, palette, variant, "back", 0, foundationHeight + 1.52)
-  addWindow(boxes, building, palette, variant, "left", 0, foundationHeight + 1.42)
-  addWindow(boxes, building, palette, variant, "right", 0, foundationHeight + 1.42)
+  addWindow(boxes, building, palette, variant, "back", 0, foundationHeight + 2.3)
+  addWindow(boxes, building, palette, variant, "left", 0, foundationHeight + 2.15)
+  addWindow(boxes, building, palette, variant, "right", 0, foundationHeight + 2.15)
   for (const x of [-width * 0.45, width * 0.45]) {
-    for (const z of [-depth * 0.45, depth * 0.45]) box(boxes, building, palette.timber, [x, foundationHeight + wallHeight / 2, z], [0.15, wallHeight, 0.15])
+    for (const z of [-depth * 0.45, depth * 0.45]) box(boxes, building, palette.timber, [x, foundationHeight + wallHeight / 2, z], [0.18, wallHeight, 0.18])
   }
 }
 
 function addWatchtower(building: StylizedBuildingDescriptor, boxes: Component[], roofs: Component[]): void {
   const palette = PALETTES[building.palette]
-  const platformY = 3.65
+  const platformY = 5.2
+  const legHeight = 5.25
   const legOffset = Math.min(building.width, building.depth) * 0.29
   for (const x of [-legOffset, legOffset]) {
     for (const z of [-legOffset, legOffset]) {
-      box(boxes, building, palette.timber, [x, 1.85, z], [0.22, 3.7, 0.22])
+      box(boxes, building, palette.timber, [x, legHeight / 2, z], [0.26, legHeight, 0.26])
       box(boxes, building, palette.stone, [x, 0.12, z], [0.4, 0.24, 0.4])
     }
   }
   box(boxes, building, palette.timber, [0, platformY, 0], [building.width * 0.86, 0.24, building.depth * 0.86])
 
-  const braceLength = Math.hypot(legOffset * 2, 2.5)
-  const braceAngle = Math.atan2(2.5, legOffset * 2)
+  const braceLength = Math.hypot(legOffset * 2, 3.6)
+  const braceAngle = Math.atan2(3.6, legOffset * 2)
   for (const z of [-legOffset, legOffset]) {
-    box(boxes, building, palette.timber, [0, 1.85, z], [braceLength, 0.1, 0.1], [0, 0, braceAngle])
-    box(boxes, building, palette.timber, [0, 1.85, z], [braceLength, 0.1, 0.1], [0, 0, -braceAngle])
+    box(boxes, building, palette.timber, [0, 2.6, z], [braceLength, 0.1, 0.1], [0, 0, braceAngle])
+    box(boxes, building, palette.timber, [0, 2.6, z], [braceLength, 0.1, 0.1], [0, 0, -braceAngle])
   }
 
-  const railY = platformY + 0.68
+  const railY = platformY + 0.75
   for (const x of [-legOffset * 1.12, legOffset * 1.12]) {
-    box(boxes, building, palette.timber, [x, railY, 0], [0.12, 1.2, building.depth * 0.82])
+    box(boxes, building, palette.timber, [x, railY, 0], [0.12, 1.3, building.depth * 0.82])
   }
   for (const z of [-legOffset * 1.12, legOffset * 1.12]) {
     box(boxes, building, palette.timber, [0, railY, z], [building.width * 0.82, 0.12, 0.12])
   }
-  gable(roofs, building, palette.roof[0], [0, platformY + 1.15, 0], [building.width * 0.96, 1.05, building.depth * 0.96])
+  gable(roofs, building, palette.roof[0], [0, platformY + 1.67, 0], [building.width * 0.96, 1.52, building.depth * 0.96])
 
   const ladderZ = building.depth * 0.43
-  for (const x of [-0.28, 0.28]) box(boxes, building, palette.timber, [x, 1.8, ladderZ], [0.09, 3.45, 0.09])
-  for (let rung = 0; rung < 7; rung += 1) box(boxes, building, palette.timber, [0, 0.45 + rung * 0.48, ladderZ + 0.015], [0.68, 0.08, 0.08])
-  box(boxes, building, palette.accent, [0, platformY + 0.72, ladderZ + 0.07], [0.9, 0.62, 0.06])
-  box(boxes, building, 0xd1b46a, [0, platformY + 0.72, ladderZ + 0.105], [0.08, 0.48, 0.025])
+  for (const x of [-0.28, 0.28]) box(boxes, building, palette.timber, [x, platformY / 2 + 0.1, ladderZ], [0.09, platformY, 0.09])
+  for (let rung = 0; 0.45 + rung * 0.48 < platformY; rung += 1) box(boxes, building, palette.timber, [0, 0.45 + rung * 0.48, ladderZ + 0.015], [0.68, 0.08, 0.08])
+  box(boxes, building, palette.accent, [0, platformY + 0.82, ladderZ + 0.07], [0.9, 0.62, 0.06])
+  box(boxes, building, 0xd1b46a, [0, platformY + 0.82, ladderZ + 0.105], [0.08, 0.48, 0.025])
 }
 
 function createInstances(

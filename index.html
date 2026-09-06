@@ -4,21 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#13291f" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23e2af43'/%3E%3Cpath d='M18 46 31 13l7 18 10-6-9 25z' fill='%2313291f'/%3E%3C/svg%3E" />
-    <title>RHTGOC — Robin Hood: The Game (On Chain)</title>
+    <link rel="icon" href="/assets/ui/brand/favicon.svg" type="image/svg+xml" />
+    <title>Sherwood The Game</title>
   </head>
   <body>
+    <div id="entry-gate">
+      <img class="entry-video" src="/assets/ui/brand/WelcomeMatt.avif" alt="" aria-hidden="true">
+      <div class="entry-curtain" aria-hidden="true"></div>
+      <div class="entry-gate-inner">
+        <button class="entry-gate-link" type="button">Enter Sherwood</button>
+      </div>
+    </div>
     <div id="game"></div>
     <div class="wallet-dock" aria-label="Optional Robinhood Wallet">
-      <span><i>RH</i> OPTIONAL WALLET</span>
+      <span><i class="rh-logo" aria-hidden="true"></i>OPTIONAL WALLET</span>
       <b id="wallet-state">NOT CONNECTED</b>
-      <button id="wallet-sign-in">SIGN IN</button>
+      <button id="wallet-sign-in"><i class="rh-logo" aria-hidden="true"></i>SIGN IN</button>
       <button class="hidden" id="wallet-sign-out">SIGN OUT</button>
     </div>
     <div id="hud">
       <div class="brand">
-        <span class="brand-mark">RH</span>
-        <span><b>ROBIN HOOD</b><small>THE GAME · ON CHAIN</small></span>
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span><b>SHERWOOD · THE GAME</b><small>ON ROBINHOOD CHAIN</small></span>
       </div>
       <div class="objective">
         <span id="mission-title">THE PEOPLE'S PURSE</span>
@@ -55,6 +62,7 @@
       </aside>
       <button class="help-button" id="help-button" aria-label="Open controls">?</button>
       <button class="leaderboard-button" id="leaderboard-button" aria-label="Open leaderboard">♜</button>
+      <button class="scroll-button" id="scroll-button" aria-label="Open your scroll of deeds" aria-haspopup="dialog" aria-controls="scroll-panel">❦</button>
       <button class="social-button hidden" id="social-button" aria-label="Open friends and invitations" aria-hidden="true" tabindex="-1" hidden>♥</button>
       <button class="safety-button" id="safety-button" aria-label="Open band safety">♢</button>
       <button class="settings-button" id="settings-button" aria-label="Open accessibility and controls">⚙</button>
@@ -93,11 +101,12 @@
     </aside>
     <div class="intro" id="intro" role="dialog" aria-modal="true" aria-labelledby="intro-title" aria-describedby="intro-copy">
       <div class="intro-card" tabindex="-1">
-        <span class="eyebrow" id="intro-eyebrow">RHTGOC · A 3D OUTLAW ADVENTURE</span>
-        <h1 id="intro-title">Robin Hood.<br /><em>The Game (On Chain).</em></h1>
+        <span class="eyebrow" id="intro-eyebrow">A 3D OUTLAW ADVENTURE · ON ROBINHOOD CHAIN</span>
+        <h1 id="intro-title">Sherwood<br /><em>The Game</em></h1>
         <p id="intro-copy">Take from the crown. Return it to the people. Ambush the Sheriff's tax cart and carry the coin home before they catch you.</p>
 
-        <div class="entry-actions" aria-label="Choose how to enter Sherwood">
+        <p class="maker-mark" aria-label="R. Hood"><span></span></p>
+          <div class="entry-actions" aria-label="Choose how to enter Sherwood">
           <button class="entry-primary" id="start-button" disabled>PLAY SOLO <span>→</span></button>
           <button class="entry-public" id="join-public-hub" disabled>PLAY ONLINE · GROUP OF 4</button>
           <label class="entry-name" for="player-name"><span>OUTLAW NAME</span><input id="player-name" maxlength="20" value="Greenhood" /></label>
@@ -231,6 +240,52 @@
       <ol class="leaderboard-list" id="leaderboard-list"></ol>
       <small class="board-note">Only server-validated missions will receive a verified mark. Prototype runs remain unverified.</small>
     </div>
+    <div class="panel scroll-panel hidden" id="scroll-panel" role="dialog" aria-modal="true" aria-labelledby="scroll-panel-title" tabindex="-1">
+      <div class="scroll-illumination" id="scroll-illumination" aria-hidden="true"></div>
+      <button id="close-scroll" aria-label="Close your scroll">×</button>
+      <header class="scroll-head">
+        <span class="eyebrow">THE SCROLL OF DEEDS</span>
+        <h2 id="scroll-panel-title"><b id="scroll-name">Greenhood</b></h2>
+        <p class="scroll-level"><b id="scroll-level">Level 1</b><small id="scroll-level-detail">0 renown</small></p>
+        <div class="scroll-level-rule"><i id="scroll-level-fill"></i></div>
+      </header>
+
+      <section class="scroll-seal-row" aria-label="Scroll status">
+        <div class="scroll-seal" id="scroll-seal" aria-hidden="true"></div>
+        <div>
+          <b class="scroll-status" id="scroll-status" data-status="unbound">Unbound</b>
+          <p class="scroll-status-help" id="scroll-status-help" role="status" aria-live="polite">This record lives only in this browser.</p>
+        </div>
+      </section>
+
+      <div class="scroll-columns">
+        <section aria-labelledby="scroll-identity-heading">
+          <h3 class="scroll-heading" id="scroll-identity-heading">Provenance</h3>
+          <dl class="scroll-lines" id="scroll-identity"></dl>
+        </section>
+        <section aria-labelledby="scroll-stats-heading">
+          <h3 class="scroll-heading" id="scroll-stats-heading">The reckoning</h3>
+          <dl class="scroll-lines" id="scroll-stats"></dl>
+        </section>
+      </div>
+
+      <section aria-labelledby="scroll-deeds-heading">
+        <h3 class="scroll-heading" id="scroll-deeds-heading">Deeds of note <b id="scroll-deeds-count">0/10</b></h3>
+        <ul class="scroll-deeds" id="scroll-deeds"></ul>
+      </section>
+
+      <section aria-labelledby="scroll-chronicle-heading">
+        <h3 class="scroll-heading" id="scroll-chronicle-heading">Chronicle</h3>
+        <ol class="scroll-chronicle" id="scroll-chronicle"></ol>
+      </section>
+
+      <div class="panel-actions scroll-actions">
+        <button id="scroll-export" type="button">EXPORT SAVE</button>
+        <button id="scroll-import" type="button">IMPORT SAVE</button>
+        <input class="hidden" id="scroll-import-file" type="file" accept="application/json,.json" aria-label="Choose a scroll save file" />
+      </div>
+      <p class="scroll-note" id="scroll-note" role="status" aria-live="polite">Free to play. Your scroll is kept whether or not you ever connect a wallet.</p>
+    </div>
     <div class="panel results-panel hidden" id="results-panel" role="dialog" aria-modal="true" aria-labelledby="results-title" tabindex="-1">
       <button id="close-results" aria-label="Close mission results">×</button>
       <span class="eyebrow">HEIST COMPLETE</span>
@@ -261,7 +316,7 @@
       <h2 id="social-title">Friends & invitations</h2>
       <section id="social-signed-out">
         <p class="board-state">Sign in with Robinhood Wallet to keep friends and your outlaw identity across devices.</p>
-        <div class="social-auth"><button id="social-sign-in">SIGN IN WITH ROBINHOOD WALLET</button></div>
+        <div class="social-auth"><button id="social-sign-in"><i class="rh-logo" aria-hidden="true"></i>SIGN IN WITH ROBINHOOD WALLET</button></div>
       </section>
       <section class="hidden" id="social-signed-in">
         <div class="social-identity"><span>YOUR FRIEND CODE</span><b id="social-friend-code">--------</b><button id="social-sign-out">SIGN OUT</button></div>

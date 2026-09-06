@@ -31,7 +31,7 @@ interface LocalProp {
 
 const PROP_TEMPLATES: Record<SettlementKind, readonly LocalProp[]> = {
   "forest-village": [
-    { name: "Prop_Well", along: 0, side: 2.85, turn: 0 },
+    { name: "Prop_Well", along: 0, side: 2.55, turn: 0 },
     { name: "Prop_Signpost", along: -4.1, side: -2.55, turn: 0.2 },
     { name: "Prop_Bench", along: 3.6, side: 2.75, turn: Math.PI },
   ],

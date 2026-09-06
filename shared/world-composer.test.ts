@@ -99,7 +99,11 @@ describe("Sherwood world composer", () => {
       const world = composeSherwoodWorld(seededLayout)
       expect(world.roads).toHaveLength(7)
       expect(world.roads.every((road) => road.points.length >= 2)).toBe(true)
-      expect(world.buildingCount).toBeGreaterThanOrEqual(10)
+      // Task 05 hero-scaled the buildings (cottage 5.3x5.7, barn 8x5.6); the
+      // larger footprints fit fewer per terrace, lowering the sparse-seed floor
+      // from 10 to 8. Slots stay at their authored positions so mission world
+      // data (and the server's feasible-layout choice) is unchanged.
+      expect(world.buildingCount).toBeGreaterThanOrEqual(8)
     }
   }, 60_000)
 

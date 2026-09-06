@@ -31,6 +31,8 @@ function player(id = "robin", characterId: CharacterId = "robin"): MissionPlayer
     captureFor: 0,
     captured: false,
     rescueCount: 0,
+    guardsStunned: 0,
+    exploredCells: new Set<number>(),
     transferCount: 0,
     lastPingTick: -20,
     totalTransferred: 0,
@@ -64,7 +66,10 @@ describe("authoritative mission", () => {
     const first = new Mission("ABC234", players)
     const second = new Mission("ABC234", new Map([["robin", player()]]))
     expect(first.seed).toBe(missionSeed("ABC234"))
-    expect(first.snapshot()).toEqual(second.snapshot())
+    // instanceId is deliberately unique per run; everything else is deterministic.
+    expect(first.instanceId).not.toBe(second.instanceId)
+    const withoutInstanceId = ({ instanceId: _ignored, ...rest }: ReturnType<Mission["snapshot"]>) => rest
+    expect(withoutInstanceId(first.snapshot())).toEqual(withoutInstanceId(second.snapshot()))
     expect(first.events).toEqual([{ sequence: 1, tick: 0, type: "mission_started", playerId: undefined, value: undefined, detail: undefined }])
     expect(first.snapshot()).toMatchObject({ missionId: "peoples-purse@1.0.0", missionVersion: "1.0.0", contentHash: referencePackage.contentHash })
   })
@@ -336,6 +341,14 @@ describe("authoritative mission", () => {
     expect(mission.action(robin.id, "interact")).toBe(true)
     expect(mission.status).toBe("succeeded")
     expect(mission.result?.communityCoin).toBe(660)
+    // Authoritative clean escape (no damage, no capture) and a per-player outcome
+    // exposing raw counts rather than mastery percentages.
+    expect(mission.result?.cleanEscape).toBe(true)
+    const outcome = mission.snapshot().playerOutcomes[robin.id]
+    expect(outcome).toBeDefined()
+    expect(outcome!.rescues).toBe(robin.rescueCount)
+    expect(outcome!.captures).toBe(robin.guardsStunned)
+    expect(Array.isArray(outcome!.regionCells)).toBe(true)
     expect(mission.vote?.allocatedCoin).toBe(mission.result?.communityCoin)
     expect(mission.action(robin.id, "interact")).toBe(false)
     expect(mission.events.filter((event) => event.type === "mission_succeeded")).toHaveLength(1)

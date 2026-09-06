@@ -4,6 +4,7 @@ import { regionalizeMissionDefinition } from "../shared/regional-layout"
 import { PEOPLES_PURSE_MISSION } from "../shared/mission-catalog"
 import { composeSherwoodWorld } from "../shared/world-composer"
 import { createSherwoodLandmarks } from "./world-landmarks"
+import { SHERWOOD_FARM_LAYOUT } from "../shared/world-landmarks-layout"
 import { countVillageDrawCalls } from "./village-assets"
 import { sherwoodHeightAt } from "./sherwood-terrain"
 import { NATURE_VARIANT_NAMES, indexNatureCatalog } from "./nature-assets"
@@ -21,6 +22,11 @@ describe("Sherwood landmarks", () => {
     expect(farmhouse?.getObjectByName("StylizedBuildingDetails")).toBeInstanceOf(THREE.InstancedMesh)
     expect(farmhouse?.getObjectByName("StylizedBuildingGables")).toBeInstanceOf(THREE.InstancedMesh)
     expect(farmhouse?.userData.sherwoodBuildingKind).toBe("farmhouse")
+    // Rendered farmhouse footprint matches the shared farm collider footprint.
+    expect(farmhouse?.userData.sherwoodVisualHalfExtents).toEqual({
+      x: SHERWOOD_FARM_LAYOUT.farmhouse.halfExtents.x,
+      z: SHERWOOD_FARM_LAYOUT.farmhouse.halfExtents.z,
+    })
     expect(landmarks.wheatCount).toBeGreaterThanOrEqual(300)
     expect(countVillageDrawCalls(landmarks.group)).toBeLessThanOrEqual(49)
   })
@@ -63,7 +69,7 @@ describe("Sherwood landmarks", () => {
     expect(fencePosts).toHaveLength(9)
     for (const post of fencePosts) {
       const world = post.getWorldPosition(new THREE.Vector3())
-      expect(world.y - 0.575).toBeCloseTo(sherwoodHeightAt(world.x, world.z), 5)
+      expect(world.y - 0.75).toBeCloseTo(sherwoodHeightAt(world.x, world.z), 5)
     }
 
     const soil = landmarks.group.getObjectByName("FarmFieldSoil") as THREE.Mesh

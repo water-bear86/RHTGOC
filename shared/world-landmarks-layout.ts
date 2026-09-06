@@ -2,6 +2,20 @@ import type { RegionalMissionLayout } from "./regional-layout"
 import type { ComposedWorld } from "./world-composer"
 import { SHERWOOD_SETTLEMENT_SITES } from "./world-topology"
 
+/**
+ * The Major Oak: Sherwood's named landmark, Robin Hood's hideout, standing on Oak
+ * Ridge west of the walkable camp so its eastern boughs overhang the hub. Shared
+ * so the client places the view and the server owns the trunk collider.
+ */
+export const SHERWOOD_MAJOR_OAK = Object.freeze({
+  x: -28,
+  z: 11,
+  /** World height of the normalized oak; also the runtime Box3 target. */
+  height: 26,
+  /** Octagon trunk collider half-extent (two squares at 0 and PI/4). */
+  trunkHalfExtent: 2.5,
+})
+
 export interface SherwoodStandingStonePlacement {
   x: number
   z: number
@@ -9,6 +23,35 @@ export interface SherwoodStandingStonePlacement {
   scaleX: number
   scaleY: number
   scaleZ: number
+}
+
+export interface SherwoodFarmColliderPlacement {
+  localX: number
+  localZ: number
+  halfExtents: Readonly<{ x: number; z: number }>
+}
+
+export interface SherwoodFarmLayout {
+  windmill: SherwoodFarmColliderPlacement
+  farmhouse: SherwoodFarmColliderPlacement
+}
+
+/**
+ * Shared placement of the two solid farm landmarks inside the farm's terrain
+ * frame. The renderer positions the windmill and farmhouse from these local
+ * offsets and authoritative collision derives their colliders from the same
+ * data so a mission's farm cannot desync. Half extents are the hero-scaled
+ * footprints: farmhouse 7.5x5.6 (visual half 3.75x2.8), windmill base r 3.9
+ * boxed to a 3.4 half-square.
+ */
+export const SHERWOOD_FARM_LAYOUT: SherwoodFarmLayout = Object.freeze({
+  windmill: Object.freeze({ localX: 8.4, localZ: -1.2, halfExtents: Object.freeze({ x: 3.4, z: 3.4 }) }),
+  farmhouse: Object.freeze({ localX: 1.7, localZ: 7.1, halfExtents: Object.freeze({ x: 3.75, z: 2.8 }) }),
+})
+
+/** Farm frame heading: today's literal in `createSherwoodLandmarks`. */
+export function sherwoodFarmRotation(farmPosition: Readonly<{ x: number; z: number }>): number {
+  return farmPosition.x * farmPosition.z > 0 ? -0.35 : 0.35
 }
 
 function distanceToSegment(

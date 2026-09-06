@@ -8,7 +8,7 @@ const result: MissionResult = {
   breakdown: { speed: 80, stealth: 70, precision: 90, survival: 75, rescues: 50, generosity: 60 },
   thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
   communityCoin: 660,
-  personalRenown: 4050,
+  personalRenown: 4050, cleanEscape: false,
 }
 
 describe("SupabaseBandStore", () => {

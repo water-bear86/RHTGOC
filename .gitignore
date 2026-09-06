@@ -10,3 +10,4 @@ __pycache__/
 .playwright-cli/
 output/playwright/
 output/pdf/
+.claude-wt/

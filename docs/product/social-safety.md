@@ -1,6 +1,6 @@
 # Social safety boundary
 
-Sherwood Rebellion's alpha social surface is deliberately narrow.
+Sherwood The Game's alpha social surface is deliberately narrow.
 
 Enabled:
 
