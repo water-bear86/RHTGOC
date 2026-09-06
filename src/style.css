@@ -12,6 +12,12 @@
   font-weight: 400;
   font-display: swap;
 }
+@font-face {
+  font-family: "Cursive Option";
+  src: url(/assets/fonts/CursiveOption.ttf) format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
 
 /* ------------------------------------------------------------------ */
 /* Sherwood parchment & archery theme                                  */
@@ -21,7 +27,7 @@
 /* ------------------------------------------------------------------ */
 
 :root {
-  --hand: "Dirty Cursive", "Crimson Pro", Georgia, serif;
+  --hand: "Cursive Option", "Dirty Cursive", Georgia, serif;
   font-family: var(--hand);
   color: var(--ink);
   background: #10251d;
@@ -117,7 +123,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 
 /* ---- shared typography ---- */
 .eyebrow, .hub-label, .hub-loadout, .region-map-heading, .field-map-heading, .settings-panel legend, .panel dt, .season-heading b {
-  color: var(--wax); font: 700 var(--label-size) "Dirty Cursive", cursive; letter-spacing: var(--label-track); text-transform: uppercase;
+  color: var(--wax); font: 700 var(--label-size) "Cursive Option", cursive; letter-spacing: var(--label-track); text-transform: uppercase;
 }
 
 /* ---- shared controls ---- */
@@ -127,7 +133,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .hub-band-controls button, .settings-panel .reset-bindings, .band-setup button, .room-lobby button, .finery-actions button, .access-card .access-actions button,
 .chat-tabs button, .chat-message-actions > button, .chat-message-report summary, .chat-message-report button {
   color: var(--ink); background: linear-gradient(180deg, #f3e9d2, #e4d4ae); border: 1px solid var(--ink-2); box-shadow: inset 0 0 0 1px #fff9, inset 0 -2px 0 #b99a5e66, 0 1px 0 #fff5;
-  cursor: pointer; font: 700 14px "Dirty Cursive", cursive; letter-spacing: .1em; text-transform: uppercase; transition: transform .15s, background .15s, border-color .15s, box-shadow .15s;
+  cursor: pointer; font: 700 14px "Cursive Option", cursive; letter-spacing: .1em; text-transform: uppercase; transition: transform .15s, background .15s, border-color .15s, box-shadow .15s;
   clip-path: var(--deckle-chip);
 }
 .intro button:hover:not(:disabled), .entry-disclosure summary:hover, .outlaw-disclosure summary:hover, .panel-actions button:hover, .tutorial-actions button:hover:not(:disabled),
@@ -156,10 +162,10 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 
 /* ---- wallet dock ---- */
 .wallet-dock { position: fixed; z-index: 8; top: 20px; right: 28px; min-height: 42px; display: flex; align-items: center; gap: 10px; padding: 6px 7px 6px 11px; border-radius: 2px; transition: opacity 250ms ease, transform 250ms ease, visibility 250ms ease; }
-.wallet-dock span { color: var(--wax); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .13em; }
+.wallet-dock span { color: var(--wax); font: 700 12px "Cursive Option", cursive; letter-spacing: .13em; }
 .wallet-dock span i { width: 19px; height: 19px; margin-right: 5px; display: inline-grid; place-items: center; color: var(--cream); background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 70%); border-radius: 50%; font-size: 7px; font-style: normal; letter-spacing: 0; box-shadow: 0 1px 2px #0006; }
-.wallet-dock b { max-width: 120px; overflow: hidden; color: var(--ink-3); font: 700 12px "Dirty Cursive", cursive; text-overflow: ellipsis; white-space: nowrap; }
-.wallet-dock button { min-height: 28px; padding: 0 10px; border-radius: 2px; cursor: pointer; font: 900 12px "Dirty Cursive", cursive; letter-spacing: .11em; }
+.wallet-dock b { max-width: 120px; overflow: hidden; color: var(--ink-3); font: 700 12px "Cursive Option", cursive; text-overflow: ellipsis; white-space: nowrap; }
+.wallet-dock button { min-height: 28px; padding: 0 10px; border-radius: 2px; cursor: pointer; font: 900 12px "Cursive Option", cursive; letter-spacing: .11em; }
 .wallet-dock .hidden { display: none; }
 .wallet-dock.solo-mission { opacity: 0; visibility: hidden; transform: translateY(-8px) scale(0.98); pointer-events: none; }
 .solo-mission-mode { --hud-composure: 0.72; }
@@ -167,18 +173,18 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 /* ---- HUD ---- */
 #hud { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
 .brand { position: absolute; top: 24px; left: 28px; display: flex; align-items: center; gap: 10px; color: var(--cream); text-shadow: 0 2px 10px #0009; }
-.brand-mark { width: 42px; height: 42px; display: grid; place-items: center; color: var(--ink); background: radial-gradient(circle at 35% 30%, var(--gilt-2), var(--gilt) 60%, var(--gilt-3)); border: 1px solid #fff5; border-radius: 50%; box-shadow: 0 3px 10px #0007, inset 0 -2px 0 #7d5a12; font: 700 18px "Dirty Cursive", cursive; text-shadow: none; }
+.brand-mark { width: 42px; height: 42px; display: grid; place-items: center; color: var(--ink); background: radial-gradient(circle at 35% 30%, var(--gilt-2), var(--gilt) 60%, var(--gilt-3)); border: 1px solid #fff5; border-radius: 50%; box-shadow: 0 3px 10px #0007, inset 0 -2px 0 #7d5a12; font: 700 18px "Cursive Option", cursive; text-shadow: none; }
 .brand b, .brand small { display: block; letter-spacing: .22em; line-height: 1.05; }
-.brand b { font: 700 20px "Dirty Cursive", cursive; }
-.brand small { margin-top: 4px; color: var(--gilt-2); font: 700 12px "Dirty Cursive", cursive; }
+.brand b { font: 700 20px "Cursive Option", cursive; }
+.brand small { margin-top: 4px; color: var(--gilt-2); font: 700 12px "Cursive Option", cursive; }
 
 /* objective: an unrolled scroll */
 .objective { position: absolute; top: 24px; left: 50%; transform: translateX(-50%); width: min(380px, 42vw); padding: 12px 24px 14px; text-align: center; border-radius: 2px; }
 .objective::before, .objective::after { content: ""; position: absolute; top: -5px; bottom: -5px; width: 12px; background: linear-gradient(90deg, #8d6f3e, #d9c496 35%, #f0e4c6 55%, #a88a54); border: 1px solid #6b5230; border-radius: 6px; box-shadow: 0 4px 10px #0006; }
 .objective::before { left: -7px; }
 .objective::after { right: -7px; }
-.objective > span { display: block; color: var(--wax); font: 700 var(--label-size) "Dirty Cursive", cursive; letter-spacing: .2em; }
-.objective strong { display: block; margin: 4px 0 10px; color: var(--ink); font: 700 20px "Dirty Cursive", cursive; }
+.objective > span { display: block; color: var(--wax); font: 700 var(--label-size) "Cursive Option", cursive; letter-spacing: .2em; }
+.objective strong { display: block; margin: 4px 0 10px; color: var(--ink); font: 700 20px "Cursive Option", cursive; }
 .objective small { display: block; min-height: 12px; margin: -5px 0 8px; color: var(--ink-3); font-size: 11px; font-style: italic; letter-spacing: .02em; }
 /* progress bar as an arrow shaft: fletching fixed at the nock, head rides the fill */
 .progress { position: relative; height: 3px; margin: 0 10px 2px; overflow: visible; background: repeating-linear-gradient(90deg, var(--ink-rule) 0 4px, transparent 4px 8px); }
@@ -188,12 +194,12 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 
 /* status chips: paper tags on a cord */
 .status { position: absolute; top: 76px; right: 28px; display: flex; gap: 6px; }
-.status span { position: relative; height: 44px; min-width: 62px; padding: 0 12px 6px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 2px; font: 700 20px "Dirty Cursive", cursive; transition: border-color .2s, background .2s, box-shadow .2s; }
-.status span[data-label]::after { content: attr(data-label); position: absolute; left: 7px; bottom: 3px; color: var(--ink-3); font: 700 9px "Dirty Cursive", cursive; letter-spacing: .14em; }
+.status span { position: relative; height: 44px; min-width: 62px; padding: 0 12px 6px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 2px; font: 700 20px "Cursive Option", cursive; transition: border-color .2s, background .2s, box-shadow .2s; }
+.status span[data-label]::after { content: attr(data-label); position: absolute; left: 7px; bottom: 3px; color: var(--ink-3); font: 700 9px "Cursive Option", cursive; letter-spacing: .14em; }
 .status span.critical { color: var(--wax); border-color: var(--wax); box-shadow: var(--paper-shadow), inset 0 0 18px #8f2a1f26; }
 .status span.ready { border-color: var(--gilt-3); box-shadow: var(--paper-shadow), inset 0 0 14px #c6943030; }
 .status .signature-status { min-width: 96px; }
-.signature-status i { width: 22px; height: 22px; display: grid; place-items: center; color: var(--cream); background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 70%); border-radius: 50%; box-shadow: 0 1px 2px #0006, inset 0 0 0 2px #ffffff33; font: 700 14px "Dirty Cursive", cursive; font-style: normal; }
+.signature-status i { width: 22px; height: 22px; display: grid; place-items: center; color: var(--cream); background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 70%); border-radius: 50%; box-shadow: 0 1px 2px #0006, inset 0 0 0 2px #ffffff33; font: 700 14px "Cursive Option", cursive; font-style: normal; }
 .signature-status b { font-size: 10px; letter-spacing: .08em; }
 .status i { display: inline-block; }
 .solo-mission-mode .status { transition: opacity .3s ease, filter .3s ease, transform .3s ease; }
@@ -220,8 +226,8 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .heat.visible { opacity: 1; transform: none; }
 .heat::before { content: ""; position: absolute; left: 9px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); background: radial-gradient(circle at 35% 30%, #c8b48a, #a88a54 70%); border-radius: 50%; box-shadow: 0 1px 2px #0005; transition: background .3s, box-shadow .3s; }
 .heat-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.heat-heading b { color: var(--lincoln); font: 700 var(--label-size) "Dirty Cursive", cursive; letter-spacing: .18em; }
-.heat-heading em { color: var(--ink-3); font: 700 11px "Dirty Cursive", cursive; font-style: normal; letter-spacing: .08em; }
+.heat-heading b { color: var(--lincoln); font: 700 var(--label-size) "Cursive Option", cursive; letter-spacing: .18em; }
+.heat-heading em { color: var(--ink-3); font: 700 11px "Cursive Option", cursive; font-style: normal; letter-spacing: .08em; }
 .heat[data-level="suspicious"] .heat-heading b { color: var(--gilt-3); }
 .heat[data-level="suspicious"]::before { background: radial-gradient(circle at 35% 30%, var(--gilt-2), var(--gilt) 70%); }
 .heat[data-level="spotted"] .heat-heading b, .heat[data-level="hunted"] .heat-heading b { color: var(--wax); }
@@ -233,7 +239,7 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 /* party roster: a muster list */
 .party-hud { position: absolute; top: 82px; left: 28px; width: min(236px, 30vw); padding: 10px 12px; border-radius: 2px; }
 .party-hud.hidden { display: none; }
-.party-hud > span { display: flex; justify-content: space-between; color: var(--wax); font: 700 var(--label-size) "Dirty Cursive", cursive; letter-spacing: .17em; }
+.party-hud > span { display: flex; justify-content: space-between; color: var(--wax); font: 700 var(--label-size) "Cursive Option", cursive; letter-spacing: .17em; }
 .party-hud > span b { color: var(--ink); }
 .party-hud ul { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
 .party-hud li { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 7px; min-width: 0; padding: 2px 0; color: var(--ink-2); border-bottom: var(--paper-rule); font-size: 12px; }
@@ -242,7 +248,7 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .party-hud .presence { width: 10px; color: var(--lincoln); font-size: 10px; font-style: normal; text-align: center; }
 .party-hud li.disconnected .presence { color: var(--wax); }
 .party-hud .identity { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.party-hud .vitality { color: var(--wax); font: 700 11px "Dirty Cursive", cursive; letter-spacing: .08em; }
+.party-hud .vitality { color: var(--wax); font: 700 11px "Cursive Option", cursive; letter-spacing: .08em; }
 
 /* region map: an ink survey */
 .region-map { position: absolute; left: 28px; bottom: 28px; width: 150px; padding: 10px; border-radius: 2px; }
@@ -253,14 +259,14 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .region-map-heading button { pointer-events: auto; width: 18px; height: 18px; padding: 0; display: grid; place-items: center; color: var(--paper); background: var(--ink); border: 1px solid var(--ink); border-radius: 2px; cursor: pointer; font: 800 12px/1 sans-serif; }
 .region-map-heading button:hover { color: var(--ink); background: var(--paper); }
 .region-map-grid { display: grid; grid-template: repeat(5, 1fr) / repeat(5, 1fr); gap: 2px; margin-top: 7px; padding: 3px; background: var(--ink-rule); contain: layout paint; }
-.region-map-cell { position: relative; aspect-ratio: 1; display: grid; place-items: center; overflow: hidden; color: var(--ink); background: #cfd6a6; border: 1px solid #7a875a; font: 800 12px/1 "Dirty Cursive", cursive; }
+.region-map-cell { position: relative; aspect-ratio: 1; display: grid; place-items: center; overflow: hidden; color: var(--ink); background: #cfd6a6; border: 1px solid #7a875a; font: 800 12px/1 "Cursive Option", cursive; }
 .region-map-cell--fogged { color: transparent; background: repeating-linear-gradient(135deg, #c9b487 0 3px, #b59d6b 3px 6px); border-color: #a08a5c; }
 .region-map-cell--objective { color: var(--gilt-2); background: #6b432e; }
 .region-map-cell--objective::before { content: none; }
 .region-map-cell--objective::after { content: "◆"; color: var(--gilt-2); text-shadow: 0 0 5px #ffe37b; }
 .region-map-cell--current { z-index: 1; outline: 2px solid var(--wax); outline-offset: -3px; box-shadow: inset 0 0 6px #8f2a1f66; }
 .region-map-cell-player { position: relative; z-index: 3; color: var(--ink); text-shadow: 0 1px 2px #fff8; }
-.region-map-cell-camp { position: absolute; z-index: 2; left: 2px; bottom: 1px; color: var(--wax); font: 900 9px/1 "Dirty Cursive", cursive; }
+.region-map-cell-camp { position: absolute; z-index: 2; left: 2px; bottom: 1px; color: var(--wax); font: 900 9px/1 "Cursive Option", cursive; }
 .region-map-cell-signals { position: absolute; z-index: 4; inset: 1px; display: flex; align-items: flex-start; justify-content: flex-end; gap: 1px; pointer-events: none; }
 .region-map-cell-signal { width: 9px; height: 9px; display: grid; place-items: center; color: var(--ink); background: var(--paper); border-radius: 50%; box-shadow: 0 1px 3px #0007; font: 900 6px/1 sans-serif; }
 .region-map-cell-signal.signal-danger { color: #fff; background: var(--wax); }
@@ -268,7 +274,7 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .region-map-cell-signal.signal-route { color: #fff; background: #426a8d; }
 .region-map-cell-signal.signal-loot { color: var(--ink); background: var(--gilt); }
 .region-map-cell-signal.signal-regroup { color: var(--ink); background: #b7cd8b; }
-.region-map-legend { display: flex; align-items: center; justify-content: space-between; gap: 3px; margin-top: 6px; white-space: nowrap; color: var(--ink-2); font: 700 9px "Dirty Cursive", cursive; letter-spacing: .02em; }
+.region-map-legend { display: flex; align-items: center; justify-content: space-between; gap: 3px; margin-top: 6px; white-space: nowrap; color: var(--ink-2); font: 700 9px "Cursive Option", cursive; letter-spacing: .02em; }
 .region-map-legend span { display: inline-flex; align-items: center; gap: 2px; }
 .region-map-legend i { width: 7px; font-style: normal; text-align: center; }
 .region-map-legend-you { color: var(--lincoln); }
@@ -279,7 +285,7 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .objective-pointer { pointer-events: none; position: fixed; z-index: 12; display: grid; place-items: center; min-width: 48px; padding: 7px 9px 6px; color: var(--ink); border: 2px solid var(--gilt-3); border-radius: 999px; box-shadow: 0 0 0 3px #f7f0d488, 0 6px 22px #0009; transform: translate(-50%, -50%); }
 .objective-pointer.hidden { display: none; }
 .objective-pointer i { position: absolute; bottom: calc(100% + 3px); color: var(--gilt-2); font-size: 22px; font-style: normal; line-height: 1; text-shadow: 0 2px 5px #000; transform: rotate(var(--objective-angle)); }
-.objective-pointer b { font: 800 14px "Dirty Cursive", cursive; letter-spacing: .08em; }
+.objective-pointer b { font: 800 14px "Cursive Option", cursive; letter-spacing: .08em; }
 .solo-mission-mode .objective-pointer { animation: objective-pointer-pulse 2.4s ease-in-out infinite; }
 .solo-mission-mode .prompt { opacity: var(--hud-composure); transform: translate(-50%, 6px); }
 .solo-mission-calm .prompt { opacity: calc(var(--hud-composure) * 0.8); }
@@ -318,7 +324,7 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 @keyframes solo-objective-urge { 0%, 100% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.012); } }
 
 /* toast: a stamped notice */
-.toast { position: absolute; left: 50%; top: 22%; width: max-content; max-width: min(620px, calc(100vw - 32px)); padding: 10px 18px 11px; text-align: center; border-left: 4px solid var(--lincoln); transform: translate(-50%, -10px); font: 700 clamp(14px, 2vw, 18px) "Dirty Cursive", cursive; opacity: 0; transition: .25s; }
+.toast { position: absolute; left: 50%; top: 22%; width: max-content; max-width: min(620px, calc(100vw - 32px)); padding: 10px 18px 11px; text-align: center; border-left: 4px solid var(--lincoln); transform: translate(-50%, -10px); font: 700 clamp(14px, 2vw, 18px) "Cursive Option", cursive; opacity: 0; transition: .25s; }
 .toast[data-channel="objective"] { border-left-color: var(--gilt); }
 .toast[data-channel="threat"] { border-left-color: var(--wax); color: var(--wax); }
 .toast[data-channel="reward"] { border-left-color: var(--moss); color: var(--lincoln); }
@@ -337,30 +343,30 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .social-button { right: 268px; color: var(--wax); }
 .chat-button { right: 316px; color: var(--cream); background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 65%, #5e170f); border: 1px solid #5e170f; box-shadow: 0 4px 12px #0007, inset 0 0 0 3px #ffffff22; font-weight: 900; }
 .chat-button.hidden { display: none; }
-.chat-button > b { position: absolute; right: -5px; top: -7px; min-width: 19px; height: 19px; padding: 0 5px; display: grid; place-items: center; color: var(--ink); background: var(--gilt-2); border: 2px solid var(--ink); border-radius: 10px; font: 700 11px "Dirty Cursive", cursive; }
+.chat-button > b { position: absolute; right: -5px; top: -7px; min-width: 19px; height: 19px; padding: 0 5px; display: grid; place-items: center; color: var(--ink); background: var(--gilt-2); border: 2px solid var(--ink); border-radius: 10px; font: 700 11px "Cursive Option", cursive; }
 .chat-button > b.hidden { display: none; }
-.spectator-banner { position: absolute; left: 14px; bottom: 18px; padding: 8px 10px; color: var(--ink); background: var(--gilt-2); border: 2px solid var(--ink); font: 800 12px "Dirty Cursive", cursive; letter-spacing: .12em; }
+.spectator-banner { position: absolute; left: 14px; bottom: 18px; padding: 8px 10px; color: var(--ink); background: var(--gilt-2); border: 2px solid var(--ink); font: 800 12px "Cursive Option", cursive; letter-spacing: .12em; }
 .spectator-banner.hidden { display: none; }
 
 .chat-peek { position: absolute; left: 50%; bottom: 154px; width: min(520px, calc(100vw - 32px)); display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; pointer-events: none; transform: translateX(-50%); }
 .chat-peek.hidden { display: none; }
 .chat-peek li { width: fit-content; max-width: 100%; padding: 6px 10px; overflow: hidden; border-left: 3px solid var(--wax); font-size: 13px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.chat-peek b { margin-right: 5px; color: var(--wax); font: 700 14px "Dirty Cursive", cursive; }
+.chat-peek b { margin-right: 5px; color: var(--wax); font: 700 14px "Cursive Option", cursive; }
 
 .quick-chat { pointer-events: auto; position: fixed; z-index: 34; left: 50%; bottom: 76px; width: min(520px, calc(100vw - 32px)); padding: 8px; transform: translateX(-50%); }
 .quick-chat.hidden { display: none; }
-.quick-chat label { display: block; margin-bottom: 5px; color: var(--ink-3); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .1em; }
+.quick-chat label { display: block; margin-bottom: 5px; color: var(--ink-3); font: 700 12px "Cursive Option", cursive; letter-spacing: .1em; }
 .quick-chat label b { color: var(--wax); }
 .quick-chat > div { display: grid; grid-template-columns: 1fr auto; }
 .quick-chat input, .chat-composer input { min-width: 0; min-height: 38px; padding: 8px 10px; user-select: text; font-size: 16px; }
-.quick-chat button, .chat-composer button { min-width: 66px; cursor: pointer; font: 900 12px "Dirty Cursive", cursive; letter-spacing: .09em; }
-.quick-chat small { display: block; margin-top: 6px; color: var(--ink-3); font: 700 11px "Dirty Cursive", cursive; letter-spacing: .09em; }
+.quick-chat button, .chat-composer button { min-width: 66px; cursor: pointer; font: 900 12px "Cursive Option", cursive; letter-spacing: .09em; }
+.quick-chat small { display: block; margin-top: 6px; color: var(--ink-3); font: 700 11px "Cursive Option", cursive; letter-spacing: .09em; }
 
 /* chat drawer: a folded letter */
 .chat-drawer { position: fixed; z-index: 32; top: 76px; right: 20px; bottom: 82px; width: min(380px, calc(100vw - 40px)); display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto auto; pointer-events: auto; }
 .chat-drawer.hidden { display: none; }
 .chat-drawer > header { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 20px 10px; }
-.chat-drawer h2 { margin: 4px 0 0; font: 700 24px "Dirty Cursive", cursive; }
+.chat-drawer h2 { margin: 4px 0 0; font: 700 24px "Cursive Option", cursive; }
 .chat-drawer > header > button { width: 34px; height: 34px; display: grid; place-items: center; color: var(--ink); background: transparent; border: 1px solid var(--ink-3); cursor: pointer; font-size: 22px; }
 .chat-tabs { display: grid; grid-template-columns: 1fr 1fr; padding: 0 20px; }
 .chat-tabs button { min-height: 39px; font-size: 9px; letter-spacing: .12em; }
@@ -374,7 +380,7 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .chat-message { padding: 9px 2px 10px; border-bottom: var(--paper-rule); }
 .chat-message.local { border-left: 2px solid var(--gilt); padding-left: 8px; }
 .chat-message header { display: flex; align-items: baseline; gap: 7px; }
-.chat-message header b { overflow: hidden; color: var(--wax); font: 700 14px "Dirty Cursive", cursive; text-overflow: ellipsis; white-space: nowrap; }
+.chat-message header b { overflow: hidden; color: var(--wax); font: 700 14px "Cursive Option", cursive; text-overflow: ellipsis; white-space: nowrap; }
 .chat-message header span { color: var(--ink-3); font-size: 10px; }
 .chat-message p { margin: 5px 0 0; overflow-wrap: anywhere; color: var(--ink); font-size: 14px; line-height: 1.4; white-space: pre-wrap; }
 .chat-message-actions { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 5px; user-select: none; }
@@ -385,7 +391,7 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .chat-message-report div { width: 140px; margin-top: 5px; display: grid; padding: 5px; background: var(--paper); border: 1px solid var(--ink-2); box-shadow: 0 8px 25px #000b; }
 .chat-message-report button { color: var(--ink); text-align: left; border: 0; }
 .chat-message-report button:hover { color: var(--wax); }
-.chat-new-messages { position: absolute; left: 50%; bottom: 8px; padding: 7px 10px; cursor: pointer; transform: translateX(-50%); font: 900 11px "Dirty Cursive", cursive; letter-spacing: .08em; }
+.chat-new-messages { position: absolute; left: 50%; bottom: 8px; padding: 7px 10px; cursor: pointer; transform: translateX(-50%); font: 900 11px "Cursive Option", cursive; letter-spacing: .08em; }
 .chat-new-messages.hidden { display: none; }
 .chat-composer { display: grid; grid-template-columns: 1fr auto; padding: 12px 16px; }
 .chat-composer input:disabled, .chat-composer button:disabled { opacity: .45; cursor: default; }
@@ -396,9 +402,9 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .intro.closed { opacity: 0; visibility: hidden; pointer-events: none; }
 .intro-card { position: relative; width: min(700px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: clamp(26px, 4vh, 40px) clamp(26px, 4vw, 46px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ink-3) transparent; }
 /* wax seal in the corner of the proclamation */
-.intro-card::after { content: "SH"; position: absolute; top: 22px; right: 26px; width: 52px; height: 52px; display: grid; place-items: center; color: #f7f0d4cc; background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 60%, #5e170f); border-radius: 50%; box-shadow: 0 3px 8px #0006, inset 0 0 0 4px #ffffff1f, inset 0 0 0 5px #5e170f66; font: 900 18px "Dirty Cursive", cursive; letter-spacing: .05em; transform: rotate(-12deg); pointer-events: none; }
+.intro-card::after { content: "SH"; position: absolute; top: 22px; right: 26px; width: 52px; height: 52px; display: grid; place-items: center; color: #f7f0d4cc; background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 60%, #5e170f); border-radius: 50%; box-shadow: 0 3px 8px #0006, inset 0 0 0 4px #ffffff1f, inset 0 0 0 5px #5e170f66; font: 900 18px "Cursive Option", cursive; letter-spacing: .05em; transform: rotate(-12deg); pointer-events: none; }
 .eyebrow { font-size: 11px; letter-spacing: .24em; }
-h1 { margin: 12px 0 16px; color: var(--ink); font: 700 clamp(34px, min(5vw, 6vh), 54px)/.98 "Dirty Cursive", cursive; letter-spacing: -.02em; }
+h1 { margin: 12px 0 16px; color: var(--ink); font: 700 clamp(46px, min(7vw, 8.5vh), 78px)/.98 "Cursive Option", cursive; letter-spacing: -.02em; }
 h1 em { color: var(--lincoln); font-style: normal; }
 
 /* New Rocker display face on the large headings only. Blackletter needs its
@@ -432,13 +438,13 @@ h1 { line-height: 1.02; }
 .entry-disclosure-body > p { margin: 0 0 12px; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
 .entry-public { grid-column: 1 / -1; min-height: 48px !important; color: var(--cream) !important; background: linear-gradient(135deg, var(--lincoln), #2f5230) !important; border-color: #234224 !important; box-shadow: inset 0 1px 0 #ffffff2a, inset 0 -2px 0 #1a331b, 0 4px 14px #2b211733 !important;  clip-path: var(--deckle-chip); }
 .entry-public:hover:not(:disabled) { background: linear-gradient(135deg, #4a7d45, #3a633b) !important; }
-.entry-name { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 11px; color: var(--wax); background: #2b21170a; border: var(--paper-rule); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .12em; }
+.entry-name { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 11px; color: var(--wax); background: #2b21170a; border: var(--paper-rule); font: 700 12px "Cursive Option", cursive; letter-spacing: .12em; }
 .entry-name input { min-width: 0; padding: 8px 10px; font-size: 15px; letter-spacing: .02em; }
-.entry-access-note { max-width: 590px !important; margin: 12px 0 0 !important; color: var(--lincoln) !important; font: 700 14px "Dirty Cursive", cursive !important; letter-spacing: .12em; line-height: 1.35 !important; }
+.entry-access-note { max-width: 590px !important; margin: 12px 0 0 !important; color: var(--lincoln) !important; font: 700 14px "Cursive Option", cursive !important; letter-spacing: .12em; line-height: 1.35 !important; }
 .outlaw-disclosure { max-width: 590px; margin-top: 12px; }
 .outlaw-disclosure summary { min-height: 48px; padding-inline: 14px; }
 .outlaw-disclosure summary span { color: var(--ink-3); font-size: 8px; letter-spacing: .14em; }
-.outlaw-disclosure summary b { flex: 1; margin-inline: 10px; color: var(--ink); font: 700 16px "Dirty Cursive", cursive; }
+.outlaw-disclosure summary b { flex: 1; margin-inline: 10px; color: var(--ink); font: 700 16px "Cursive Option", cursive; }
 .outlaw-disclosure summary i { color: var(--wax); font-size: 8px; font-style: normal; }
 /* character cards: portrait plates */
 .character-select { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; max-width: 760px; margin: 0; }
@@ -448,16 +454,16 @@ h1 { line-height: 1.02; }
 .character-select .character-option.selected { color: var(--ink); border-color: var(--gilt-3); background: linear-gradient(180deg, #fbf5e6, #f2e6c8); box-shadow: inset 0 0 0 1px #fff, inset 0 0 0 3px #f7edd6, inset 0 0 0 4px var(--gilt), 0 6px 16px #2b211733; }
 .character-select .character-option.selected::after { content: ""; position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 70%); border-radius: 50%; box-shadow: 0 1px 3px #0006; }
 .character-option b, .character-option span, .character-option small { display: block; }
-.character-option b { font: 700 16px "Dirty Cursive", cursive; }
-.character-option span { margin-top: 3px; color: var(--wax); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .1em; text-transform: uppercase; }
+.character-option b { font: 700 16px "Cursive Option", cursive; }
+.character-option span { margin-top: 3px; color: var(--wax); font: 700 12px "Cursive Option", cursive; letter-spacing: .1em; text-transform: uppercase; }
 .character-option small { margin-top: 7px; color: inherit; font-size: 12px; line-height: 1.35; }
 .solo-character-select { margin-top: 0; }
 .solo-character-select .character-option[data-character="marian"] span { color: #6b3f8a; }
 .solo-character-select .character-option[data-character="marian"].selected { box-shadow: inset 0 0 0 1px #fff, inset 0 0 0 3px #f7edd6, inset 0 0 0 4px #6b3f8a, 0 6px 16px #2b211733; }
 .access-card { max-width: 590px; margin: 12px 0 0; padding: 13px 15px; background: #8f2a1f0f; border: 1px solid #8f2a1f66; }
 .access-card.hidden { display: none; }
-.access-card > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--wax); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .12em; }
-.access-card > div:first-child b { color: var(--ink); font: 700 14px "Dirty Cursive", cursive; }
+.access-card > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--wax); font: 700 12px "Cursive Option", cursive; letter-spacing: .12em; }
+.access-card > div:first-child b { color: var(--ink); font: 700 14px "Cursive Option", cursive; }
 .access-card p { margin: 7px 0 9px; color: var(--ink-2); font-size: 14px; line-height: 1.4; }
 .access-card .access-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .access-card .access-actions button { padding: 9px 11px; font-size: 8px; }
@@ -465,7 +471,7 @@ h1 { line-height: 1.02; }
 .access-card button:disabled, .intro-actions button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 .access-card > small { min-height: 12px; margin: 7px 0 0; color: var(--ink-3); line-height: 1.35; }
 .band-setup { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; max-width: 560px; margin-bottom: 10px; }
-.band-setup input { min-width: 0; padding: 11px 12px; text-transform: uppercase; font: 700 15px "Dirty Cursive", cursive; letter-spacing: .1em; }
+.band-setup input { min-width: 0; padding: 11px 12px; text-transform: uppercase; font: 700 15px "Cursive Option", cursive; letter-spacing: .1em; }
 .band-setup button, .room-lobby button { padding: 10px 13px; font-size: 9px; }
 .room-lobby { max-width: 560px; margin: 12px 0 0; padding: 16px; background: #2b21170a; border: 1px solid var(--ink-3); }
 .room-lobby.hidden { display: none; }
@@ -475,7 +481,7 @@ h1 { line-height: 1.02; }
 .room-lobby li.ready { color: var(--lincoln); font-weight: 700; }
 .room-lobby p { margin: 8px 0; font-size: 12px; color: var(--ink-3); }
 .intro button.hidden { display: none; }
-.intro > .intro-card > small { display: block; max-width: 590px; margin-top: 14px; color: var(--ink-3); font: 700 12px "Dirty Cursive", cursive; line-height: 1.5; letter-spacing: .08em; }
+.intro > .intro-card > small { display: block; max-width: 590px; margin-top: 14px; color: var(--ink-3); font: 700 12px "Cursive Option", cursive; line-height: 1.5; letter-spacing: .08em; }
 .intro.ending .entry-actions > :not(#start-button), .intro.ending .entry-access-note, .intro.ending .outlaw-disclosure, .intro.ending .access-card { display: none; }
 .intro.ending .intro-card { width: min(620px, calc(100vw - 32px)); }
 
@@ -483,7 +489,7 @@ h1 { line-height: 1.02; }
 .panel { position: fixed; z-index: 10; top: 50%; right: 28px; transform: translateY(-50%); width: min(360px, calc(100vw - 56px)); padding: 32px; transition: .25s ease; }
 .panel.hidden { opacity: 0; transform: translate(20px, -50%); visibility: hidden; }
 .panel > button { position: absolute; z-index: 1; top: 14px; right: 14px; color: var(--ink); background: none; border: 0; font-size: 24px; cursor: pointer; }
-.panel h2 { margin: 10px 0 24px; color: var(--ink); font: 700 28px "Dirty Cursive", cursive; }
+.panel h2 { margin: 10px 0 24px; color: var(--ink); font: 700 28px "Cursive Option", cursive; }
 .panel dl { margin: 0; }
 .panel dt { margin-top: 16px; }
 .panel dd { margin: 4px 0 0; color: var(--ink-2); font-size: 15px; line-height: 1.45; }
@@ -504,9 +510,9 @@ h1 { line-height: 1.02; }
 .tutorial-visual-map i.seen { color: var(--ink); background: #cfd6a6; }
 .tutorial-visual-map i.signal { color: #fff; background: var(--wax); border-radius: 50%; transform: scale(.65); }
 .tutorial-signal-ribbon { width: 100%; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
-.tutorial-signal-ribbon span { min-width: 0; padding: 12px 6px 9px; display: grid; place-items: center; gap: 5px; color: var(--ink-2); background: #fbf5e6; border: 1px solid var(--ink-rule); font: 700 11px "Dirty Cursive", cursive; letter-spacing: .05em; text-align: center; }
-.tutorial-signal-ribbon kbd, .field-map-keys kbd { min-width: 27px; height: 27px; display: inline-grid; place-items: center; color: var(--ink); background: linear-gradient(180deg, var(--gilt-2), var(--gilt)); border: 1px solid var(--gilt-3); border-radius: 2px; box-shadow: 0 3px 0 var(--gilt-3); font: 800 16px "Dirty Cursive", cursive; }
-.tutorial-character-mark { width: 112px; height: 112px; display: grid; place-items: center; color: var(--cream); background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 65%, #5e170f); border: 0; border-radius: 50%; font: 700 42px "Dirty Cursive", cursive; box-shadow: 0 6px 16px #0006, inset 0 0 0 6px #ffffff1c; }
+.tutorial-signal-ribbon span { min-width: 0; padding: 12px 6px 9px; display: grid; place-items: center; gap: 5px; color: var(--ink-2); background: #fbf5e6; border: 1px solid var(--ink-rule); font: 700 11px "Cursive Option", cursive; letter-spacing: .05em; text-align: center; }
+.tutorial-signal-ribbon kbd, .field-map-keys kbd { min-width: 27px; height: 27px; display: inline-grid; place-items: center; color: var(--ink); background: linear-gradient(180deg, var(--gilt-2), var(--gilt)); border: 1px solid var(--gilt-3); border-radius: 2px; box-shadow: 0 3px 0 var(--gilt-3); font: 800 16px "Cursive Option", cursive; }
+.tutorial-character-mark { width: 112px; height: 112px; display: grid; place-items: center; color: var(--cream); background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 65%, #5e170f); border: 0; border-radius: 50%; font: 700 42px "Cursive Option", cursive; box-shadow: 0 6px 16px #0006, inset 0 0 0 6px #ffffff1c; }
 .tutorial-points { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .tutorial-points li { position: relative; padding-left: 20px; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
 .tutorial-points li::before { content: "➳"; position: absolute; left: 0; color: var(--wax); }
@@ -515,7 +521,7 @@ h1 { line-height: 1.02; }
 .tutorial-actions { position: sticky; bottom: 0; z-index: 2; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin-top: 22px; padding-top: 12px; background: linear-gradient(180deg, transparent, var(--paper) 30%); }
 .tutorial-actions button { position: static; min-height: 38px; padding: 9px 13px; font-size: 9px; letter-spacing: .1em; }
 .tutorial-actions button:disabled { opacity: .35; cursor: default; }
-.tutorial-actions span { color: var(--ink-3); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .12em; }
+.tutorial-actions span { color: var(--ink-3); font: 700 12px "Cursive Option", cursive; letter-spacing: .12em; }
 .field-map-panel { z-index: 20; right: 50%; width: min(720px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow-y: auto; padding: 32px 38px; transform: translate(50%, -50%); }
 .field-map-panel.hidden { transform: translate(calc(50% + 20px), -50%); }
 .field-map-panel h2 { margin: 9px 0 7px; }
@@ -527,7 +533,7 @@ h1 { line-height: 1.02; }
 .field-map-grid .region-map-cell { font-size: 15px; border-width: 2px; }
 .field-map-grid .region-map-cell-camp { left: 4px; bottom: 3px; font-size: 12px; }
 .field-map-grid .region-map-cell-signal { width: 17px; height: 17px; font-size: 10px; }
-.field-map-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 13px; margin-bottom: 17px; color: var(--ink-2); font: 700 11px "Dirty Cursive", cursive; letter-spacing: .05em; }
+.field-map-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 13px; margin-bottom: 17px; color: var(--ink-2); font: 700 11px "Cursive Option", cursive; letter-spacing: .05em; }
 .field-map-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .field-map-legend i { width: 16px; height: 16px; display: inline-grid; place-items: center; background: #fbf5e6; border: 1px solid var(--ink-rule); border-radius: 50%; font-style: normal; }
 .field-map-legend .signal-danger { color: #fff; background: var(--wax); }
@@ -537,7 +543,7 @@ h1 { line-height: 1.02; }
 .field-map-legend .signal-regroup { color: var(--ink); background: #b7cd8b; }
 .field-map-keys { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; margin: 0; padding: 0; list-style: none; }
 .field-map-keys li { min-width: 0; padding: 9px 7px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 3px 7px; background: #fbf5e6; border: 1px solid var(--ink-rule); }
-.field-map-keys b { color: var(--ink); font: 700 11px "Dirty Cursive", cursive; letter-spacing: .07em; }
+.field-map-keys b { color: var(--ink); font: 700 11px "Cursive Option", cursive; letter-spacing: .07em; }
 .field-map-keys span { grid-column: 1 / -1; color: var(--ink-3); font-size: 11px; line-height: 1.35; }
 .field-map-note { display: block; margin-top: 13px; color: var(--gilt-3); font-size: 12px; font-style: italic; line-height: 1.45; }
 
@@ -548,21 +554,21 @@ h1 { line-height: 1.02; }
 .board-filters select { min-width: 0; padding: 8px; font-size: 12px; }
 .leaderboard-list { margin: 0; padding: 0; list-style: none; counter-reset: board; background: repeating-linear-gradient(180deg, transparent 0 45px, var(--ink-rule) 45px 46px); }
 .leaderboard-list li { counter-increment: board; display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 10px; height: 46px; padding: 0 2px; }
-.leaderboard-list li::before { content: counter(board, decimal-leading-zero); color: var(--wax); font: 700 15px "Dirty Cursive", cursive; }
+.leaderboard-list li::before { content: counter(board, decimal-leading-zero); color: var(--wax); font: 700 15px "Cursive Option", cursive; }
 .leaderboard-list li:first-child::before { color: var(--ink); background: linear-gradient(180deg, var(--gilt-2), var(--gilt)); border-radius: 50%; width: 24px; height: 24px; display: grid; place-items: center; box-shadow: inset 0 -1px 0 var(--gilt-3); }
-.leaderboard-list b { display: block; font: 600 18px "Dirty Cursive", cursive; }
+.leaderboard-list b { display: block; font: 600 18px "Cursive Option", cursive; }
 .leaderboard-list span { display: block; color: var(--ink-3); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
-.leaderboard-list strong { color: var(--ink); font: 700 20px "Dirty Cursive", cursive; }
+.leaderboard-list strong { color: var(--ink); font: 700 20px "Cursive Option", cursive; }
 .board-note { display: block; margin-top: 18px; color: var(--ink-3); font-size: 11px; line-height: 1.5; }
 
 /* results: the heist ledger with a wax-sealed grade */
 .results-panel { width: min(470px, calc(100vw - 56px)); max-height: calc(100vh - 40px); overflow-y: auto; }
 .results-panel h2 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-.results-panel h2 b { width: 56px; height: 56px; display: grid; place-items: center; color: var(--cream); background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 60%, #5e170f); border-radius: 50%; box-shadow: 0 3px 8px #0006, inset 0 0 0 4px #ffffff1f, inset 0 0 0 5px #5e170f66; font: 900 24px "Dirty Cursive", cursive; transform: rotate(-8deg); }
-.result-score { display: block; margin-bottom: 14px; color: var(--ink); font: 700 30px "Dirty Cursive", cursive; }
+.results-panel h2 b { width: 56px; height: 56px; display: grid; place-items: center; color: var(--cream); background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 60%, #5e170f); border-radius: 50%; box-shadow: 0 3px 8px #0006, inset 0 0 0 4px #ffffff1f, inset 0 0 0 5px #5e170f66; font: 900 24px "Cursive Option", cursive; transform: rotate(-8deg); }
+.result-score { display: block; margin-bottom: 14px; color: var(--ink); font: 700 30px "Cursive Option", cursive; }
 .result-breakdown { display: grid; grid-template-columns: 1fr auto; gap: 7px 14px; margin: 0 0 18px; }
 .result-breakdown dt, .result-breakdown dd { margin: 0; padding-bottom: 5px; border-bottom: var(--paper-rule); font-size: 12px; }
-.result-breakdown dt { color: var(--ink-3); text-transform: uppercase; letter-spacing: .1em; font: 700 12px "Dirty Cursive", cursive; }
+.result-breakdown dt { color: var(--ink-3); text-transform: uppercase; letter-spacing: .1em; font: 700 12px "Cursive Option", cursive; }
 .result-breakdown dd { color: var(--ink); font-weight: 700; }
 .allocation { padding: 10px 12px; color: var(--ink); background: #3e6b3a14; border: 1px solid #3e6b3a55; font-size: 13px; font-style: italic; }
 .vote-choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 12px; }
@@ -582,8 +588,8 @@ h1 { line-height: 1.02; }
 .social-panel input { min-width: 0; padding: 9px; }
 .social-panel section button, .social-list button { padding: 8px; font-size: 8px; }
 .social-identity { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; align-items: center; margin-bottom: 12px; }
-.social-identity span { color: var(--wax); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .12em; }
-.social-identity b { grid-row: 2; font: 700 18px "Dirty Cursive", cursive; letter-spacing: .16em; }
+.social-identity span { color: var(--wax); font: 700 12px "Cursive Option", cursive; letter-spacing: .12em; }
+.social-identity b { grid-row: 2; font: 700 18px "Cursive Option", cursive; letter-spacing: .16em; }
 .social-identity button { grid-column: 2; grid-row: 1 / 3; }
 .social-presence { display: flex; gap: 8px; align-items: flex-start; color: var(--ink-2); font-size: 13px; line-height: 1.4; }
 .social-list { display: grid; gap: 6px; margin: 7px 0 14px; padding: 0; list-style: none; }
@@ -603,19 +609,19 @@ h1 { line-height: 1.02; }
 .settings-panel .audio-options { grid-template-columns: 1fr 1fr; }
 .audio-level { display: grid !important; grid-template-columns: 1fr; gap: 4px !important; }
 .audio-level span, .audio-select { display: flex; align-items: center; justify-content: space-between; }
-.audio-level output { color: var(--wax); font: 700 14px "Dirty Cursive", cursive; }
+.audio-level output { color: var(--wax); font: 700 14px "Cursive Option", cursive; }
 .audio-level input[type="range"] { width: 100%; accent-color: var(--wax); cursor: pointer; }
 .audio-select { grid-column: 1 / -1; }
 .audio-select select { min-width: 140px; padding: 7px 8px; }
-.audio-preview { grid-column: 1 / -1; position: static !important; padding: 8px 10px; cursor: pointer; font: 800 12px "Dirty Cursive", cursive; letter-spacing: .09em; }
+.audio-preview { grid-column: 1 / -1; position: static !important; padding: 8px 10px; cursor: pointer; font: 800 12px "Cursive Option", cursive; letter-spacing: .09em; }
 .audio-options .settings-note { grid-column: 1 / -1; margin: 0; }
 .settings-panel .analytics-preference { grid-template-columns: 1fr; }
 .analytics-preference .settings-note { margin: 0 0 0 24px; }
 .settings-panel details { border-top: var(--paper-rule); }
-.settings-panel summary { padding: 12px 0; color: var(--wax); cursor: pointer; font: 700 14px "Dirty Cursive", cursive; letter-spacing: .11em; text-transform: uppercase; }
+.settings-panel summary { padding: 12px 0; color: var(--wax); cursor: pointer; font: 700 14px "Cursive Option", cursive; letter-spacing: .11em; text-transform: uppercase; }
 .binding-grid { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; padding-bottom: 12px; }
 .binding-grid label { font-size: 13px; }
-.binding-grid button, .binding-grid select { min-width: 112px; padding: 7px 8px; cursor: pointer; font: 700 14px "Dirty Cursive", cursive; text-align: center; }
+.binding-grid button, .binding-grid select { min-width: 112px; padding: 7px 8px; cursor: pointer; font: 700 14px "Cursive Option", cursive; text-align: center; }
 .settings-panel .reset-bindings { position: static; margin-top: 14px; padding: 9px 12px; font-size: 9px; }
 .settings-note { margin: 2px 0 10px; color: var(--ink-3); font-size: 12px; line-height: 1.4; }
 .mission-debug { position: fixed; z-index: 7; left: 18px; bottom: 78px; width: min(430px, calc(100vw - 36px)); max-height: 42vh; overflow: auto; margin: 0; padding: 14px; color: #d9f3ad; background: #07120bf2; border: 1px solid #d9f3ad70; pointer-events: none; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
@@ -632,10 +638,10 @@ h1 { line-height: 1.02; }
 .hub-close:hover { border-color: var(--wax); color: var(--wax); }
 .public-hub-panel { position: fixed; z-index: 4; left: 28px; top: 112px; width: min(330px, calc(100vw - 56px)); max-height: calc(100vh - 180px); overflow-y: auto; padding: 24px; }
 .public-hub-panel.hidden { display: none; }
-.public-hub-panel h2 { margin: 3px 0; font: 700 20px "Dirty Cursive", cursive; }
+.public-hub-panel h2 { margin: 3px 0; font: 700 20px "Cursive Option", cursive; }
 .public-hub-panel p, .public-hub-panel small { display: block; margin: 8px 0 14px; color: var(--ink-2); font-size: 13px; line-height: 1.5; }
 .public-hub-panel > #public-hub-leave { width: 100%; margin-top: 12px; }
-.public-hub-panel label { display: grid; grid-template-columns: 1fr 1.5fr; align-items: center; margin: 7px 0; color: var(--wax); font: 700 11px "Dirty Cursive", cursive; }
+.public-hub-panel label { display: grid; grid-template-columns: 1fr 1.5fr; align-items: center; margin: 7px 0; color: var(--wax); font: 700 11px "Cursive Option", cursive; }
 .public-hub-panel select { padding: 7px; font-size: 12px; }
 .public-hub-actions { display: grid; grid-template-columns: 1fr; gap: 5px; margin: 9px 0; }
 .public-hub-panel button { padding: 8px; font-size: 8px; }
@@ -647,7 +653,7 @@ h1 { line-height: 1.02; }
 .public-hub-panel li i { color: var(--wax); font-style: normal; }
 .public-camp-chat { margin: 12px 0; overflow: hidden; background: #fbf5e6; border: 1px solid var(--ink-3); }
 .public-camp-chat > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 9px 10px 7px; border-bottom: var(--paper-rule); }
-.public-camp-chat > div b { color: var(--wax); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .11em; }
+.public-camp-chat > div b { color: var(--wax); font: 700 12px "Cursive Option", cursive; letter-spacing: .11em; }
 .public-camp-chat > div small { overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; margin: 0; font-size: 11px; }
 .public-camp-chat ol { min-height: 118px; max-height: 210px; display: block; margin: 0; padding: 4px 9px; overflow-y: auto; }
 .public-camp-chat .chat-message { display: block; padding: 7px 2px; background: transparent; }
@@ -659,44 +665,44 @@ h1 { line-height: 1.02; }
 .public-camp-chat form button { min-width: 58px; }
 .public-camp-chat input:disabled, .public-camp-chat form button:disabled { opacity: .45; cursor: default; }
 .hub-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-right: 34px; }
-.hub-heading h2 { margin: 6px 0 10px; color: var(--ink); font: 700 25px "Dirty Cursive", cursive; }
+.hub-heading h2 { margin: 6px 0 10px; color: var(--ink); font: 700 25px "Cursive Option", cursive; }
 .hub-heading h2:focus { outline: none; }
-.hub-heading b { color: var(--wax); font: 700 14px "Dirty Cursive", cursive; letter-spacing: .14em; }
+.hub-heading b { color: var(--wax); font: 700 14px "Cursive Option", cursive; letter-spacing: .14em; }
 .hub-band { margin: 10px 0 14px; padding: 10px; background: #c6943014; border: 1px solid #c694305c; }
 .hub-band.hidden { display: none; }
-.hub-band div { display: flex; justify-content: space-between; gap: 10px; color: var(--wax); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .08em; }
+.hub-band div { display: flex; justify-content: space-between; gap: 10px; color: var(--wax); font: 700 12px "Cursive Option", cursive; letter-spacing: .08em; }
 .hub-band div b { color: var(--ink); }
-.hub-band p { margin: 6px 0 2px; color: var(--ink); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .06em; }
+.hub-band p { margin: 6px 0 2px; color: var(--ink); font: 700 12px "Cursive Option", cursive; letter-spacing: .06em; }
 .hub-band small { color: var(--ink-3); font-size: 11px; font-style: italic; }
 .hub-band-controls { display: grid !important; grid-template-columns: minmax(0, 1fr) 82px auto; margin-top: 9px; }
 .hub-band-controls.hidden { display: none !important; }
 .hub-band-controls input, .hub-band-controls select, .hub-band-controls button { min-width: 0; padding: 7px 8px; font-size: 11px; }
-.hub-band-controls button { cursor: pointer; font: 700 11px "Dirty Cursive", cursive; }
+.hub-band-controls button { cursor: pointer; font: 700 11px "Cursive Option", cursive; }
 .room-lobby li { display: flex; align-items: center; gap: 7px; }
 .room-lobby li > span { flex: 1; }
 .room-lobby li button { padding: 5px 7px; font-size: 7px; }
-.room-lobby li .band-member { color: var(--wax); font: 700 11px "Dirty Cursive", cursive; letter-spacing: .08em; }
+.room-lobby li .band-member { color: var(--wax); font: 700 11px "Cursive Option", cursive; letter-spacing: .08em; }
 .hub-panel > p { margin: 0 0 16px; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
 .hub-rotations { display: grid; gap: 7px; margin: 7px 0 5px; }
 .hub-season { margin: 0 0 14px; padding: 11px; background: #3e6b3a14; border: 1px solid #3e6b3a66; }
 .hub-season.hidden { display: none; }
 .season-heading { display: flex; justify-content: space-between; align-items: center; }
 .season-heading b { color: var(--ink); font-size: 9px; letter-spacing: .12em; }
-.hub-season h3 { margin: 5px 0; color: var(--ink); font: 700 19px "Dirty Cursive", cursive; }
+.hub-season h3 { margin: 5px 0; color: var(--ink); font: 700 19px "Cursive Option", cursive; }
 .hub-season p { margin: 0 0 8px; color: var(--ink-2); font-size: 12px; line-height: 1.4; }
-.season-pressure { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: var(--wax); font: 700 11px "Dirty Cursive", cursive; letter-spacing: .1em; }
+.season-pressure { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: var(--wax); font: 700 11px "Cursive Option", cursive; letter-spacing: .1em; }
 .season-pressure i { grid-column: 1 / -1; height: 5px; overflow: hidden; background: #2b211714; border-bottom: 1px solid var(--ink-rule); }
 .season-pressure em { display: block; height: 100%; background: linear-gradient(90deg, var(--moss), var(--gilt), var(--wax)); }
 .season-projects { display: grid; gap: 5px; margin: 9px 0 6px; }
 .season-project { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; color: var(--ink-2); font-size: 11px; }
-.season-project b { color: var(--ink); font: 700 12px "Dirty Cursive", cursive; }
+.season-project b { color: var(--ink); font: 700 12px "Cursive Option", cursive; }
 .season-project i { grid-column: 1 / -1; height: 3px; overflow: hidden; background: #2b211714; }
 .season-project em { display: block; height: 100%; background: var(--lincoln); }
 #hub-season-finale { color: var(--ink-3); font-size: 11px; font-style: italic; }
 .hub-rotations button { padding: 10px; text-align: left; text-transform: none; letter-spacing: 0; font-family: "Crimson Pro", Georgia, serif; }
 .hub-rotations button:disabled { opacity: .48; cursor: default; }
 .hub-rotations b, .hub-rotations small { display: block; }
-.hub-rotations b { font: 700 15px "Dirty Cursive", cursive; }
+.hub-rotations b { font: 700 15px "Cursive Option", cursive; }
 .hub-rotations small { margin-top: 4px; color: inherit; font-size: 12px; }
 #hub-rotation-state, #hub-contribution-state, .hub-online-only > small { display: block; margin: 0 0 13px; color: var(--ink-3); font-size: 12px; font-style: italic; }
 .hub-rescue { margin: 0 0 14px; padding: 11px; background: #8f2a1f0f; border: 1px solid #8f2a1f66; }
@@ -714,23 +720,23 @@ h1 { line-height: 1.02; }
 .hub-contributions li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 7px; background: #fbf5e6; border: var(--paper-rule); }
 .hub-contributions li.selected { border-color: var(--gilt-3); box-shadow: inset 3px 0 var(--gilt); }
 .hub-contributions li b, .hub-contributions li small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hub-contributions li b { color: var(--ink); font: 700 14px "Dirty Cursive", cursive; }
+.hub-contributions li b { color: var(--ink); font: 700 14px "Cursive Option", cursive; }
 .hub-contributions li small, #hub-contribution-state { color: var(--ink-3); font-size: 11px; }
 .contribution-actions { display: flex; gap: 4px; }
 .hub-missions { display: grid; gap: 8px; margin: 8px 0 17px; }
 .hub-missions button { padding: 13px 14px; text-align: left; text-transform: none; letter-spacing: 0; font-family: "Crimson Pro", Georgia, serif; color: var(--ink-2); }
 .hub-missions button.selected { color: var(--ink); border-color: var(--gilt-3); box-shadow: inset 0 0 0 2px var(--gilt), inset 4px 0 0 var(--wax), 0 3px 10px #2b211733; }
 .hub-missions b, .hub-missions small { display: block; }
-.hub-missions b { font: 700 19px "Dirty Cursive", cursive; }
+.hub-missions b { font: 700 19px "Cursive Option", cursive; }
 .hub-missions small { margin-top: 5px; color: inherit; font-size: 13px; line-height: 1.35; }
 .hub-label, .hub-loadout { display: block; font-size: 10px; letter-spacing: .14em; }
 .hub-roles { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 8px 0 15px; }
 .hub-roles button, .hub-actions button { min-height: 40px; padding: 9px; font-size: 10px; }
 .role-choice-panel { z-index: 30; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
-.role-choice-panel h2 { margin: 5px 0 8px; font: 700 clamp(25px, 4vw, 42px) "Dirty Cursive", cursive; }
+.role-choice-panel h2 { margin: 5px 0 8px; font: 700 clamp(25px, 4vw, 42px) "Cursive Option", cursive; }
 .role-choice-panel > p { margin: 0 0 14px; color: var(--ink-2); font-size: 15px; }
 .role-choice-grid .character-option { position: relative; text-align: left; }
-.role-choice-grid .character-option i { display: block; margin-top: 9px; color: var(--lincoln); font: 900 11px "Dirty Cursive", cursive; font-style: normal; letter-spacing: .1em; }
+.role-choice-grid .character-option i { display: block; margin-top: 9px; color: var(--lincoln); font: 900 11px "Cursive Option", cursive; font-style: normal; letter-spacing: .1em; }
 .role-choice-grid .character-option:disabled { opacity: .38; cursor: not-allowed; }
 .role-choice-grid .character-option:disabled i { color: var(--wax); }
 #role-choice-status { display: block; margin-top: 12px; color: var(--wax); }
@@ -847,10 +853,10 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
 .finery-item { display: grid; grid-template-columns: 42px 1fr auto; gap: 12px; align-items: center; padding: 12px; background: #fbf5e6; border: var(--paper-rule); border-radius: 2px; }
 .finery-swatch { width: 34px; height: 34px; border-radius: 50%; background: radial-gradient(circle at 32% 30%, var(--a), var(--b) 78%); border: 1px solid var(--ink-3); box-shadow: 0 2px 6px #00000044; }
 .finery-item-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.finery-item-copy b { color: var(--ink); font: 700 18px "Dirty Cursive", cursive; letter-spacing: .02em; }
-.finery-item-copy span { color: var(--wax); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .14em; }
+.finery-item-copy b { color: var(--ink); font: 700 18px "Cursive Option", cursive; letter-spacing: .02em; }
+.finery-item-copy span { color: var(--wax); font: 700 12px "Cursive Option", cursive; letter-spacing: .14em; }
 .finery-item-copy small { color: var(--ink-3); font-size: 12px; line-height: 1.4; }
-.finery-item-price { color: var(--gilt-3); font: 700 15px "Dirty Cursive", cursive; letter-spacing: .05em; }
+.finery-item-price { color: var(--gilt-3); font: 700 15px "Cursive Option", cursive; letter-spacing: .05em; }
 .finery-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
 .finery-actions button { padding: 7px 10px; border-radius: 2px; font-size: 8px; white-space: nowrap; }
 .finery-actions button.finery-equip { border-color: var(--lincoln); color: var(--lincoln); }
@@ -886,7 +892,7 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
 .scroll-head h2 { margin: 8px 0 12px; }
 .scroll-head h2 b { font-weight: inherit; }
 .scroll-level { display: flex; align-items: baseline; gap: 12px; margin: 0 0 8px; flex-wrap: wrap; }
-.scroll-level b { color: var(--ink); font: 700 22px "Dirty Cursive", cursive; letter-spacing: .04em; }
+.scroll-level b { color: var(--ink); font: 700 22px "Cursive Option", cursive; letter-spacing: .04em; }
 .scroll-level small { color: var(--ink-2); font-size: 12px; }
 .scroll-level-rule { height: 3px; overflow: hidden; background: var(--ink-rule); }
 .scroll-level-rule i { display: block; width: 0; height: 100%; background: var(--gilt); transition: width .3s ease; }
@@ -894,25 +900,25 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
 .scroll-seal-row { display: flex; align-items: center; gap: 18px; margin: 22px 0 26px; padding: 16px 18px; background: #fbf5e644; border: var(--paper-rule); }
 .scroll-seal { flex: 0 0 auto; width: 62px; height: 62px; }
 .scroll-seal svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 2px 4px #0004); }
-.scroll-status { display: block; color: var(--ink); font: 700 18px "Dirty Cursive", cursive; letter-spacing: .08em; text-transform: uppercase; }
+.scroll-status { display: block; color: var(--ink); font: 700 18px "Cursive Option", cursive; letter-spacing: .08em; text-transform: uppercase; }
 .scroll-status[data-status="sealed"] { color: var(--wax); }
 .scroll-status[data-status="diverged"] { color: #6b2f6b; }
 .scroll-status[data-status="unbound"], .scroll-status[data-status="unsealed"] { color: var(--ink-2); }
 .scroll-status-help { margin: 6px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.5; }
 
 .scroll-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 32px; }
-.scroll-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 22px 0 10px; padding-bottom: 6px; color: var(--ink); border-bottom: var(--paper-rule); font: 700 14px "Dirty Cursive", cursive; letter-spacing: var(--label-track); text-transform: uppercase; }
+.scroll-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 22px 0 10px; padding-bottom: 6px; color: var(--ink); border-bottom: var(--paper-rule); font: 700 14px "Cursive Option", cursive; letter-spacing: var(--label-track); text-transform: uppercase; }
 .scroll-heading b { color: var(--ink-2); font-weight: 700; }
 
 .scroll-lines { display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; margin: 0; }
 .scroll-lines dt { margin: 0; color: var(--ink-2); font-size: 12px; }
-.scroll-lines dd { margin: 0; color: var(--ink); font: 700 18px "Dirty Cursive", cursive; text-align: right; font-variant-numeric: tabular-nums; }
+.scroll-lines dd { margin: 0; color: var(--ink); font: 700 18px "Cursive Option", cursive; text-align: right; font-variant-numeric: tabular-nums; }
 
 .scroll-deeds { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 24px; margin: 0; padding: 0; list-style: none; }
 .scroll-deed { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; opacity: .55; }
 .scroll-deed.earned { opacity: 1; }
-.scroll-deed b { color: var(--ink); font: 700 18px "Dirty Cursive", cursive; }
-.scroll-deed em { color: var(--ink-2); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .08em; font-style: normal; text-transform: uppercase; }
+.scroll-deed b { color: var(--ink); font: 700 18px "Cursive Option", cursive; }
+.scroll-deed em { color: var(--ink-2); font: 700 12px "Cursive Option", cursive; letter-spacing: .08em; font-style: normal; text-transform: uppercase; }
 .scroll-deed.earned em { color: var(--wax); }
 .scroll-deed small { grid-column: 1 / -1; color: var(--ink-2); font-size: 11.5px; line-height: 1.4; }
 .scroll-deed-rule { grid-column: 1 / -1; height: 2px; margin-top: 4px; overflow: hidden; background: var(--ink-rule); }
@@ -922,7 +928,7 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
 .scroll-chronicle { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .scroll-chronicle li { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding-bottom: 6px; border-bottom: 1px dotted var(--ink-rule); }
 .scroll-chronicle span { color: var(--ink-2); font-size: 13px; line-height: 1.45; }
-.scroll-chronicle time { flex: 0 0 auto; color: var(--ink-3); font: 700 12px "Dirty Cursive", cursive; letter-spacing: .06em; text-transform: uppercase; }
+.scroll-chronicle time { flex: 0 0 auto; color: var(--ink-3); font: 700 12px "Cursive Option", cursive; letter-spacing: .06em; text-transform: uppercase; }
 .scroll-chronicle-empty { color: var(--ink-3); font-size: 13px; font-style: italic; border: 0; }
 
 .scroll-actions { margin-top: 24px; }
@@ -1099,3 +1105,62 @@ label, dt, .quick-chat label, .chat-message header b, .maker-mark + *,
   text-transform: none !important;
   letter-spacing: .008em !important;
 }
+
+/* ------------------------------------------------------------------ *
+ * Entry gate — the carved medallion you click to step into Sherwood.
+ * The oak, the arrow through it, the fallen crown. Sits above everything
+ * until dismissed; the site is already mounted behind it.
+ * ------------------------------------------------------------------ */
+#entry-gate {
+  position: fixed; inset: 0; z-index: 9999;
+  display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 36%, #23190d 0%, #160f08 55%, #0b0704 100%);
+  cursor: pointer;
+  transition: opacity .8s ease, visibility .8s ease;
+}
+#entry-gate.dismissed { opacity: 0; visibility: hidden; pointer-events: none; }
+.entry-gate-inner {
+  display: grid; justify-items: center; gap: 22px;
+  padding: 24px; text-align: center;
+  animation: entry-rise .9s ease both;
+}
+/* The medallion image lays over a gilt disc, so a missing file still reads
+   as an intentional seal rather than a broken image. border-radius clips the
+   source image's square white corners to the carved rim. */
+.entry-medallion {
+  width: min(46vmin, 340px); aspect-ratio: 1; border-radius: 50%;
+  background:
+    url(/assets/ui/brand/sherwood-medallion.png) center / cover no-repeat,
+    radial-gradient(circle at 38% 30%, #d8b25a 0%, #a9832f 40%, #6f4f14 70%, #241706 100%);
+  box-shadow: 0 24px 60px #000a, 0 2px 0 #0006, inset 0 0 0 2px #0000004d;
+  transition: transform .3s ease, filter .3s ease, box-shadow .3s ease;
+}
+#entry-gate:hover .entry-medallion,
+#entry-gate:focus-visible .entry-medallion {
+  transform: scale(1.035) rotate(-1deg);
+  filter: brightness(1.06);
+  box-shadow: 0 30px 74px #000c, 0 0 46px #caa14e40, inset 0 0 0 2px #0000004d;
+}
+.entry-gate-label {
+  margin: 0; color: #eadfbf;
+  font: 400 clamp(40px, 7.5vmin, 70px) var(--display);
+  letter-spacing: .01em; text-shadow: 0 2px 12px #000b;
+}
+.entry-gate-hint {
+  margin: 0; color: #b79a5f; text-transform: uppercase;
+  font: 700 12px "Cursive Option", cursive; letter-spacing: .34em;
+  animation: entry-hint 2.6s ease-in-out infinite;
+}
+#entry-gate:focus-visible { outline: none; }
+@keyframes entry-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes entry-hint { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .entry-gate-inner, .entry-gate-hint { animation: none; }
+  #entry-gate, .entry-medallion { transition: opacity .2s ease; }
+}
+
+/* Ink-bleed: the display script soaks into the paper like wet ink. The filter
+   defs live in a zero-size SVG; applied to the hero display text only so body
+   copy stays crisp. */
+.ink-filter-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+#intro-title, .entry-gate-label { filter: url(#ink-bleed); }

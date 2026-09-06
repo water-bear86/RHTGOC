@@ -138,6 +138,25 @@ const container = document.querySelector<HTMLDivElement>("#game")!
 const hud = document.querySelector<HTMLElement>("#hud")!
 const walletDock = document.querySelector<HTMLElement>(".wallet-dock")!
 const intro = document.querySelector<HTMLDivElement>("#intro")!
+
+// The entry gate: the carved medallion the player clicks to enter Sherwood.
+// The site is already mounted behind it; dismissing just fades the gate away.
+const entryGate = document.querySelector<HTMLElement>("#entry-gate")
+if (entryGate) {
+  const enterSherwood = (): void => {
+    if (entryGate.classList.contains("dismissed")) return
+    entryGate.classList.add("dismissed")
+    window.setTimeout(() => entryGate.remove(), 900)
+    document.querySelector<HTMLElement>(".intro-card")?.focus()
+  }
+  entryGate.addEventListener("click", enterSherwood)
+  entryGate.addEventListener("keydown", (event: KeyboardEvent) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      enterSherwood()
+    }
+  })
+}
 const introCard = document.querySelector<HTMLElement>(".intro-card")!
 const introEyebrow = document.querySelector<HTMLElement>("#intro-eyebrow")!
 const introTitle = document.querySelector<HTMLElement>("#intro-title")!
