@@ -17,6 +17,7 @@ import { PEOPLES_PURSE_MISSION } from "./mission-catalog"
 import { regionalizeMissionDefinition, riverPointAt } from "./regional-layout"
 import { composeSherwoodWorld } from "./world-composer"
 import { SHERWOOD_RIDGE_SEGMENTS } from "./world-topology"
+import { SHERWOOD_CAMP_HUT_LAYOUT, SHERWOOD_CAMP_HUT_OBSTACLES, SHERWOOD_STATIC_OBSTACLES } from "./world-obstacles"
 
 function localPoint(x: number, z: number): { x: number; z: number } {
   const collider = VILLAGE_COTTAGE_COLLIDER
@@ -48,10 +49,89 @@ describe("shared Sherwood world collision contract", () => {
     expect(VILLAGE_COTTAGE_COLLIDER).toMatchObject({
       id: "sherwood-village-cottage",
       center: { x: -10, z: 14 },
-      halfExtents: { x: 2.75, z: 3 },
+      halfExtents: { x: 2.65, z: 2.85 },
       rotation: -0.55,
     })
+    // The cottage collider is exactly 1.25x the authored GLB envelope so the
+    // GLB LOD0 and the procedural LOD1 share one footprint.
+    expect(VILLAGE_COTTAGE_COLLIDER.halfExtents.x).toBeCloseTo(1.25 * 2.12, 3)
+    expect(VILLAGE_COTTAGE_COLLIDER.halfExtents.z).toBeCloseTo(1.25 * 2.28, 3)
     expect(SHERWOOD_PLAYER_RADIUS).toBe(0.45)
+  })
+
+  it("keeps the three hero-scaled camp huts solid, disjoint and clear of spawn, trees and the board", () => {
+    // Each obstacle mirrors the shared layout exactly (renderer reads the same).
+    expect(SHERWOOD_CAMP_HUT_OBSTACLES).toHaveLength(3)
+    SHERWOOD_CAMP_HUT_LAYOUT.forEach((hut, index) => {
+      const obstacle = SHERWOOD_CAMP_HUT_OBSTACLES[index]
+      expect(obstacle.center).toEqual({ x: hut.x, z: hut.z })
+      expect(obstacle.halfExtents).toEqual(hut.halfExtents)
+      expect(obstacle.rotation).toBe(hut.rotation)
+      // Every hut is a solid hub collider.
+      expect(SHERWOOD_STATIC_OBSTACLES.some((o) => o.id === hut.id)).toBe(true)
+      expect(isSherwoodPlayerPositionBlocked({ x: hut.x, z: hut.z }, 0)).toBe(true)
+    })
+
+    const toLocal = (px: number, pz: number, h: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+      const c = Math.cos(h.rotation)
+      const s = Math.sin(h.rotation)
+      const x = px - h.x
+      const z = pz - h.z
+      return { x: c * x - s * z, z: s * x + c * z }
+    }
+    const inside = (px: number, pz: number, h: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+      const l = toLocal(px, pz, h)
+      return Math.abs(l.x) <= h.halfExtents.x && Math.abs(l.z) <= h.halfExtents.z
+    }
+    const nearestEdge = (px: number, pz: number, h: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+      const l = toLocal(px, pz, h)
+      return Math.hypot(Math.max(0, Math.abs(l.x) - h.halfExtents.x), Math.max(0, Math.abs(l.z) - h.halfExtents.z))
+    }
+    const corners = (h: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+      const c = Math.cos(h.rotation)
+      const s = Math.sin(h.rotation)
+      const pts: { x: number; z: number }[] = []
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        const lx = sx * h.halfExtents.x
+        const lz = sz * h.halfExtents.z
+        pts.push({ x: h.x + c * lx + s * lz, z: h.z - s * lx + c * lz })
+      }
+      return pts
+    }
+    const overlaps = (a: typeof SHERWOOD_CAMP_HUT_LAYOUT[number], b: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+      const axesOf = (h: typeof SHERWOOD_CAMP_HUT_LAYOUT[number]) => {
+        const c = Math.cos(h.rotation)
+        const s = Math.sin(h.rotation)
+        return [{ x: c, z: -s }, { x: s, z: c }]
+      }
+      const ca = corners(a)
+      const cb = corners(b)
+      for (const ax of [...axesOf(a), ...axesOf(b)]) {
+        let amin = Infinity, amax = -Infinity, bmin = Infinity, bmax = -Infinity
+        for (const p of ca) { const d = p.x * ax.x + p.z * ax.z; amin = Math.min(amin, d); amax = Math.max(amax, d) }
+        for (const p of cb) { const d = p.x * ax.x + p.z * ax.z; bmin = Math.min(bmin, d); bmax = Math.max(bmax, d) }
+        if (amax < bmin || bmax < amin) return false
+      }
+      return true
+    }
+
+    // No two huts overlap.
+    for (let i = 0; i < SHERWOOD_CAMP_HUT_LAYOUT.length; i += 1) {
+      for (let j = i + 1; j < SHERWOOD_CAMP_HUT_LAYOUT.length; j += 1) {
+        expect(overlaps(SHERWOOD_CAMP_HUT_LAYOUT[i], SHERWOOD_CAMP_HUT_LAYOUT[j])).toBe(false)
+      }
+    }
+    // The two newly collidered huts clear the 4.5 spawn ring around (-11, 9)
+    // with the player radius to spare; the pre-existing front cottage is left
+    // in place (spawn depenetration already handles it).
+    for (const hut of SHERWOOD_CAMP_HUT_LAYOUT.filter((h) => h.id !== "sherwood-village-cottage")) {
+      expect(nearestEdge(-11, 9, hut)).toBeGreaterThanOrEqual(5.5)
+    }
+    // Hub-box layout trees and the mission board are outside every hut.
+    for (const [tx, tz] of [[-15.1, 5.9], [-17.2, 7.1], [-10.4, 4.0]] as const) {
+      expect(SHERWOOD_CAMP_HUT_LAYOUT.some((h) => inside(tx, tz, h))).toBe(false)
+    }
+    expect(SHERWOOD_CAMP_HUT_LAYOUT.some((h) => inside(-7.6, 8.6, h))).toBe(false)
   })
 
   it("keeps the fixed cottage solid in the hub but removes it from generated missions", () => {

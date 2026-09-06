@@ -25,6 +25,15 @@ export type VillageModuleCatalog = Readonly<Record<VillageModuleName, THREE.Obje
 
 export const VILLAGE_COTTAGE_DRAW_CALL_BUDGET = 24
 
+/**
+ * Uniform hero-relative scale for the authored GLB cottage. Its authored
+ * envelope (±2.12 x ±2.28) times this constant is 5.3 x 5.7, matching the
+ * procedural cottage footprint so the GLB LOD0 and procedural LOD1 swap without
+ * a size jump. Generated settlement cottages fit their own colliders through
+ * `authoredCottageScaleForCollider`, which lands on the same ~1.25.
+ */
+export const VILLAGE_COTTAGE_SCALE = 1.25
+
 export interface VillageCottageInstance {
   id: string
   position: Readonly<{ x: number; y: number; z: number }>
@@ -348,6 +357,7 @@ export function createVillageCottage(source: THREE.Object3D): THREE.Group {
     sherwoodVillageKind: "cottage",
     sherwoodVillageRole: "cottage",
   }
+  cottage.scale.setScalar(VILLAGE_COTTAGE_SCALE)
 
   for (const spec of COTTAGE_PLACEMENTS) cottage.add(createPlacement(catalog, spec))
 

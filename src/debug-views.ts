@@ -13,6 +13,9 @@ export const DEBUG_VIEWS: Readonly<Record<string, DebugView>> = {
   horizon: { camera: { position: [59.5, 56.5], target: [72, 72] } },
   // Looks along +x at the east edge from inside; the wall at 100 sits in the top band, 54u away.
   "horizon-x": { camera: { position: [46.1, 8], target: [66, 8] } },
+  // Teleports the hero into the public camp so the follow camera frames the
+  // campfire, mission board, the three huts and the hero for scale grading.
+  hub: { player: { x: -12.5, z: 10.5 } },
 }
 
 /** Reads `?view=<name>` from a location.search-style string. Returns null when absent or unknown. */

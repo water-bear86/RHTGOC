@@ -163,9 +163,9 @@ function createSettlement(
     const kindForBuilding = kind === "sheriff-post" && buildings.length === 0
       ? "watchtower"
       : buildings.length % 4 === 3 ? "barn" : "cottage"
-    const halfExtents = kindForBuilding === "watchtower" ? { x: 1.45, z: 1.45 }
-      : kindForBuilding === "barn" ? { x: 2.5, z: 1.75 }
-        : { x: 1.9, z: 1.45 }
+    const halfExtents = kindForBuilding === "watchtower" ? { x: 1.8, z: 1.8 }
+      : kindForBuilding === "barn" ? { x: 4, z: 2.8 }
+        : { x: 2.65, z: 2.85 }
     const sideDistance = 3.5 + halfExtents.z
     const localZ = slots[index].side * sideDistance
     const position = {
@@ -195,9 +195,9 @@ function createSettlement(
     const kindForBuilding = kind === "sheriff-post" && buildings.length === 0
       ? "watchtower"
       : buildings.length % 4 === 3 ? "barn" : "cottage"
-    const halfExtents = kindForBuilding === "watchtower" ? { x: 1.45, z: 1.45 }
-      : kindForBuilding === "barn" ? { x: 2.5, z: 1.75 }
-        : { x: 1.9, z: 1.45 }
+    const halfExtents = kindForBuilding === "watchtower" ? { x: 1.8, z: 1.8 }
+      : kindForBuilding === "barn" ? { x: 4, z: 2.8 }
+        : { x: 2.65, z: 2.85 }
     const position = {
       x: clamp(center.x + Math.cos(angle) * radius),
       z: clamp(center.z + Math.sin(angle) * radius),

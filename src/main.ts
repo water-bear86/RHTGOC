@@ -71,6 +71,7 @@ import {
   resolveSherwoodCombinedMovement,
   resolveSherwoodPlayerMovement,
 } from "../shared/world-collisions"
+import { SHERWOOD_CAMP_HUT_LAYOUT, type SherwoodCampHutPlacement } from "../shared/world-obstacles"
 import { SHERWOOD_GUARD_SEPARATION, activeGuardPositions } from "../shared/guard-rules"
 import { SHERWOOD_TREE_LAYOUT } from "../shared/world-layout"
 import { createSherwoodWater } from "./water"
@@ -960,18 +961,19 @@ function createFallbackTree(x: number, z: number, scale = 1): THREE.Group {
   return tree
 }
 
-function createHut(x: number, z: number, rotation = 0): THREE.Group {
+function createHut(placement: SherwoodCampHutPlacement): THREE.Group {
+  const { x, z, rotation, halfExtents } = placement
   const hut = createStylizedBuildingVisual({
-    id: `CampCottage:${x}:${z}`,
+    id: `CampCottage:${placement.id}`,
     kind: "cottage",
     palette: "village",
-    width: 3.2,
-    depth: 2.6,
+    width: halfExtents.x * 2,
+    depth: halfExtents.z * 2,
   }, { castShadow: renderProfile.shadows })
-  hut.position.set(x, sherwoodFootprintGroundY(x, z, 1.6, 1.3, rotation), z)
+  hut.position.set(x, sherwoodFootprintGroundY(x, z, halfExtents.x, halfExtents.z, rotation), z)
   hut.rotation.y = rotation
   scene.add(hut)
-  cameraOccluders.push({ view: hut, radius: 2.2 })
+  cameraOccluders.push({ view: hut, radius: Math.hypot(halfExtents.x, halfExtents.z) })
   return hut
 }
 
@@ -993,10 +995,11 @@ function createWorld(): void {
   rebuildCrossingInfrastructure(state.layout)
   rebuildBowCaches(state.layout)
 
-  legacyVillageViews.push(createHut(-14, 11, 0.35))
-  villageCottageFallback = createHut(-10, 14, -0.55)
+  const [cottageHut, campHutA, campHutC] = SHERWOOD_CAMP_HUT_LAYOUT
+  villageCottageFallback = createHut(cottageHut)
+  legacyVillageViews.push(createHut(campHutA))
   legacyVillageViews.push(villageCottageFallback)
-  legacyVillageViews.push(createHut(-15, 6, 1.1))
+  legacyVillageViews.push(createHut(campHutC))
   const villageCircle = mesh(new THREE.TorusGeometry(2.35, 0.08, 6, 48), palette.gold, { cast: false })
   villageCircle.name = "MissionCampfireHalo"
   villageCircle.position.set(0, 0.06, 0)
@@ -1309,7 +1312,7 @@ function prepareVillageRuntimeObject<T extends THREE.Object3D>(root: T): T {
 function attachVillageSlice(cart: THREE.Group): void {
   void loadVillageCatalog().then((source) => {
     const cottage = prepareVillageRuntimeObject(createVillageCottage(source))
-    cottage.position.set(-10, sherwoodFootprintGroundY(-10, 14, 2.2, 2.3, -0.55), 14)
+    cottage.position.set(-10, sherwoodFootprintGroundY(-10, 14, 2.65, 2.85, -0.55), 14)
     cottage.rotation.y = -0.55
     cottage.visible = false
     const wagonShell = prepareVillageRuntimeObject(createVillageWagonShell(source))
@@ -1324,7 +1327,7 @@ function attachVillageSlice(cart: THREE.Group): void {
     }
 
     villageCottageView = cottage
-    cameraOccluders.push({ view: cottage, radius: 3.2 })
+    cameraOccluders.push({ view: cottage, radius: 3.9 })
     scene.add(cottage)
     villageWagonShellView = wagonShell
     cart.add(wagonShell)

@@ -155,7 +155,7 @@ function createStockadeWalls(spans: readonly StockadeSpanPlacement[]): THREE.Gro
   const postCounts = spans.map(({ length }) => Math.max(2, Math.ceil(length / 0.72)) + 1)
   const posts = instancedMesh(
     "StockadePosts",
-    new THREE.CylinderGeometry(0.17, 0.2, 2.35, 5),
+    new THREE.CylinderGeometry(0.17, 0.2, 3.3, 5),
     0x5a3822,
     postCounts.reduce((sum, count) => sum + count, 0),
   )
@@ -180,7 +180,7 @@ function createStockadeWalls(spans: readonly StockadeSpanPlacement[]): THREE.Gro
       const localX = (index / (postCount - 1) - 0.5) * span.length
       position.set(
         span.x + cosine * localX,
-        1.12 + (index % 3) * 0.035,
+        1.6 + (index % 3) * 0.05,
         span.z - sine * localX,
       )
       rotation.setFromEuler(new THREE.Euler(0, span.rotation + index * 0.47, 0))
@@ -189,7 +189,7 @@ function createStockadeWalls(spans: readonly StockadeSpanPlacement[]): THREE.Gro
       posts.setMatrixAt(postInstance, matrix)
       postInstance += 1
     }
-    for (const y of [0.55, 1.45]) {
+    for (const y of [0.7, 2.4]) {
       position.set(span.x, y, span.z)
       rotation.setFromEuler(new THREE.Euler(0, span.rotation, 0))
       scale.set(span.length, 1, 1)
@@ -234,7 +234,7 @@ function createObjectiveStockade(layout: RegionalMissionLayout): {
   gate.position.set(-gateHalfWidth, 0, halfDepth)
   const gatePlanks = instancedMesh(
     "StockadeGatePlanks",
-    new THREE.BoxGeometry(0.54, 2.15, 0.2),
+    new THREE.BoxGeometry(0.6, 3, 0.2),
     0x6a4226,
     5,
   )
@@ -246,17 +246,17 @@ function createObjectiveStockade(layout: RegionalMissionLayout): {
   )
   const gateMatrix = new THREE.Matrix4()
   for (let index = 0; index < 5; index += 1) {
-    gateMatrix.makeTranslation(0.3 + index * 0.6, 1.05 + (index % 2) * 0.04, 0)
+    gateMatrix.makeTranslation(0.3 + index * 0.6, 1.5 + (index % 2) * 0.05, 0)
     gatePlanks.setMatrixAt(index, gateMatrix)
   }
-  ;[0.52, 1.52].forEach((y, index) => {
+  ;[0.7, 2.4].forEach((y, index) => {
     gateMatrix.makeTranslation(gateHalfWidth, y, 0)
     gateBraces.setMatrixAt(index, gateMatrix)
   })
   gatePlanks.instanceMatrix.needsUpdate = true
   gateBraces.instanceMatrix.needsUpdate = true
   const chain = mesh("StockadeGateChain", new THREE.TorusGeometry(0.24, 0.045, 6, 14), 0x8b806c)
-  chain.position.set(gateHalfWidth, 1.12, 0.16)
+  chain.position.set(gateHalfWidth, 1.6, 0.16)
   gate.add(gatePlanks, gateBraces, chain)
   group.add(gate)
 
@@ -271,14 +271,14 @@ function createObjectiveStockade(layout: RegionalMissionLayout): {
     sherwoodHeightAt(layout.objectiveGateKeyPosition.x, layout.objectiveGateKeyPosition.z) - group.position.y,
     sine * keyDx + cosine * keyDz,
   )
-  const post = mesh("GateKeyPost", new THREE.CylinderGeometry(0.16, 0.2, 1.8, 6), 0x4c3020)
-  post.position.y = 0.9
+  const post = mesh("GateKeyPost", new THREE.CylinderGeometry(0.16, 0.2, 2.3, 6), 0x4c3020)
+  post.position.y = 1.15
   const pennant = mesh("GateKeyPennant", new THREE.BoxGeometry(0.72, 0.48, 0.05), 0x8f2f23)
-  pennant.position.set(0.42, 1.52, 0)
+  pennant.position.set(0.42, 2, 0)
   const keyParts = [
-    new THREE.TorusGeometry(0.2, 0.055, 7, 18).translate(0, 1.16, 0.22),
-    new THREE.BoxGeometry(0.08, 0.48, 0.08).translate(0, 0.88, 0.22),
-    new THREE.BoxGeometry(0.2, 0.08, 0.08).translate(0.07, 0.66, 0.22),
+    new THREE.TorusGeometry(0.2, 0.055, 7, 18).translate(0, 1.5, 0.22),
+    new THREE.BoxGeometry(0.08, 0.6, 0.08).translate(0, 1.12, 0.22),
+    new THREE.BoxGeometry(0.2, 0.08, 0.08).translate(0.07, 0.86, 0.22),
   ]
   const keyGeometry = mergeGeometries(keyParts)
   keyParts.forEach((geometry) => geometry.dispose())
@@ -371,8 +371,8 @@ function createFarmhouse(): THREE.Group {
     id: "FarmhouseLandmark",
     kind: "farmhouse",
     palette: "farm",
-    width: 4.7,
-    depth: 3.5,
+    width: 7.5,
+    depth: 5.6,
   })
 }
 
