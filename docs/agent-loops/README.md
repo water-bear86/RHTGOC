@@ -44,13 +44,18 @@ the same N.
 - `tools/visual-check.mjs` — builds, serves the client, captures the public camp hub at
   1440×900 (standard and `?render=degraded`) and 390×844, writes PNGs to /tmp/visual-check.
   Run with `--no-build` to reuse the last build.
-- `01-shadows.md`, `02-building-scale.md`, `03-horizon-backdrop.md` — the tasks.
-- Each task's NOTES.md is created by the worker in the same folder.
+- `01-shadows.md` — landed (commit `a335b57`).
+- `04-horizon-backdrop.md`, `05-object-scale.md`, `06-major-oak.md` — the live tasks (launch pass,
+  verified against `892bc5f`). `02-building-scale.md` and `03-horizon-backdrop.md` are superseded
+  drafts kept only for history; do not run them.
+- Each task's NOTES file (`04-NOTES.md`, `05-NOTES.md`, `06-NOTES.md`) is created by the worker in the same folder.
 
 ## Order
 
-Run 02 (scale) before 03 (backdrop): the horizon treeline is sized relative to buildings.
-01 (shadows) is independent.
+Run **04 → 05 → 06**. 04 adds the `?view=<name>` debug camera and the `horizon*` captures that 05 and 06
+photograph with; 05 fixes the hub hut layout and cottage footprint that 06's hub-bounds change builds on.
+Each task bumps `shared/protocol-version.json` at most once; 05 and 06 both touch shared world data, so
+land them in that order and bump sequentially (20 → 21 → 22).
 
 ## GPU note
 

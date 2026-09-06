@@ -1,3 +1,5 @@
+> **SUPERSEDED by `05-object-scale.md`** — this draft never landed and its numbers were not re-verified. Do not run it.
+
 # Task 02 — Scale buildings correctly against the heroes
 
 Follow `README.md` in this folder. Max 8 iterations. Write NOTES.md beside this file.
