@@ -1,0 +1,21 @@
+CoMiGo Fantasy Icons — CC0-1.0 (public domain)
+
+Icon pack by CoMiGo (https://comigo.itch.io/), distributed under CC0-1.0.
+The pack's own README, verbatim:
+
+---
+This icon pack was made by CoMiGo. The license is CC0, which is effectively
+public domain, which means that you can use the assets however you want.
+
+Besides graphical assets, I usually build game making tools — a game engine
+ct.js, for example. Check my stuff at https://comigo.itch.io/
+---
+
+Source archive: CoMiGoFantasyIcons.zip
+SHA-256: a26a75d21dd530d0d1b64c00d3cf5346d6e0f23e8b51435445f74d00ac252b9c
+Bytes: 10274604
+
+Only the hand-drawn black SVG line-art used by the UI ships in the browser
+bundle, under public/assets/ui/comigo/. The full pack (275 SVG + 538 PNG) is
+CC0; the subset here is what the interface references. No attribution is
+required under CC0; CoMiGo is credited here by choice.
