@@ -2,7 +2,13 @@ import type { RegionalMissionLayout } from "./regional-layout"
 import { SHERWOOD_GUARD_SEPARATION } from "./guard-rules"
 import { composeSherwoodWorld } from "./world-composer"
 import { createSherwoodMissionForestRockLayout } from "./world-dressing-layout"
-import { createSherwoodStandingStoneLayout } from "./world-landmarks-layout"
+import {
+  SHERWOOD_FARM_LAYOUT,
+  chooseFarmPosition,
+  createSherwoodStandingStoneLayout,
+  sherwoodFarmRotation,
+  type SherwoodFarmColliderPlacement,
+} from "./world-landmarks-layout"
 import {
   SHERWOOD_STATIC_OBSTACLES,
   SHERWOOD_MISSION_STATIC_OBSTACLES,
@@ -69,6 +75,31 @@ export function createSherwoodMissionRockColliders(layout: RegionalMissionLayout
   return Object.freeze([...forestRocks, ...standingStones])
 }
 
+/**
+ * Solid footprints for the windmill and farmhouse. Both the renderer
+ * (`createSherwoodLandmarks`) and this collision path read the same shared
+ * frame placement, so a mission's farm cannot desync.
+ */
+export function createSherwoodFarmColliders(layout: RegionalMissionLayout): readonly OrientedRectangleCollider[] {
+  const farmPosition = chooseFarmPosition(layout, composeSherwoodWorld(layout))
+  const rotation = sherwoodFarmRotation(farmPosition)
+  const cosine = Math.cos(rotation)
+  const sine = Math.sin(rotation)
+  const place = (id: string, placement: SherwoodFarmColliderPlacement): OrientedRectangleCollider => ({
+    id,
+    center: {
+      x: farmPosition.x + cosine * placement.localX + sine * placement.localZ,
+      z: farmPosition.z - sine * placement.localX + cosine * placement.localZ,
+    },
+    halfExtents: { x: placement.halfExtents.x, z: placement.halfExtents.z },
+    rotation,
+  })
+  return Object.freeze([
+    place("sherwood-farm-windmill", SHERWOOD_FARM_LAYOUT.windmill),
+    place("sherwood-farm-farmhouse", SHERWOOD_FARM_LAYOUT.farmhouse),
+  ])
+}
+
 const missionStaticColliderCache = new WeakMap<RegionalMissionLayout, readonly OrientedRectangleCollider[]>()
 
 function staticCollidersForLayout(layout?: RegionalMissionLayout): readonly OrientedRectangleCollider[] {
@@ -80,6 +111,7 @@ function staticCollidersForLayout(layout?: RegionalMissionLayout): readonly Orie
     ...SHERWOOD_MISSION_STATIC_OBSTACLES,
     ...rocks,
     ...createSherwoodMissionRockColliders(layout),
+    ...createSherwoodFarmColliders(layout),
   ])
   missionStaticColliderCache.set(layout, colliders)
   return colliders

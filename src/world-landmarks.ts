@@ -8,8 +8,10 @@ import {
   SHERWOOD_OBJECTIVE_STOCKADE_HALF_WIDTH,
 } from "../shared/world-obstacles"
 import {
+  SHERWOOD_FARM_LAYOUT,
   chooseFarmPosition,
   createSherwoodStandingStoneLayout,
+  sherwoodFarmRotation,
 } from "../shared/world-landmarks-layout"
 import { createStylizedBuildingVisual, disposeStylizedBuildingVisuals } from "./building-visuals"
 import { createToonMaterial } from "./toon-materials"
@@ -371,8 +373,8 @@ function createFarmhouse(): THREE.Group {
     id: "FarmhouseLandmark",
     kind: "farmhouse",
     palette: "farm",
-    width: 7.5,
-    depth: 5.6,
+    width: SHERWOOD_FARM_LAYOUT.farmhouse.halfExtents.x * 2,
+    depth: SHERWOOD_FARM_LAYOUT.farmhouse.halfExtents.z * 2,
   })
 }
 
@@ -389,7 +391,7 @@ export function createSherwoodLandmarks(
   const farmPosition = chooseFarmPosition(layout, options.world)
   const farm = new THREE.Group()
   farm.name = "WindmillFarm"
-  const farmRotation = farmPosition.x * farmPosition.z > 0 ? -0.35 : 0.35
+  const farmRotation = sherwoodFarmRotation(farmPosition)
   const farmHeight = sherwoodHeightAt(farmPosition.x, farmPosition.z)
   const farmFrame: TerrainFrame = { x: farmPosition.x, z: farmPosition.z, y: farmHeight, rotation: farmRotation }
   farm.position.set(farmPosition.x, farmHeight, farmPosition.z)
@@ -398,9 +400,9 @@ export function createSherwoodLandmarks(
   const soil = createDrapedFarmSoil(farmFrame)
   const { group: wheat, count: wheatCount } = createWheatField(farmFrame, options.natureCatalog)
   const { group: windmill, rotor } = createWindmill()
-  setOnTerrainInFrame(windmill, farmFrame, 8.4, -1.2)
+  setOnTerrainInFrame(windmill, farmFrame, SHERWOOD_FARM_LAYOUT.windmill.localX, SHERWOOD_FARM_LAYOUT.windmill.localZ)
   const farmhouse = createFarmhouse()
-  setOnTerrainInFrame(farmhouse, farmFrame, 1.7, 7.1)
+  setOnTerrainInFrame(farmhouse, farmFrame, SHERWOOD_FARM_LAYOUT.farmhouse.localX, SHERWOOD_FARM_LAYOUT.farmhouse.localZ)
   farmhouse.rotation.y = Math.PI
   farm.add(soil, wheat, windmill, farmhouse)
   addFence(farm, farmFrame, -1, -5.3, 15, 0)

@@ -11,6 +11,35 @@ export interface SherwoodStandingStonePlacement {
   scaleZ: number
 }
 
+export interface SherwoodFarmColliderPlacement {
+  localX: number
+  localZ: number
+  halfExtents: Readonly<{ x: number; z: number }>
+}
+
+export interface SherwoodFarmLayout {
+  windmill: SherwoodFarmColliderPlacement
+  farmhouse: SherwoodFarmColliderPlacement
+}
+
+/**
+ * Shared placement of the two solid farm landmarks inside the farm's terrain
+ * frame. The renderer positions the windmill and farmhouse from these local
+ * offsets and authoritative collision derives their colliders from the same
+ * data so a mission's farm cannot desync. Half extents are the hero-scaled
+ * footprints: farmhouse 7.5x5.6 (visual half 3.75x2.8), windmill base r 3.9
+ * boxed to a 3.4 half-square.
+ */
+export const SHERWOOD_FARM_LAYOUT: SherwoodFarmLayout = Object.freeze({
+  windmill: Object.freeze({ localX: 8.4, localZ: -1.2, halfExtents: Object.freeze({ x: 3.4, z: 3.4 }) }),
+  farmhouse: Object.freeze({ localX: 1.7, localZ: 7.1, halfExtents: Object.freeze({ x: 3.75, z: 2.8 }) }),
+})
+
+/** Farm frame heading: today's literal in `createSherwoodLandmarks`. */
+export function sherwoodFarmRotation(farmPosition: Readonly<{ x: number; z: number }>): number {
+  return farmPosition.x * farmPosition.z > 0 ? -0.35 : 0.35
+}
+
 function distanceToSegment(
   point: { x: number; z: number },
   start: { x: number; z: number },

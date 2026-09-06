@@ -110,3 +110,63 @@ Landed. `npx tsc -b` clean; `npx vitest run` = 112 files / 905 tests green.
 Criterion 3 (campfire ~0.8 hero, fence rails at hip) confirmed in `hub.png`: campfire ring clearly
 larger, fence posts substantial. Criterion 4 props/cart are mission-only geometry (not framable in the
 hub); changes are numeric + gated.
+
+## Stage C — farm colliders + protocol bump
+
+Landed. `npx tsc -b` clean; `npx vitest run` = 112 files / 906 tests green.
+
+- `shared/world-landmarks-layout.ts`: new `SHERWOOD_FARM_LAYOUT` (windmill local (8.4,-1.2)
+  halfExtents 3.4 square; farmhouse local (1.7,7.1) halfExtents 3.75x2.8) + `sherwoodFarmRotation`.
+- `shared/world-collisions.ts`: `createSherwoodFarmColliders(layout)` builds the two farm colliders
+  from `chooseFarmPosition` + the shared frame maths (identical to `worldPointInFrame`), and it is
+  added to `staticCollidersForLayout(layout)` beside the mission rock colliders. Windmill and
+  farmhouse are now solid in missions.
+- `src/world-landmarks.ts`: `createSherwoodLandmarks` reads the farm rotation and the windmill/
+  farmhouse local offsets from `SHERWOOD_FARM_LAYOUT`; `createFarmhouse` derives its size from the
+  same constant — so the rendered farm and the collider farm share one source.
+- `shared/protocol-version.json`: 20 → 21 (world-data migration). `shared/protocol.test.ts` pin
+  updated 20→21. `PROTOCOL_VERSION` is `protocol-version.json.version`, so client/server/shared stay
+  consistent from the single bump.
+- New criterion-2d test in `world-collisions.test.ts` (farm collider footprints over seeds 1..24) and
+  a rendered↔collider parity assertion in `world-landmarks.test.ts`.
+
+The farm sits in a map corner (±48), so adding its colliders did NOT shift feasibility for any run
+token — the full server suite stayed green; only the protocol pin needed updating.
+
+## Result
+
+| Criterion | Status |
+|---|---|
+| 1 — building ratios (wall/ridge/door/window/foundation; farmhouse/barn/watchtower eaves) | PASS (building-visuals.test.ts) |
+| 2 — footprint parity a/b/c/d (huts, settlement seeds 1..24, cottage 1.25x, farm colliders) | PASS |
+| 3 — hub-camp.png / hub.png scale by eye | PASS (buildings hero-scaled, huts grounded & disjoint, campfire ~0.8 hero) |
+| 4 — props (barrel/crate/cart) | Changes applied + gated; mission-only geometry not framable in the hub, so graded from numbers not a PNG |
+| 5 — existing suites green with pinned numbers updated | PASS (see per-stage lists) |
+| 6 — tsc+vitest green, validate:assets untouched, protocol 21, no new dep, <=520 code lines | PASS |
+
+Before/after PNGs: `/tmp/visual-check/stageA-hub{,-camp,-camp-degraded}.png`,
+`/tmp/visual-check/stageB-hub{,-camp}.png`.
+
+Full suite: **906 tests green** (900 baseline + new cases for criteria 1/2/2d, minus none).
+
+### Pinned numbers updated (criterion 5), each because this brief changed the underlying value
+
+- `shared/world-collisions.test.ts`: cottage collider 2.75x3 → 2.65x2.85 (+ 1.25x-envelope, hut, farm).
+- `shared/world-composer.test.ts`: sparse-seed building floor 10 → 8 (bigger footprints fit fewer;
+  see the Stage A deviation note — slots kept authored so mission world data is unchanged).
+- `src/settlement-renderer.test.ts`: authored-cottage scale now uniform 1.2375 (+ seeds 1..24 parity).
+- `src/village-assets.test.ts`: wagon shell scale 0.8 → 1.0.
+- `src/world-landmarks.test.ts`: fence-post drape offset 0.575 → 0.75; + farm parity assertion.
+- `shared/protocol.test.ts`: PROTOCOL_VERSION 20 → 21.
+
+### Known / measured / deliberately not changed (per brief)
+
+- Tree trunk colliders (0.34*scale) left as-is — a separate 314-collider migration, not this pass.
+- Standing stones, ridge boulders, forest medium rocks (visual), authored trees, guards, mission
+  board, bridge, wheat — left as the brief instructs (wheat x1.3 was the optional item, skipped).
+
+### Line budget
+
+Production/source changes total ~269 inserted lines (Stage A buildings+shared, Stage B props, Stage
+C farm) — within the 520 budget. The remaining ~297 inserted lines are the new test cases that
+acceptance criteria 1/2/2d explicitly require.

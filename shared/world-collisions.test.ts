@@ -6,6 +6,7 @@ import {
   SHERWOOD_RIDGE_ROCK_COLLIDERS,
   SHERWOOD_TREE_COLLIDERS,
   VILLAGE_COTTAGE_COLLIDER,
+  createSherwoodFarmColliders,
   createSherwoodSettlementColliders,
   createSherwoodMissionRockColliders,
   createSherwoodTopologyColliders,
@@ -13,6 +14,7 @@ import {
   resolveSherwoodCombinedMovement,
   resolveSherwoodPlayerMovement,
 } from "./world-collisions"
+import { SHERWOOD_FARM_LAYOUT } from "./world-landmarks-layout"
 import { PEOPLES_PURSE_MISSION } from "./mission-catalog"
 import { regionalizeMissionDefinition, riverPointAt } from "./regional-layout"
 import { composeSherwoodWorld } from "./world-composer"
@@ -328,6 +330,29 @@ describe("shared Sherwood world collision contract", () => {
           ).toBe(true)
         }
       }
+    }
+  })
+
+  it("gives the windmill and farmhouse solid footprints matching their rendered size (seeds 1..24)", () => {
+    for (let seed = 1; seed <= 24; seed += 1) {
+      const seedLayout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, seed).layout
+      const colliders = createSherwoodFarmColliders(seedLayout)
+      expect(colliders).toHaveLength(2)
+      const windmill = colliders.find((c) => c.id === "sherwood-farm-windmill")!
+      const farmhouse = colliders.find((c) => c.id === "sherwood-farm-farmhouse")!
+
+      // Windmill: base radius 3.9 boxed to ~3.9 * 0.87 half-square.
+      expect(Math.abs(windmill.halfExtents.x - 3.9 * 0.87)).toBeLessThanOrEqual(0.05)
+      expect(windmill.halfExtents.x).toBe(windmill.halfExtents.z)
+      // Farmhouse: equals the rendered visual half extents (7.5 x 5.6).
+      expect(Math.abs(farmhouse.halfExtents.x - SHERWOOD_FARM_LAYOUT.farmhouse.halfExtents.x)).toBeLessThanOrEqual(0.05)
+      expect(Math.abs(farmhouse.halfExtents.z - SHERWOOD_FARM_LAYOUT.farmhouse.halfExtents.z)).toBeLessThanOrEqual(0.05)
+      expect(farmhouse.halfExtents.x).toBeCloseTo(3.75, 5)
+      expect(farmhouse.halfExtents.z).toBeCloseTo(2.8, 5)
+
+      // Both are authoritative solids in their own mission layout.
+      expect(isSherwoodPlayerPositionBlocked(windmill.center, SHERWOOD_PLAYER_RADIUS, seedLayout)).toBe(true)
+      expect(isSherwoodPlayerPositionBlocked(farmhouse.center, SHERWOOD_PLAYER_RADIUS, seedLayout)).toBe(true)
     }
   })
 
