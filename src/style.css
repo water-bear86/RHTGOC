@@ -1158,9 +1158,3 @@ label, dt, .quick-chat label, .chat-message header b, .maker-mark + *,
   .entry-gate-inner, .entry-gate-hint { animation: none; }
   #entry-gate, .entry-medallion { transition: opacity .2s ease; }
 }
-
-/* Ink-bleed: the display script soaks into the paper like wet ink. The filter
-   defs live in a zero-size SVG; applied to the hero display text only so body
-   copy stays crisp. */
-.ink-filter-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
-#intro-title, .entry-gate-label { filter: url(#ink-bleed); }
