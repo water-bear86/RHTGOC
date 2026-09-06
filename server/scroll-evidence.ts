@@ -138,6 +138,16 @@ export class InertEvidenceSink implements EvidenceSink {
   }
 }
 
+/**
+ * The production default when no concrete sink is configured: evidence is
+ * signed but not stored anywhere, so the issuer never accumulates an unbounded
+ * in-memory backlog over the server's lifetime. A real deployment MUST supply a
+ * durable sink; without one the issuer produces nothing to bank, by design.
+ */
+export class DiscardingEvidenceSink implements EvidenceSink {
+  async deliver(): Promise<void> {}
+}
+
 export interface ScrollEvidenceIssuerConfig {
   /** PEM-encoded Ed25519 private key. Absent → the issuer is disabled and inert. */
   signingKeyPem?: string | undefined
@@ -152,18 +162,19 @@ export interface ScrollEvidenceIssuer {
   /**
    * Sign and deliver evidence for one authoritative run. Resolves to the
    * evidence when issued, or null when the issuer is disabled or the run has no
-   * wallet to credit. Never throws into the mission-completion path: a delivery
-   * failure is caught and reported, because losing an evidence record must not
-   * fail the mission for the player.
+   * wallet to credit. Rejects if delivery fails, so the (detached) caller can
+   * report it; because the caller invokes this without awaiting, a failure is
+   * logged but never blocks or fails the mission for the player.
    */
   issue(wallet: string | null | undefined, run: VerifiedRun): Promise<ScrollEvidence | null>
 }
+
 
 export function createScrollEvidenceIssuer(config: ScrollEvidenceIssuerConfig): ScrollEvidenceIssuer {
   const signingKeyPem = config.signingKeyPem?.trim()
   const enabled = Boolean(signingKeyPem)
   const ttlSeconds = config.ttlSeconds ?? 3_600
-  const sink = config.sink ?? new InertEvidenceSink()
+  const sink = config.sink ?? new DiscardingEvidenceSink()
   const now = config.now ?? (() => Date.now())
 
   return {
@@ -175,13 +186,11 @@ export function createScrollEvidenceIssuer(config: ScrollEvidenceIssuerConfig): 
       const payload = buildEvidencePayload({ wallet: normalized, run, ttlSeconds, now: now() })
       const record = signEvidencePayload(payload, signingKeyPem)
       const evidence: ScrollEvidence = { evidenceId: payload.evidenceId, wallet: normalized, record }
-      try {
-        await sink.deliver(evidence)
-      } catch {
-        // Delivery is best-effort; a retry/reconciliation path belongs to the
-        // concrete sink, not the mission loop.
-        return evidence
-      }
+      // Let a delivery failure reject: the sole caller invokes issue() detached
+      // (`void issue(...).catch(...)`), so the failure is logged as
+      // scroll_evidence_failed without ever blocking or failing the mission.
+      // Swallowing it here would drop signed progression with no signal.
+      await sink.deliver(evidence)
       return evidence
     },
   }

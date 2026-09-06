@@ -35,6 +35,10 @@ const port = Number(process.env.PORT ?? 8787)
 const buildId = normalizeBuildId(process.env.BUILD_ID)
 const processStartedAt = new Date().toISOString()
 const rooms = new Map<string, Room>()
+// Slots claimed by in-flight create_room handshakes that have not yet inserted
+// their Room. Counted against maxRooms so a burst of concurrent creates near
+// the ceiling cannot all pass the capacity check and over-allocate.
+let pendingRoomCreations = 0
 const bandStore = createBandStoreFromEnv()
 const leaderboardStore = createLeaderboardStoreFromEnv()
 const rankedLeaderboardStore = createRankedLeaderboardStoreFromEnv()
@@ -55,6 +59,19 @@ const gameplayAnalytics = gameplayAnalyticsStore ? new GameplayAnalyticsAggregat
 const experimentService = gameplayAnalyticsStore ? createExperimentServiceFromEnv() : null
 const STARTUP_DEPENDENCY_TIMEOUT_MS = 4_000
 const publicOrigin = process.env.PUBLIC_ORIGIN?.replace(/\/$/, "")
+// Other origins that serve the same client and are advertised to players (for
+// example the direct Lightsail URL still linked from README): browsers send
+// that hostname as Origin, so it must be accepted or a documented entry point
+// can load the page but never open the multiplayer socket.
+const extraAllowedOrigins = (process.env.EXTRA_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/$/, ""))
+  .filter(Boolean)
+const allowedOrigins = new Set<string>(
+  [publicOrigin, ...extraAllowedOrigins].filter((origin): origin is string => Boolean(origin)),
+)
+const isAllowedOrigin = (origin: string | undefined): boolean =>
+  !origin || allowedOrigins.size === 0 || allowedOrigins.has(origin.replace(/\/$/, ""))
 let seasonReady = seasonStore === null
 const telemetry = new Telemetry()
 const rotationService = new SheriffRotationService()
@@ -287,6 +304,11 @@ async function flushGameplayAnalytics(now = Date.now()): Promise<void> {
 }
 
 function reservePublicBand(group: HubParticipant[], automatic: boolean): void {
+  if (rooms.size + pendingRoomCreations >= maxRooms) {
+    telemetry.increment("room_capacity_rejected_total")
+    structuredLog("quick_play_group_dropped_at_capacity", { partySize: group.length, automatic }, "warn")
+    return
+  }
   const code = roomCode()
   const room = new Room(code, (now) => campaignRotationWindow(rotationService.window(now), seasonService.snapshot(now)), (now) => seasonService.snapshot(now), null, assignRoomExperiments)
   rooms.set(code, room)
@@ -692,14 +714,15 @@ async function finalizeLeaderboardSeasons(): Promise<void> {
 const httpServer = createServer(async (request, response) => {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname
   const requestOrigin = request.headers.origin
-  if (publicOrigin && requestOrigin === publicOrigin) {
-    response.setHeader("Access-Control-Allow-Origin", publicOrigin)
+  const corsOrigin = requestOrigin && allowedOrigins.has(requestOrigin.replace(/\/$/, "")) ? requestOrigin.replace(/\/$/, "") : null
+  if (corsOrigin) {
+    response.setHeader("Access-Control-Allow-Origin", corsOrigin)
     response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type")
     response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     response.setHeader("Vary", "Origin")
   }
   if (request.method === "OPTIONS" && (pathname.startsWith("/access") || pathname.startsWith("/api/vanity"))) {
-    response.writeHead(requestOrigin === publicOrigin ? 204 : 403)
+    response.writeHead(corsOrigin ? 204 : 403)
     response.end()
     return
   }
@@ -1282,8 +1305,8 @@ const sockets = new WebSocketServer({
   // tools/ — which cross-site scripting cannot forge, so it is not the thing
   // this check defends against. Every message still needs its own explicit
   // auth token regardless: this only narrows who can open the socket.
-  verifyClient: publicOrigin
-    ? (info: { origin?: string }) => !info.origin || info.origin.replace(/\/$/, "") === publicOrigin
+  verifyClient: allowedOrigins.size > 0
+    ? (info: { origin?: string }) => isAllowedOrigin(info.origin)
     : undefined,
 })
 sockets.on("connection", (socket) => {
@@ -1301,6 +1324,16 @@ sockets.on("connection", (socket) => {
   let lastClientMetricsAt = 0
   let lastClientDiagnosticAt = 0
   let productAnalyticsConsent = false
+  // Serialize handshakes on this socket. ws does not await message listeners,
+  // so without this several create_room/join_room frames could interleave —
+  // each passing the "leave previous room" guard while joinedRoom is still
+  // null and leaving orphaned players a socket close never disconnects.
+  let handshakeChain: Promise<void> = Promise.resolve()
+  const serializeHandshake = (task: () => Promise<void>): Promise<void> => {
+    const run = handshakeChain.then(task, task)
+    handshakeChain = run.catch(() => {})
+    return run
+  }
 
   socket.on("message", async (raw) => {
     let value: unknown
@@ -1327,15 +1360,24 @@ sockets.on("connection", (socket) => {
     }
 
     if (message.type === "create_room" || message.type === "join_room") {
+      await serializeHandshake(async () => {
+      let reservedRoomSlot = false
       try {
         if (message.type === "create_room" && !acceptingNewSessions) {
           send(socket, { type: "error", code: "FORBIDDEN", message: "This server is draining for an update. Try again in a moment." })
           return
         }
-        if (message.type === "create_room" && rooms.size >= maxRooms) {
-          telemetry.increment("room_capacity_rejected_total")
-          send(socket, { type: "error", code: "FORBIDDEN", message: "Sherwood is full. Try again in a moment." })
-          return
+        if (message.type === "create_room") {
+          if (rooms.size + pendingRoomCreations >= maxRooms) {
+            telemetry.increment("room_capacity_rejected_total")
+            send(socket, { type: "error", code: "FORBIDDEN", message: "Sherwood is full. Try again in a moment." })
+            return
+          }
+          // Claim the slot synchronously, before any await, and release it in
+          // the finally below whether creation succeeds (the Room now counts in
+          // rooms.size) or fails.
+          pendingRoomCreations += 1
+          reservedRoomSlot = true
         }
         // Leaving the previous room is what stops one socket from holding an
         // unbounded number of rooms open: a room whose players are all still
@@ -1443,11 +1485,15 @@ sockets.on("connection", (socket) => {
             ? "That role is full — choose the other outlaw"
             : "This mission has already begun"
         send(socket, { type: "error", code, message })
+      } finally {
+        if (reservedRoomSlot) pendingRoomCreations -= 1
       }
+      })
       return
     }
 
     if (message.type === "join_public_hub") {
+      await serializeHandshake(async () => {
       if (!acceptingNewSessions) {
         send(socket, { type: "error", code: "FORBIDDEN", message: "This server is draining for an update. Try again in a moment." })
         return
@@ -1466,6 +1512,7 @@ sockets.on("connection", (socket) => {
       const participant = publicHub.join(socket, participantUserId, message.displayName, message.characterId, friendIds, Date.now(), blockedIds, authUserId)
       hubParticipantId = participant.id
       telemetry.increment(authUserId ? "quick_play_authenticated_joins_total" : "quick_play_guest_joins_total")
+      })
       return
     }
 
@@ -1953,6 +2000,45 @@ void startServer().catch((error) => {
   process.exit(1)
 })
 
+/** Total entries still queued across every durable persistence queue. */
+function totalPendingDurable(): number {
+  return (
+    pendingLeaderboardRuns.size +
+    pendingBandMissions.size +
+    pendingSeasonTransitions.size +
+    pendingContributionTransitions.size +
+    pendingRescueTransitions.size +
+    pendingRecentPlayers.size +
+    pendingGameplayAnalytics.size
+  )
+}
+
+/** During drain, make every queued entry eligible for an immediate retry so a
+ *  backoff window cannot outlast the drain deadline. */
+function forceDurableRetryNow(now: number): void {
+  for (const pending of pendingLeaderboardRuns.values()) pending.nextAttemptAt = now
+  for (const pending of pendingBandMissions.values()) pending.nextAttemptAt = now
+  for (const pending of pendingSeasonTransitions.values()) pending.nextAttemptAt = now
+  for (const pending of pendingContributionTransitions.values()) pending.nextAttemptAt = now
+  for (const pending of pendingRescueTransitions.values()) pending.nextAttemptAt = now
+  for (const pending of pendingRecentPlayers.values()) pending.nextAttemptAt = now
+  for (const pending of pendingGameplayAnalytics.values()) pending.nextAttemptAt = now
+}
+
+/** Kick every durable queue once. Each flush no-ops if already in flight, so
+ *  this is safe to call repeatedly on the drain interval. */
+function pumpDurableQueues(): void {
+  const now = Date.now()
+  forceDurableRetryNow(now)
+  void flushGameplayAnalytics(now)
+  void flushVerifiedRuns(now)
+  void flushBandMissions(now)
+  void flushSeasonTransitions(now)
+  void flushContributionTransitions(now)
+  void flushRescueTransitions(now)
+  void flushRecentPlayers(now)
+}
+
 function beginDrain(signal: NodeJS.Signals): void {
   if (draining) return
   draining = true
@@ -1964,21 +2050,11 @@ function beginDrain(signal: NodeJS.Signals): void {
   // Flush every durable queue, not just analytics. These hold verified
   // leaderboard runs and band progression; dropping them on a deploy loses
   // real player progress with no dead-letter record.
-  let analyticsFlushComplete = gameplayAnalyticsStore === null
-  let queueFlushComplete = false
-  void Promise.allSettled([
-    flushGameplayAnalytics(Date.now()).finally(() => {
-      analyticsFlushComplete = true
-    }),
-    flushVerifiedRuns(Date.now()),
-    flushBandMissions(Date.now()),
-    flushSeasonTransitions(Date.now()),
-    flushContributionTransitions(Date.now()),
-    flushRescueTransitions(Date.now()),
-    flushRecentPlayers(Date.now()),
-  ]).finally(() => {
-    queueFlushComplete = true
-  })
+  // Kick every durable queue now, then keep pumping on the interval below.
+  // Completion is gated on the queues actually being empty — not on a single
+  // flush pass settling, which can leave future-scheduled or errored entries
+  // behind and drop verified runs / progression on a socket-idle deploy.
+  pumpDurableQueues()
 
   let finished = false
   const finish = (): void => {
@@ -1990,7 +2066,8 @@ function beginDrain(signal: NodeJS.Signals): void {
     setTimeout(() => process.exit(0), 1_000).unref()
   }
   const check = setInterval(() => {
-    if (activeConnections === 0 && analyticsFlushComplete && queueFlushComplete) finish()
+    pumpDurableQueues()
+    if (activeConnections === 0 && totalPendingDurable() === 0) finish()
   }, 250)
   check.unref()
   const deadline = setTimeout(() => {

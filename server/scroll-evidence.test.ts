@@ -197,12 +197,21 @@ describe("issuer", () => {
     expect(sink.delivered).toHaveLength(0)
   })
 
-  it("does not throw into the caller when delivery fails, but still returns the evidence", async () => {
+  it("rejects when delivery fails, so the detached caller can report it", async () => {
     const { privatePem } = keypair()
     const failing = { deliver: async () => { throw new Error("dynamo down") } }
     const issuer = createScrollEvidenceIssuer({ signingKeyPem: privatePem, sink: failing })
-    const evidence = await issuer.issue(WALLET, run())
-    expect(evidence).not.toBeNull()
-    expect(evidence!.evidenceId).toBeTruthy()
+    // The sole production caller runs this detached (`void issue(...).catch`),
+    // so a rejection is logged as scroll_evidence_failed without failing the
+    // mission — but it must not be silently swallowed here.
+    await expect(issuer.issue(WALLET, run())).rejects.toThrow("dynamo down")
+  })
+
+  it("uses a non-retaining default sink so evidence never accumulates in memory", async () => {
+    const { privatePem } = keypair()
+    // No sink configured: the default must not hold references to issued evidence.
+    const issuer = createScrollEvidenceIssuer({ signingKeyPem: privatePem })
+    expect(issuer.enabled).toBe(true)
+    await expect(issuer.issue(WALLET, run())).resolves.not.toBeNull()
   })
 })
