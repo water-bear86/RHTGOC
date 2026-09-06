@@ -1,4 +1,4 @@
-# Sherwood Rebellion — game plan
+# Sherwood The Game — game plan
 
 ## North star
 

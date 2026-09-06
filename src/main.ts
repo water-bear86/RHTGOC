@@ -428,17 +428,17 @@ scroll?.setOutlawName(playerNameInput.value)
 // first open (so they are measured at their real size); the always-present
 // intro, HUD scraps and primary buttons are drawn now.
 function applyRoughBorders(): void {
-  roughBorderAll(".intro-card", { roughness: 1.8, bowing: 1.2, strokeWidth: 2.4, inset: 8, radius: 20, double: true })
-  roughBorderAll(".objective, .status span, .heat, .party-hud, .wallet-dock, .prompt, .region-map", { roughness: 2.3, bowing: 1.7, strokeWidth: 1.7, inset: 3, radius: 16 })
-  roughBorderAll(".entry-primary, .entry-public, .intro button, #wallet-sign-in", { roughness: 2.1, bowing: 1.5, strokeWidth: 2, inset: 4, radius: 16 })
+  roughBorderAll(".intro-card", { roughness: 1.8, bowing: 1.2, strokeWidth: 2.4, inset: 1, radius: 20, double: true })
+  roughBorderAll(".objective, .status span, .heat, .party-hud, .wallet-dock, .prompt, .region-map", { roughness: 2.3, bowing: 1.7, strokeWidth: 1.7, inset: 1, radius: 16 })
+  roughBorderAll(".entry-primary, .entry-public, .intro button", { roughness: 2.1, bowing: 1.5, strokeWidth: 2, inset: 1, radius: 16 })
 }
 requestAnimationFrame(applyRoughBorders)
 const roughlyBorderedPanels = new WeakSet<HTMLElement>()
 function roughBorderPanelOnOpen(panel: HTMLElement): void {
   if (roughlyBorderedPanels.has(panel)) return
   roughlyBorderedPanels.add(panel)
-  roughBorder(panel, { roughness: 1.9, bowing: 1.3, strokeWidth: 2.2, inset: 7, radius: 20, double: true })
-  panel.querySelectorAll<HTMLElement>(".panel-actions button, .board-filters select, .vote-choices button").forEach((el) => roughBorder(el, { roughness: 2.4, bowing: 1.6, strokeWidth: 1.6, inset: 3, radius: 14 }))
+  roughBorder(panel, { roughness: 1.9, bowing: 1.3, strokeWidth: 2.2, inset: 1, radius: 20, double: true })
+  panel.querySelectorAll<HTMLElement>(".panel-actions button, .board-filters select, .vote-choices button").forEach((el) => roughBorder(el, { roughness: 2.4, bowing: 1.6, strokeWidth: 1.6, inset: 1, radius: 14 }))
 }
 
 let ended = false

@@ -1,5 +1,18 @@
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Crimson+Pro:ital,wght@0,400;0,600;0,700;1,400&family=New+Rocker&display=swap');
 
+@font-face {
+  font-family: "Fountain Pen Frenzy";
+  src: url(/assets/fonts/FountainPen.ttf) format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Dirty Cursive";
+  src: url(/assets/fonts/DirtyCursive.ttf) format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+
 /* ------------------------------------------------------------------ */
 /* Sherwood parchment & archery theme                                  */
 /* Every selector, class, and data-attribute that src/main.ts toggles  */
@@ -8,7 +21,8 @@
 /* ------------------------------------------------------------------ */
 
 :root {
-  font-family: "Crimson Pro", Georgia, serif;
+  --hand: "Dirty Cursive", "Crimson Pro", Georgia, serif;
+  font-family: var(--hand);
   color: var(--ink);
   background: #10251d;
   font-synthesis: none;
@@ -64,7 +78,7 @@
   --label-size: 10px;
   --label-track: .16em;
   /* Display face for large headings; blackletter, so headings only. */
-  --display: "New Rocker", "Cinzel", Georgia, serif;
+  --display: "Fountain Pen Frenzy", "New Rocker", "Cinzel", Georgia, serif;
 }
 
 * { box-sizing: border-box; }

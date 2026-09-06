@@ -32,22 +32,30 @@ export interface RoughBorderOptions {
   seed?: number
 }
 
-/** SVG path for a rounded rectangle — RoughJS sketches this so corners curve. */
-export function roundedRectPath(x: number, y: number, w: number, h: number, r: number): string {
-  const rr = Math.max(0, Math.min(r, w / 2, h / 2))
-  if (rr <= 0) return `M${x},${y} h${w} v${h} h${-w} Z`
+type Corner = readonly [number, number]
+
+/** Rounded-rect path with per-corner elliptical radii, so the sketch follows
+    the element's actual (PaperCSS) shape rather than a mismatched uniform box. */
+export function roundedRectPath(x: number, y: number, w: number, h: number, tl: Corner, tr: Corner, br: Corner, bl: Corner): string {
+  const cx = (rx: number) => Math.max(0, Math.min(rx, w / 2))
+  const cy = (ry: number) => Math.max(0, Math.min(ry, h / 2))
+  const TL: Corner = [cx(tl[0]), cy(tl[1])], TR: Corner = [cx(tr[0]), cy(tr[1])]
+  const BR: Corner = [cx(br[0]), cy(br[1])], BL: Corner = [cx(bl[0]), cy(bl[1])]
   return [
-    `M${x + rr},${y}`,
-    `H${x + w - rr}`,
-    `A${rr},${rr} 0 0 1 ${x + w},${y + rr}`,
-    `V${y + h - rr}`,
-    `A${rr},${rr} 0 0 1 ${x + w - rr},${y + h}`,
-    `H${x + rr}`,
-    `A${rr},${rr} 0 0 1 ${x},${y + h - rr}`,
-    `V${y + rr}`,
-    `A${rr},${rr} 0 0 1 ${x + rr},${y}`,
+    `M${x + TL[0]},${y}`,
+    `H${x + w - TR[0]}`, `A${TR[0]},${TR[1]} 0 0 1 ${x + w},${y + TR[1]}`,
+    `V${y + h - BR[1]}`, `A${BR[0]},${BR[1]} 0 0 1 ${x + w - BR[0]},${y + h}`,
+    `H${x + BL[0]}`, `A${BL[0]},${BL[1]} 0 0 1 ${x},${y + h - BL[1]}`,
+    `V${y + TL[1]}`, `A${TL[0]},${TL[1]} 0 0 1 ${x + TL[0]},${y}`,
     "Z",
   ].join(" ")
+}
+
+function parseCorner(value: string, inset: number): Corner {
+  const parts = value.split(" ").map((v) => parseFloat(v) || 0)
+  const rx = parts[0] ?? 0
+  const ry = parts[1] ?? rx
+  return [Math.max(0, rx - inset), Math.max(0, ry - inset)]
 }
 
 export function hashSeed(key: string): number {
@@ -80,8 +88,13 @@ function draw(bound: Bound): void {
   bound.svg.setAttribute("width", String(w))
   bound.svg.setAttribute("height", String(h))
   while (bound.svg.firstChild) bound.svg.removeChild(bound.svg.firstChild)
-  const { inset, roughness, bowing, stroke, strokeWidth, seed, double, radius } = bound.opts
-  const d = roundedRectPath(inset, inset, w - inset * 2, h - inset * 2, radius)
+  const { inset, roughness, bowing, stroke, strokeWidth, seed, double } = bound.opts
+  const cs = getComputedStyle(bound.el)
+  const tl = parseCorner(cs.borderTopLeftRadius, inset)
+  const tr = parseCorner(cs.borderTopRightRadius, inset)
+  const br = parseCorner(cs.borderBottomRightRadius, inset)
+  const bl = parseCorner(cs.borderBottomLeftRadius, inset)
+  const d = roundedRectPath(inset, inset, w - inset * 2, h - inset * 2, tl, tr, br, bl)
   const node = bound.rc.path(d, { roughness, bowing, stroke, strokeWidth, fill: "none", seed })
   bound.svg.appendChild(node)
   if (double) {
