@@ -4,6 +4,7 @@ import {
   type RegionalMissionLayout,
 } from "./regional-layout"
 import { SHERWOOD_RIDGE_ROCK_LAYOUT, SHERWOOD_TREE_LAYOUT } from "./world-layout"
+import { SHERWOOD_MAJOR_OAK } from "./world-landmarks-layout"
 
 export interface SherwoodObstacle {
   id: string
@@ -70,8 +71,18 @@ export const SHERWOOD_RIDGE_ROCK_OBSTACLES: readonly SherwoodObstacle[] = Object
   })),
 )
 
+/**
+ * The Major Oak trunk as an octagon: two rotated squares approximate the round
+ * trunk without a new collider type. The wide root flare is walk-over ground.
+ */
+export const SHERWOOD_MAJOR_OAK_OBSTACLES: readonly SherwoodObstacle[] = Object.freeze([
+  Object.freeze({ id: "sherwood-major-oak-a", center: Object.freeze({ x: SHERWOOD_MAJOR_OAK.x, z: SHERWOOD_MAJOR_OAK.z }), halfExtents: Object.freeze({ x: SHERWOOD_MAJOR_OAK.trunkHalfExtent, z: SHERWOOD_MAJOR_OAK.trunkHalfExtent }), rotation: 0 }),
+  Object.freeze({ id: "sherwood-major-oak-b", center: Object.freeze({ x: SHERWOOD_MAJOR_OAK.x, z: SHERWOOD_MAJOR_OAK.z }), halfExtents: Object.freeze({ x: SHERWOOD_MAJOR_OAK.trunkHalfExtent, z: SHERWOOD_MAJOR_OAK.trunkHalfExtent }), rotation: Math.PI / 4 }),
+])
+
 export const SHERWOOD_STATIC_OBSTACLES: readonly SherwoodObstacle[] = Object.freeze([
   ...SHERWOOD_CAMP_HUT_OBSTACLES,
+  ...SHERWOOD_MAJOR_OAK_OBSTACLES,
   ...SHERWOOD_TREE_OBSTACLES,
 ])
 

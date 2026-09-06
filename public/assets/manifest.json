@@ -46,7 +46,10 @@
       "format": "glTF 2.0 GLB",
       "sha256": "aec332616f1e70717c1f07d355d9c1a4977494657a3cf2c1c4296be401f04bc6",
       "bytesMax": 2000000,
-      "resources": { "embedded": true, "externalUris": [] },
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
       "geometry": {
         "renderVertices": 69252,
         "uploadVertices": 32898,
@@ -56,7 +59,11 @@
       },
       "materials": {
         "count": 3,
-        "names": ["ranger", "Robin_Hat_Material", "Robin_Feather_Material"]
+        "names": [
+          "ranger",
+          "Robin_Hat_Material",
+          "Robin_Feather_Material"
+        ]
       },
       "texture": {
         "count": 2,
@@ -66,7 +73,12 @@
         "encodedBytes": 30900,
         "gpuBytesApprox": 6990504
       },
-      "clips": ["Idle", "Walk", "Attack", "Signature"],
+      "clips": [
+        "Idle",
+        "Walk",
+        "Attack",
+        "Signature"
+      ],
       "pivot": {
         "policy": "runtime foot grounding from centered source pivot",
         "passes": true,
@@ -75,16 +87,44 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.97126, -0.00203, -0.79717],
-        "boundsMax": [0.99979, 2.89321, 0.7589],
+        "boundsMin": [
+          -0.97126,
+          -0.00203,
+          -0.79717
+        ],
+        "boundsMax": [
+          0.99979,
+          2.89321,
+          0.7589
+        ],
         "runtimeMaxHeight": 2.35
       },
-      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
-      "collision": { "type": "capsule", "radius": 0.55, "height": 2.1, "centerY": 1.05 },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
+      "collision": {
+        "type": "capsule",
+        "radius": 0.55,
+        "height": 2.1,
+        "centerY": 1.05
+      },
       "lod": [
-        { "level": 0, "maxDistance": 24, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+        {
+          "level": 0,
+          "maxDistance": 24,
+          "asset": "self"
+        },
+        {
+          "level": 1,
+          "maxDistance": 48,
+          "asset": "self (no lower-detail authored replacement)"
+        },
+        {
+          "level": 2,
+          "maxDistance": 120,
+          "asset": "hidden; party HUD remains"
+        }
       ]
     },
     {
@@ -123,7 +163,10 @@
       "format": "glTF 2.0 GLB",
       "sha256": "415133812f5798a595c506db9d9cffa0f0650c521d5bbd91f0def5d616b2b4e5",
       "bytesMax": 750000,
-      "resources": { "embedded": true, "externalUris": [] },
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
       "geometry": {
         "renderVertices": 24738,
         "uploadVertices": 7429,
@@ -131,7 +174,12 @@
         "uniquePrimitives": 8,
         "sceneDrawCalls": 8
       },
-      "materials": { "count": 1, "names": ["rogue"] },
+      "materials": {
+        "count": 1,
+        "names": [
+          "rogue"
+        ]
+      },
       "texture": {
         "count": 1,
         "format": "webp",
@@ -140,7 +188,12 @@
         "encodedBytes": 49676,
         "gpuBytesApprox": 5592404
       },
-      "clips": ["Idle", "Walk", "Attack", "Signature"],
+      "clips": [
+        "Idle",
+        "Walk",
+        "Attack",
+        "Signature"
+      ],
       "pivot": {
         "policy": "runtime foot grounding from centered source pivot",
         "passes": true,
@@ -149,16 +202,44 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.97235, -0.00203, -0.58067],
-        "boundsMax": [0.99979, 2.17833, 0.56319],
+        "boundsMin": [
+          -0.97235,
+          -0.00203,
+          -0.58067
+        ],
+        "boundsMax": [
+          0.99979,
+          2.17833,
+          0.56319
+        ],
         "runtimeMaxHeight": 2.15
       },
-      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
-      "collision": { "type": "capsule", "radius": 0.5, "height": 1.95, "centerY": 0.975 },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
+      "collision": {
+        "type": "capsule",
+        "radius": 0.5,
+        "height": 1.95,
+        "centerY": 0.975
+      },
       "lod": [
-        { "level": 0, "maxDistance": 24, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+        {
+          "level": 0,
+          "maxDistance": 24,
+          "asset": "self"
+        },
+        {
+          "level": 1,
+          "maxDistance": 48,
+          "asset": "self (no lower-detail authored replacement)"
+        },
+        {
+          "level": 2,
+          "maxDistance": 120,
+          "asset": "hidden; party HUD remains"
+        }
       ]
     },
     {
@@ -197,7 +278,10 @@
       "format": "glTF 2.0 GLB",
       "sha256": "82e1b7a7b90ef2d50dfd31574ddb1e626e1b88c69fad0e0842faf158ea17787b",
       "bytesMax": 750000,
-      "resources": { "embedded": true, "externalUris": [] },
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
       "geometry": {
         "renderVertices": 23421,
         "uploadVertices": 7017,
@@ -205,7 +289,12 @@
         "uniquePrimitives": 8,
         "sceneDrawCalls": 8
       },
-      "materials": { "count": 1, "names": ["barbarian"] },
+      "materials": {
+        "count": 1,
+        "names": [
+          "barbarian"
+        ]
+      },
       "texture": {
         "count": 1,
         "format": "webp",
@@ -214,7 +303,12 @@
         "encodedBytes": 48036,
         "gpuBytesApprox": 5592404
       },
-      "clips": ["Idle", "Walk", "Attack", "Signature"],
+      "clips": [
+        "Idle",
+        "Walk",
+        "Attack",
+        "Signature"
+      ],
       "pivot": {
         "policy": "runtime foot grounding from centered source pivot",
         "passes": true,
@@ -223,16 +317,44 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.97126, 0, -0.5253],
-        "boundsMax": [0.99979, 2.39777, 0.73859],
+        "boundsMin": [
+          -0.97126,
+          0,
+          -0.5253
+        ],
+        "boundsMax": [
+          0.99979,
+          2.39777,
+          0.73859
+        ],
         "runtimeMaxHeight": 2.5
       },
-      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
-      "collision": { "type": "capsule", "radius": 0.65, "height": 2.25, "centerY": 1.125 },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
+      "collision": {
+        "type": "capsule",
+        "radius": 0.65,
+        "height": 2.25,
+        "centerY": 1.125
+      },
       "lod": [
-        { "level": 0, "maxDistance": 24, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+        {
+          "level": 0,
+          "maxDistance": 24,
+          "asset": "self"
+        },
+        {
+          "level": 1,
+          "maxDistance": 48,
+          "asset": "self (no lower-detail authored replacement)"
+        },
+        {
+          "level": 2,
+          "maxDistance": 120,
+          "asset": "hidden; party HUD remains"
+        }
       ]
     },
     {
@@ -271,7 +393,10 @@
       "format": "glTF 2.0 GLB",
       "sha256": "6bdae460d557efaa3568700d6a9461db32842186e6c3d7316ca120aeeff5674d",
       "bytesMax": 750000,
-      "resources": { "embedded": true, "externalUris": [] },
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
       "geometry": {
         "renderVertices": 23607,
         "uploadVertices": 6839,
@@ -279,7 +404,12 @@
         "uniquePrimitives": 8,
         "sceneDrawCalls": 8
       },
-      "materials": { "count": 1, "names": ["rogue"] },
+      "materials": {
+        "count": 1,
+        "names": [
+          "rogue"
+        ]
+      },
       "texture": {
         "count": 1,
         "format": "webp",
@@ -288,7 +418,12 @@
         "encodedBytes": 49096,
         "gpuBytesApprox": 5592404
       },
-      "clips": ["Idle", "Walk", "Attack", "Signature"],
+      "clips": [
+        "Idle",
+        "Walk",
+        "Attack",
+        "Signature"
+      ],
       "pivot": {
         "policy": "runtime foot grounding from centered source pivot",
         "passes": true,
@@ -297,16 +432,44 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.97235, -0.00203, -0.54146],
-        "boundsMax": [0.99979, 2.17097, 0.55774],
+        "boundsMin": [
+          -0.97235,
+          -0.00203,
+          -0.54146
+        ],
+        "boundsMax": [
+          0.99979,
+          2.17097,
+          0.55774
+        ],
         "runtimeMaxHeight": 1.92
       },
-      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
-      "collision": { "type": "capsule", "radius": 0.48, "height": 1.75, "centerY": 0.875 },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
+      "collision": {
+        "type": "capsule",
+        "radius": 0.48,
+        "height": 1.75,
+        "centerY": 0.875
+      },
       "lod": [
-        { "level": 0, "maxDistance": 24, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "self (no lower-detail authored replacement)" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+        {
+          "level": 0,
+          "maxDistance": 24,
+          "asset": "self"
+        },
+        {
+          "level": 1,
+          "maxDistance": 48,
+          "asset": "self (no lower-detail authored replacement)"
+        },
+        {
+          "level": 2,
+          "maxDistance": 120,
+          "asset": "hidden; party HUD remains"
+        }
       ]
     },
     {
@@ -337,7 +500,10 @@
       "format": "glTF 2.0 GLB",
       "sha256": "ba55b2f45feab43b41cb2c01e6930c53691dd8f07b956a8a3e9293520e26f82b",
       "bytesMax": 2500000,
-      "resources": { "embedded": true, "externalUris": [] },
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
       "geometry": {
         "renderVertices": 181641,
         "uploadVertices": 34329,
@@ -347,7 +513,9 @@
       },
       "materials": {
         "count": 1,
-        "names": ["Material_0"]
+        "names": [
+          "Material_0"
+        ]
       },
       "texture": {
         "count": 1,
@@ -357,7 +525,11 @@
         "encodedBytes": 65812,
         "gpuBytesApprox": 5592404
       },
-      "clips": ["Ranger_Idle", "Ranger_Walk", "Ranger_Attack"],
+      "clips": [
+        "Ranger_Idle",
+        "Ranger_Walk",
+        "Ranger_Attack"
+      ],
       "pivot": {
         "policy": "runtime foot grounding from centered source pivot",
         "passes": true,
@@ -366,16 +538,44 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.93645, -0.95079, -0.20565],
-        "boundsMax": [0.93457, 0.94855, 0.20393],
+        "boundsMin": [
+          -0.93645,
+          -0.95079,
+          -0.20565
+        ],
+        "boundsMax": [
+          0.93457,
+          0.94855,
+          0.20393
+        ],
         "runtimeMaxHeight": 2.35
       },
-      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
-      "collision": { "type": "capsule", "radius": 0.55, "height": 2.1, "centerY": 1.05 },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
+      "collision": {
+        "type": "capsule",
+        "radius": 0.55,
+        "height": 2.1,
+        "centerY": 1.05
+      },
       "lod": [
-        { "level": 0, "maxDistance": 24, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "procedural hero silhouette" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden; party HUD remains" }
+        {
+          "level": 0,
+          "maxDistance": 24,
+          "asset": "self"
+        },
+        {
+          "level": 1,
+          "maxDistance": 48,
+          "asset": "procedural hero silhouette"
+        },
+        {
+          "level": 2,
+          "maxDistance": 120,
+          "asset": "hidden; party HUD remains"
+        }
       ]
     },
     {
@@ -406,7 +606,10 @@
       "format": "glTF 2.0 GLB",
       "sha256": "9056fb251b241ab69ce8c335274cdf6462ae516ac5f7f012ab78443e9f809bf4",
       "bytesMax": 2700000,
-      "resources": { "embedded": true, "externalUris": [] },
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
       "geometry": {
         "renderVertices": 99975,
         "uploadVertices": 56350,
@@ -416,9 +619,22 @@
       },
       "materials": {
         "count": 5,
-        "names": ["Bark_NormalTree", "Leaves_NormalTree", "Leaves_Pine", "Bark_DeadTree", "Leaves_TwistedTree"]
+        "names": [
+          "Bark_NormalTree",
+          "Leaves_NormalTree",
+          "Leaves_Pine",
+          "Bark_DeadTree",
+          "Leaves_TwistedTree"
+        ]
       },
-      "texture": { "count": 7, "format": "webp", "width": 512, "height": 512, "encodedBytes": 102898, "gpuBytesApprox": 9786700 },
+      "texture": {
+        "count": 7,
+        "format": "webp",
+        "width": 512,
+        "height": 512,
+        "encodedBytes": 102898,
+        "gpuBytesApprox": 9786700
+      },
       "clips": [],
       "pivot": {
         "policy": "bottom center at origin",
@@ -428,15 +644,41 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.5089855, 0, -0.35661],
-        "boundsMax": [0.5089855, 1, 0.35661]
+        "boundsMin": [
+          -0.5089855,
+          0,
+          -0.35661
+        ],
+        "boundsMax": [
+          0.5089855,
+          1,
+          0.35661
+        ]
       },
-      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
-      "collision": { "type": "shared-authoritative-trunk-circles", "reason": "Render variants reuse the existing deterministic client/server tree placement and trunk-collision contract" },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
+      "collision": {
+        "type": "shared-authoritative-trunk-circles",
+        "reason": "Render variants reuse the existing deterministic client/server tree placement and trunk-collision contract"
+      },
       "lod": [
-        { "level": 0, "maxDistance": 34, "asset": "instanced catalog variants" },
-        { "level": 1, "maxDistance": 48, "asset": "same catalog; standard-profile visibility band" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
+        {
+          "level": 0,
+          "maxDistance": 34,
+          "asset": "instanced catalog variants"
+        },
+        {
+          "level": 1,
+          "maxDistance": 48,
+          "asset": "same catalog; standard-profile visibility band"
+        },
+        {
+          "level": 2,
+          "maxDistance": 120,
+          "asset": "hidden in forest fog"
+        }
       ]
     },
     {
@@ -467,7 +709,10 @@
       "format": "glTF 2.0 GLB",
       "sha256": "667fa5da509abceaa6e9da1ed9c68b292077cc622b99e987d20e8ef297b60c64",
       "bytesMax": 3000000,
-      "resources": { "embedded": true, "externalUris": [] },
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
       "geometry": {
         "renderVertices": 13023,
         "uploadVertices": 4860,
@@ -477,9 +722,25 @@
       },
       "materials": {
         "count": 8,
-        "names": ["Grass", "Nature_Wheat", "Leaves", "Leaves_TwistedTree", "Flowers", "Mushrooms", "Rocks", "PathRocks"]
+        "names": [
+          "Grass",
+          "Nature_Wheat",
+          "Leaves",
+          "Leaves_TwistedTree",
+          "Flowers",
+          "Mushrooms",
+          "Rocks",
+          "PathRocks"
+        ]
       },
-      "texture": { "count": 8, "format": "webp", "width": 512, "height": 512, "encodedBytes": 125888, "gpuBytesApprox": 9748052 },
+      "texture": {
+        "count": 8,
+        "format": "webp",
+        "width": 512,
+        "height": 512,
+        "encodedBytes": 125888,
+        "gpuBytesApprox": 9748052
+      },
       "clips": [],
       "pivot": {
         "policy": "every variant bottom-centered at origin",
@@ -489,15 +750,41 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-2.27986, 0, -2.45791],
-        "boundsMax": [2.27986, 1, 2.45791]
+        "boundsMin": [
+          -2.27986,
+          0,
+          -2.45791
+        ],
+        "boundsMax": [
+          2.27986,
+          1,
+          2.45791
+        ]
       },
-      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
-      "collision": { "type": "none", "reason": "nonblocking decorative dressing; authoritative navigation and exclusions remain unchanged" },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
+      "collision": {
+        "type": "none",
+        "reason": "nonblocking decorative dressing; authoritative navigation and exclusions remain unchanged"
+      },
       "lod": [
-        { "level": 0, "maxDistance": 34, "asset": "instanced textured catalogue variants" },
-        { "level": 1, "maxDistance": 48, "asset": "reduced instance population in degraded mode" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
+        {
+          "level": 0,
+          "maxDistance": 34,
+          "asset": "instanced textured catalogue variants"
+        },
+        {
+          "level": 1,
+          "maxDistance": 48,
+          "asset": "reduced instance population in degraded mode"
+        },
+        {
+          "level": 2,
+          "maxDistance": 120,
+          "asset": "hidden in forest fog"
+        }
       ]
     },
     {
@@ -528,7 +815,10 @@
       "format": "glTF 2.0 GLB",
       "sha256": "e666d4d47155cdba547b2d4d4e47a9e4f49cddabef55f9b60beb1ecfe5e6b700",
       "bytesMax": 500000,
-      "resources": { "embedded": true, "externalUris": [] },
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
       "geometry": {
         "renderVertices": 3852,
         "uploadVertices": 1379,
@@ -536,7 +826,12 @@
         "uniquePrimitives": 3,
         "sceneDrawCalls": 3
       },
-      "materials": { "count": 1, "names": ["chest_mat"] },
+      "materials": {
+        "count": 1,
+        "names": [
+          "chest_mat"
+        ]
+      },
       "texture": {
         "count": 1,
         "format": "webp",
@@ -559,16 +854,42 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-0.67264, -0.51991, -0.93061],
-        "boundsMax": [0.67264, 0.51991, 0],
+        "boundsMin": [
+          -0.67264,
+          -0.51991,
+          -0.93061
+        ],
+        "boundsMax": [
+          0.67264,
+          0.51991,
+          0
+        ],
         "runtimeMaxDimension": 1.65
       },
-      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
-      "collision": { "type": "none", "reason": "interactive cache remains nonblocking; server validates interaction radius" },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
+      "collision": {
+        "type": "none",
+        "reason": "interactive cache remains nonblocking; server validates interaction radius"
+      },
       "lod": [
-        { "level": 0, "maxDistance": 34, "asset": "self" },
-        { "level": 1, "maxDistance": 58, "asset": "procedural crate fallback" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
+        {
+          "level": 0,
+          "maxDistance": 34,
+          "asset": "self"
+        },
+        {
+          "level": 1,
+          "maxDistance": 58,
+          "asset": "procedural crate fallback"
+        },
+        {
+          "level": 2,
+          "maxDistance": 120,
+          "asset": "hidden in forest fog"
+        }
       ]
     },
     {
@@ -599,7 +920,10 @@
       "format": "glTF 2.0 GLB",
       "sha256": "e216542caeb1f7202f720f1bc6411b947e70f12290cef9a2783f3e6be80086bb",
       "bytesMax": 3000000,
-      "resources": { "embedded": true, "externalUris": [] },
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
       "geometry": {
         "renderVertices": 15486,
         "uploadVertices": 10392,
@@ -607,8 +931,20 @@
         "uniquePrimitives": 10,
         "sceneDrawCalls": 10
       },
-      "materials": { "count": 1, "names": ["CraftPix_Medieval_Props"] },
-      "texture": { "count": 1, "format": "webp", "width": 32, "height": 32, "encodedBytes": 118, "gpuBytesApprox": 5460 },
+      "materials": {
+        "count": 1,
+        "names": [
+          "CraftPix_Medieval_Props"
+        ]
+      },
+      "texture": {
+        "count": 1,
+        "format": "webp",
+        "width": 32,
+        "height": 32,
+        "encodedBytes": 118,
+        "gpuBytesApprox": 5460
+      },
       "clips": [],
       "pivot": {
         "policy": "each prop bottom-centered at origin",
@@ -618,15 +954,41 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-1.90448, 0, -0.55898],
-        "boundsMax": [1.90448, 2.2, 0.55897]
+        "boundsMin": [
+          -1.90448,
+          0,
+          -0.55898
+        ],
+        "boundsMax": [
+          1.90448,
+          2.2,
+          0.55897
+        ]
       },
-      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
-      "collision": { "type": "none", "reason": "nonblocking regional dressing; authoritative navigation remains unchanged" },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
+      "collision": {
+        "type": "none",
+        "reason": "nonblocking regional dressing; authoritative navigation remains unchanged"
+      },
       "lod": [
-        { "level": 0, "maxDistance": 34, "asset": "self" },
-        { "level": 1, "maxDistance": 48, "asset": "self on desktop; hidden in degraded mode" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
+        {
+          "level": 0,
+          "maxDistance": 34,
+          "asset": "self"
+        },
+        {
+          "level": 1,
+          "maxDistance": 48,
+          "asset": "self on desktop; hidden in degraded mode"
+        },
+        {
+          "level": 2,
+          "maxDistance": 120,
+          "asset": "hidden in forest fog"
+        }
       ]
     },
     {
@@ -657,7 +1019,10 @@
       "format": "glTF 2.0 GLB",
       "sha256": "9af770b514072dd55d13c29ffd95b4e1b39659e8baaf17b68e32ee80f4b150eb",
       "bytesMax": 3000000,
-      "resources": { "embedded": true, "externalUris": [] },
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
       "geometry": {
         "renderVertices": 16230,
         "uploadVertices": 7601,
@@ -667,7 +1032,15 @@
       },
       "materials": {
         "count": 7,
-        "names": ["MI_WoodTrim", "MI_Plaster", "MI_RockTrim", "MI_Brick", "MI_RoundTiles", "MI_WindowGlass", "MI_Vine"]
+        "names": [
+          "MI_WoodTrim",
+          "MI_Plaster",
+          "MI_RockTrim",
+          "MI_Brick",
+          "MI_RoundTiles",
+          "MI_WindowGlass",
+          "MI_Vine"
+        ]
       },
       "texture": {
         "count": 16,
@@ -686,18 +1059,140 @@
       "scale": {
         "units": "meters",
         "metersPerUnit": 1,
-        "boundsMin": [-2.756538152694702, 0, -3.1504321098327637],
-        "boundsMax": [2.756538152694702, 4.249392867088318, 2.8215668201446533]
+        "boundsMin": [
+          -2.756538152694702,
+          0,
+          -3.1504321098327637
+        ],
+        "boundsMax": [
+          2.756538152694702,
+          4.249392867088318,
+          2.8215668201446533
+        ]
       },
-      "orientation": { "upAxis": "+Y", "forwardAxis": "+Z" },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
       "collision": {
         "type": "runtime-xz-rectangle-union",
         "reason": "Authored render modules use the shared deterministic client/server level collider contract rather than mesh collision"
       },
       "lod": [
-        { "level": 0, "maxDistance": 34, "asset": "self" },
-        { "level": 1, "maxDistance": 58, "asset": "procedural hut and wagon silhouettes" },
-        { "level": 2, "maxDistance": 120, "asset": "hidden in forest fog" }
+        {
+          "level": 0,
+          "maxDistance": 34,
+          "asset": "self"
+        },
+        {
+          "level": 1,
+          "maxDistance": 58,
+          "asset": "procedural hut and wagon silhouettes"
+        },
+        {
+          "level": 2,
+          "maxDistance": 120,
+          "asset": "hidden in forest fog"
+        }
+      ]
+    },
+    {
+      "id": "environment.sherwood.major-oak",
+      "category": "decorative-environment",
+      "qualityGate": {
+        "decision": "accept",
+        "reviewedAt": "2026-09-06",
+        "rationale": "Project-owner-supplied Major Oak, the named Sherwood landmark. Decimated 79,912 -> 6,792 triangles and recompressed to a single 512px WebP albedo through the standard pipeline; broad ancient canopy and root flare preserved. Loaded once as a hub backdrop, Box3-normalized to the landmark height and toon-converted at runtime like the heroes."
+      },
+      "provenance": {
+        "sourceAsset": "major-oak-source.glb",
+        "sourceSha256": "34e4caf553815c3d43626584260e1fb5c06602a90f55c60d86c4d771d559b248",
+        "sourceBytes": 6061444,
+        "sourceGenerator": "trimesh",
+        "suppliedBy": "project owner",
+        "conversionScript": "docs/assets/major-oak.md",
+        "conversionDoc": "docs/assets/major-oak.md",
+        "optimizer": "Blender 5.x decimate + glTF Transform 4.4.1"
+      },
+      "license": {
+        "status": "project-authorized",
+        "identifier": "LicenseRef-Project-Owner-Authorized",
+        "evidence": "docs/assets/licenses/major-oak-project-authorized.md",
+        "evidenceSha256": "b8d44658711a38a10178ff4d75df47e290286f983d43c6ab0b1d7243f91a8946"
+      },
+      "uri": "assets/environment/sherwood-major-oak.glb",
+      "format": "glTF 2.0 GLB",
+      "sha256": "e4c7b5098739a449d176d465aad98049df13a6bb656412bbafae6bb2088b0e32",
+      "bytesMax": 500000,
+      "resources": {
+        "embedded": true,
+        "externalUris": []
+      },
+      "geometry": {
+        "renderVertices": 20376,
+        "uploadVertices": 12883,
+        "triangles": 6792,
+        "uniquePrimitives": 1,
+        "sceneDrawCalls": 1
+      },
+      "materials": {
+        "count": 1,
+        "names": [
+          "Material_0"
+        ]
+      },
+      "texture": {
+        "count": 1,
+        "format": "webp",
+        "width": 512,
+        "height": 512,
+        "encodedBytes": 27656,
+        "gpuBytesApprox": 1398100
+      },
+      "clips": [],
+      "pivot": {
+        "policy": "runtime grounding from centered source pivot",
+        "passes": true,
+        "evidence": "Runtime Box3 normalization scales the oak to the landmark height and grounds its minimum Y, matching the hero loader; source pivot is centered."
+      },
+      "scale": {
+        "units": "meters",
+        "metersPerUnit": 1,
+        "boundsMin": [
+          -0.99884,
+          -0.7709,
+          -0.86393
+        ],
+        "boundsMax": [
+          0.92854,
+          0.75965,
+          0.86542
+        ]
+      },
+      "orientation": {
+        "upAxis": "+Y",
+        "forwardAxis": "+Z"
+      },
+      "collision": {
+        "type": "shared-authoritative-trunk-octagon",
+        "reason": "Trunk radius ~2.4u at the landmark height; SHERWOOD_MAJOR_OAK_OBSTACLES (octagon halfExtents 2.5) in shared/world-obstacles.ts."
+      },
+      "lod": [
+        {
+          "level": 0,
+          "maxDistance": 60,
+          "asset": "self"
+        },
+        {
+          "level": 1,
+          "maxDistance": 140,
+          "asset": "self; shadows only inside the +/-40u shadow frustum"
+        },
+        {
+          "level": 2,
+          "maxDistance": 300,
+          "asset": "self in fog"
+        }
       ]
     }
   ],
@@ -712,7 +1207,8 @@
       "environment.sherwood.nature-dressing",
       "prop.sherwood.treasure-chest",
       "environment.craftpix.medieval-props",
-      "environment.sherwood.village-slice"
+      "environment.sherwood.village-slice",
+      "environment.sherwood.major-oak"
     ],
     "procedural": [
       "character.sheriff.guard",

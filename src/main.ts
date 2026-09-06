@@ -131,6 +131,7 @@ import { BOW_TOTAL_SECONDS, BOW_TOTAL_TICKS, hasBowMovement, type BowActionSnaps
 import { createScrollController } from "./scroll-controller"
 import { HORIZON_COLOR, HORIZON_FOG_DENSITY, createHorizonBackdrop, type HorizonBackdrop } from "./horizon-backdrop"
 import { resolveDebugView } from "./debug-views"
+import { attachMajorOak, type MajorOakHandle } from "./major-oak"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const hud = document.querySelector<HTMLElement>("#hud")!
@@ -569,6 +570,7 @@ let settlementWorldView: THREE.Group | null = null
 let composedWorldLayoutKey = ""
 let terrainView: THREE.Mesh | null = null
 let horizonBackdrop: HorizonBackdrop | null = null
+let majorOakHandle: MajorOakHandle | null = null
 let missionWorldVisible = false
 const HUB_CAMPFIRE_POSITION = Object.freeze({ x: -11, z: 9 })
 const mutedPlayerIds = new Set<string>()
@@ -988,6 +990,12 @@ function createWorld(): void {
   terrainView = createSherwoodTerrain()
   scene.add(terrainView)
   scene.add((horizonBackdrop = createHorizonBackdrop({ groundMaterial: terrainView.material as THREE.Material })).group)
+  majorOakHandle = attachMajorOak(scene, {
+    castShadow: renderProfile.shadows,
+    resolveUrl: versionedAssetUrl,
+    loader: gltfLoader,
+  })
+  cameraOccluders.push({ view: majorOakHandle.group, radius: 2.6 })
 
   water.group.rotation.x = -Math.PI / 2
   water.group.rotation.z = -0.1
@@ -1854,6 +1862,10 @@ function setMissionWorldVisible(visible: boolean): void {
   if (villageCottageView) {
     villageCottageView.userData.lodVisible = !visible
     villageCottageView.visible = !visible
+  }
+  if (majorOakHandle) {
+    majorOakHandle.group.userData.lodVisible = !visible
+    majorOakHandle.group.visible = !visible
   }
   if (!visible) {
     syncTrapViews([])

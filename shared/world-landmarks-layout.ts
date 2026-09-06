@@ -2,6 +2,20 @@ import type { RegionalMissionLayout } from "./regional-layout"
 import type { ComposedWorld } from "./world-composer"
 import { SHERWOOD_SETTLEMENT_SITES } from "./world-topology"
 
+/**
+ * The Major Oak: Sherwood's named landmark, Robin Hood's hideout, standing on Oak
+ * Ridge west of the walkable camp so its eastern boughs overhang the hub. Shared
+ * so the client places the view and the server owns the trunk collider.
+ */
+export const SHERWOOD_MAJOR_OAK = Object.freeze({
+  x: -28,
+  z: 11,
+  /** World height of the normalized oak; also the runtime Box3 target. */
+  height: 26,
+  /** Octagon trunk collider half-extent (two squares at 0 and PI/4). */
+  trunkHalfExtent: 2.5,
+})
+
 export interface SherwoodStandingStonePlacement {
   x: number
   z: number

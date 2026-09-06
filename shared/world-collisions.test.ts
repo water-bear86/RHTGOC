@@ -4,6 +4,7 @@ import {
   SHERWOOD_CROSSING_HALF_LENGTH,
   SHERWOOD_PLAYER_RADIUS,
   SHERWOOD_RIDGE_ROCK_COLLIDERS,
+  SHERWOOD_STATIC_COLLIDERS,
   SHERWOOD_TREE_COLLIDERS,
   VILLAGE_COTTAGE_COLLIDER,
   createSherwoodFarmColliders,
@@ -15,6 +16,8 @@ import {
   resolveSherwoodPlayerMovement,
 } from "./world-collisions"
 import { SHERWOOD_FARM_LAYOUT } from "./world-landmarks-layout"
+import { SHERWOOD_MAJOR_OAK_OBSTACLES } from "./world-obstacles"
+import { SHERWOOD_MAJOR_OAK } from "./world-landmarks-layout"
 import { PEOPLES_PURSE_MISSION } from "./mission-catalog"
 import { regionalizeMissionDefinition, riverPointAt } from "./regional-layout"
 import { composeSherwoodWorld } from "./world-composer"
@@ -375,5 +378,31 @@ describe("shared Sherwood world collision contract", () => {
     expect(isSherwoodPlayerPositionBlocked(SHERWOOD_TREE_COLLIDERS[0].center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
     expect(isSherwoodPlayerPositionBlocked(riverPointAt(0), SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
     expect(isSherwoodPlayerPositionBlocked(createSherwoodSettlementColliders(layout)[0].center, SHERWOOD_PLAYER_RADIUS, layout)).toBe(true)
+  })
+})
+
+describe("Major Oak landmark collider", () => {
+  it("stands as a two-square octagon at the oak position, in the hub statics", () => {
+    expect(SHERWOOD_MAJOR_OAK_OBSTACLES).toHaveLength(2)
+    for (const obstacle of SHERWOOD_MAJOR_OAK_OBSTACLES) {
+      expect(obstacle.center).toEqual({ x: SHERWOOD_MAJOR_OAK.x, z: SHERWOOD_MAJOR_OAK.z })
+      expect(obstacle.halfExtents.x).toBe(SHERWOOD_MAJOR_OAK.trunkHalfExtent)
+      expect(SHERWOOD_STATIC_COLLIDERS.some((collider) => collider.id === obstacle.id)).toBe(true)
+    }
+    const [a, b] = SHERWOOD_MAJOR_OAK_OBSTACLES
+    expect(a.rotation).toBe(0)
+    expect(b.rotation).toBeCloseTo(Math.PI / 4, 5)
+  })
+
+  it("blocks the trunk centre but not the walk-over ground a collider-width away", () => {
+    const centre = { x: SHERWOOD_MAJOR_OAK.x, z: SHERWOOD_MAJOR_OAK.z }
+    expect(isSherwoodPlayerPositionBlocked(centre, 0)).toBe(true)
+    // Well clear of the octagon (halfExtent 2.5 + player radius) is open.
+    expect(isSherwoodPlayerPositionBlocked({ x: centre.x - 4, z: centre.z }, 0)).toBe(false)
+  })
+
+  it("does not add the oak to generated mission worlds", () => {
+    const layout = regionalizeMissionDefinition(PEOPLES_PURSE_MISSION, 19).layout
+    expect(isSherwoodPlayerPositionBlocked({ x: SHERWOOD_MAJOR_OAK.x, z: SHERWOOD_MAJOR_OAK.z }, 0, layout)).toBe(false)
   })
 })

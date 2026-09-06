@@ -49,6 +49,7 @@ try {
   await shoot("horizon", { width: 1440, height: 900, query: "?view=horizon" })
   await shoot("horizon-degraded", { width: 1440, height: 900, query: "?view=horizon&render=degraded" })
   await shoot("horizon-x", { width: 1440, height: 900, query: "?view=horizon-x" })
+  await shoot("oak", { width: 1440, height: 900, query: "?view=oak" })
   await browser.close()
 } catch (error) {
   console.error(error)
