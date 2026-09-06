@@ -1036,3 +1036,14 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
   mask: url(/assets/ui/brand/r-hood.svg) no-repeat left center / contain;
   background: currentColor;
 }
+
+/* Photoreal Nottingham wax seal (project-authored) as the intro emblem. */
+.intro-card::before { display: none !important; } /* crest now baked into the seal image */
+.intro-card::after {
+  content: "" !important;
+  top: 14px !important; right: 18px !important;
+  width: 72px !important; height: 70px !important;
+  background: url(/assets/ui/crest/wax-seal.png) no-repeat center / contain !important;
+  border-radius: 0 !important; box-shadow: none !important;
+  filter: drop-shadow(0 4px 6px #0007); transform: rotate(-6deg) !important;
+}
