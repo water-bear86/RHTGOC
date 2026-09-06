@@ -7,6 +7,7 @@ import { PROTOCOL_VERSION, isSupportedProtocolVersion, parseClientMessage, type 
 import { Room, type ContributionTransition, type RescueOfferTransition } from "./room"
 import { createBandStoreFromEnv, type CompletedBandMission, type PersistentBandRecord } from "./band-store"
 import { createLeaderboardStoreFromEnv, terminalLeaderboardFailure, type VerifiedRun } from "./leaderboard-store"
+import { createScrollEvidenceIssuer } from "./scroll-evidence"
 import { createRankedLeaderboardStoreFromEnv, isLeaderboardKind } from "./ranked-leaderboard-store"
 import { LeaderboardCache } from "./leaderboard-cache"
 import { structuredLog, Telemetry } from "./telemetry"
@@ -59,6 +60,9 @@ const telemetry = new Telemetry()
 const rotationService = new SheriffRotationService()
 const seasonService = new SherwoodSeasonService()
 const opsAdminSecret = process.env.OPS_ADMIN_SECRET
+// Soulbound Scroll progression evidence. Inert unless a signing key is set, so
+// this is safe to run before the Scroll backend is deployed: no key, no evidence.
+const scrollEvidenceIssuer = createScrollEvidenceIssuer({ signingKeyPem: process.env.SCROLL_EVIDENCE_SIGNING_KEY })
 const supabaseUrl = process.env.SUPABASE_URL
 const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY
 const defaultMission = getMissionDefinition()
@@ -1253,6 +1257,18 @@ function settleRoomOutcomes(code: string, room: Room): boolean {
   if (bandOutcome && bandStore) enqueueBandMission(room, bandOutcome, roomTraces.get(code) ?? null)
   const verifiedRuns = room.claimVerifiedRuns()
   if (verifiedRuns && leaderboardStore) for (const run of verifiedRuns) enqueueVerifiedRun(run, roomTraces.get(code) ?? null)
+  if (verifiedRuns && scrollEvidenceIssuer.enabled) {
+    const wallets = room.evidenceWalletsByAuthUser()
+    for (const run of verifiedRuns) {
+      const wallet = wallets.get(run.authUserId)
+      if (!wallet) continue
+      // Best-effort and non-blocking: issuing Scroll evidence must never fail or
+      // delay a completed mission for the player.
+      void scrollEvidenceIssuer.issue(wallet, run).catch((error: unknown) => {
+        structuredLog("scroll_evidence_failed", { reason: error instanceof Error ? error.message : "unknown" }, "error")
+      })
+    }
+  }
   return seasonChanged
 }
 
@@ -1388,10 +1404,11 @@ sockets.on("connection", (socket) => {
           }
         }
         if (message.type === "join_room" && message.reconnectToken) telemetry.increment("reconnect_attempts_total")
+        const verifiedWallet = verification.outcome === "verified" ? verification.identity.walletAddress : null
         const reconnected = message.type === "join_room" && message.reconnectToken
-          ? room.reconnect(socket, message.reconnectToken, Date.now(), authUserId, message.productAnalytics, message.buildId)
+          ? room.reconnect(socket, message.reconnectToken, Date.now(), authUserId, message.productAnalytics, message.buildId, verifiedWallet)
           : null
-        const player = reconnected ?? room.addPlayer(socket, displayName, characterId, authUserId, quickPlayReservation !== null, message.productAnalytics, message.buildId)
+        const player = reconnected ?? room.addPlayer(socket, displayName, characterId, authUserId, quickPlayReservation !== null, message.productAnalytics, message.buildId, verifiedWallet)
         telemetry.increment(reconnected ? "reconnect_success_total" : message.type === "create_room" ? "rooms_created_total" : "room_joins_total")
         if (message.type === "create_room") {
           const traceId = randomUUID()
