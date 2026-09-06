@@ -1027,3 +1027,12 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
   -webkit-mask: url(/assets/ui/comigo/Bow.svg) no-repeat center / contain; mask: url(/assets/ui/comigo/Bow.svg) no-repeat center / contain;
   background: var(--wax);
 }
+
+/* R. Hood brush maker's mark (project-authored logo) on the intro. */
+.maker-mark { margin: 4px 0 14px; }
+.maker-mark span {
+  display: block; width: 132px; height: 46px; color: var(--ink); opacity: .78;
+  -webkit-mask: url(/assets/ui/brand/r-hood.svg) no-repeat left center / contain;
+  mask: url(/assets/ui/brand/r-hood.svg) no-repeat left center / contain;
+  background: currentColor;
+}
