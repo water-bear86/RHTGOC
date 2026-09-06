@@ -94,6 +94,7 @@ function createHearth(): THREE.Group {
   coals.receiveShadow = true
 
   hearth.add(coals, stones, logs)
+  hearth.scale.setScalar(1.25)
   return hearth
 }
 
@@ -183,9 +184,9 @@ export function createCampfireVisuals(options: CampfireVisualOptions = {}): Camp
   group.add(createHearth())
 
   const lobes = [
-    createFlameLobe("CampfireFlameOuter", 0xe4471e, 0.56, -0.03, 0.58, new THREE.Vector3(0.78, 1.38, 0.7), 0.2),
-    createFlameLobe("CampfireFlameMiddle", 0xff8b20, 0.72, 0.08, 0.55, new THREE.Vector3(0.58, 1.08, 0.52), 2.1),
-    createFlameLobe("CampfireFlameCore", 0xffd66b, 0.86, -0.06, 0.48, new THREE.Vector3(0.34, 0.72, 0.3), 4.2),
+    createFlameLobe("CampfireFlameOuter", 0xe4471e, 0.56, -0.03, 0.66, new THREE.Vector3(0.78, 1.38, 0.7), 0.2),
+    createFlameLobe("CampfireFlameMiddle", 0xff8b20, 0.72, 0.08, 0.63, new THREE.Vector3(0.58, 1.08, 0.52), 2.1),
+    createFlameLobe("CampfireFlameCore", 0xffd66b, 0.86, -0.06, 0.56, new THREE.Vector3(0.34, 0.72, 0.3), 4.2),
   ]
   for (const lobe of lobes) group.add(lobe.mesh)
 

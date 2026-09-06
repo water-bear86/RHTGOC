@@ -284,7 +284,7 @@ describe("village runtime composition", () => {
     )
   })
 
-  it("creates a tagged 0.8-scale wagon shell rotated onto the cart's long X axis", () => {
+  it("creates a tagged full-scale wagon shell rotated onto the cart's long X axis", () => {
     const { scene, geometry, material } = syntheticCatalog()
     const sourceWagon = scene.getObjectByName("Prop_Wagon")!
     const shell = createVillageWagonShell(scene)
@@ -297,7 +297,7 @@ describe("village runtime composition", () => {
       sherwoodVillageRole: "wagon-shell",
     })
     expect(shell.rotation.y).toBeCloseTo(Math.PI / 2)
-    expect(shell.scale.toArray()).toEqual([0.8, 0.8, 0.8])
+    expect(shell.scale.toArray()).toEqual([1, 1, 1])
     expect(clone).not.toBe(sourceWagon)
     expect(clone.userData.sherwoodVillageModule).toBe("Prop_Wagon")
     expect(firstMesh(clone).geometry).toBe(geometry)

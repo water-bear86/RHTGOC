@@ -125,16 +125,16 @@ function addFence(
     z - Math.sin(rotation) * localX,
   )
   for (const localX of [-length / 2, 0, length / 2]) {
-    const post = mesh("FencePost", new THREE.BoxGeometry(0.16, 1.15, 0.16), 0x604329)
-    post.position.set(localX, terrainAt(localX) + 0.575, 0)
+    const post = mesh("FencePost", new THREE.BoxGeometry(0.2, 1.5, 0.2), 0x604329)
+    post.position.set(localX, terrainAt(localX) + 0.75, 0)
     fence.add(post)
   }
   const startY = terrainAt(-length / 2)
   const endY = terrainAt(length / 2)
   const railAngle = Math.atan2(endY - startY, length)
   const railLength = Math.hypot(length, endY - startY)
-  for (const y of [0.42, 0.85]) {
-    const rail = mesh("FenceRail", new THREE.BoxGeometry(railLength, 0.12, 0.12), 0x765536)
+  for (const y of [0.55, 1.1]) {
+    const rail = mesh("FenceRail", new THREE.BoxGeometry(railLength, 0.14, 0.14), 0x765536)
     rail.position.y = (startY + endY) / 2 + y
     rail.rotation.z = railAngle
     fence.add(rail)
@@ -334,32 +334,32 @@ function createWheatField(frame: TerrainFrame, natureCatalog?: NatureCatalog): {
 function createWindmill(): { group: THREE.Group; rotor: THREE.Group } {
   const group = new THREE.Group()
   group.name = "WindmillLandmark"
-  const base = mesh("WindmillStoneBase", new THREE.CylinderGeometry(2.45, 2.9, 4.8, 10), 0xb9aa88)
-  base.position.y = 2.4
-  const timberBand = mesh("WindmillTimberBand", new THREE.CylinderGeometry(2.52, 2.72, 0.28, 10), 0x59402a)
-  timberBand.position.y = 3.45
-  const roof = mesh("WindmillRoof", new THREE.ConeGeometry(3.05, 2.05, 10), 0x5c3828)
-  roof.position.y = 5.82
-  const door = mesh("WindmillDoor", new THREE.BoxGeometry(0.9, 1.75, 0.16), 0x4a3022)
-  door.position.set(0, 0.9, 2.61)
-  const window = mesh("WindmillWindow", new THREE.BoxGeometry(0.72, 0.72, 0.18), 0x4a3022)
-  window.position.set(0, 3.25, 2.47)
+  const base = mesh("WindmillStoneBase", new THREE.CylinderGeometry(3.3, 3.9, 6.6, 10), 0xb9aa88)
+  base.position.y = 3.3
+  const timberBand = mesh("WindmillTimberBand", new THREE.CylinderGeometry(3.38, 3.6, 0.38, 10), 0x59402a)
+  timberBand.position.y = 4.75
+  const roof = mesh("WindmillRoof", new THREE.ConeGeometry(3.55, 2.9, 10), 0x5c3828)
+  roof.position.y = 8.05
+  const door = mesh("WindmillDoor", new THREE.BoxGeometry(1.18, 2.7, 0.16), 0x4a3022)
+  door.position.set(0, 1.35, 3.6)
+  const window = mesh("WindmillWindow", new THREE.BoxGeometry(1, 1, 0.18), 0x4a3022)
+  window.position.set(0, 4.4, 3.4)
   group.add(base, timberBand, roof, door, window)
 
   const rotor = new THREE.Group()
   rotor.name = "WindmillRotor"
-  rotor.position.set(0, 4.35, 2.72)
+  rotor.position.set(0, 6.6, 3.7)
   for (let bladeIndex = 0; bladeIndex < 4; bladeIndex += 1) {
     const arm = new THREE.Group()
     arm.rotation.z = bladeIndex * Math.PI / 2
-    const spar = mesh("WindmillBladeSpar", new THREE.BoxGeometry(0.16, 4.8, 0.16), 0x4a3022)
-    spar.position.y = 2.15
-    const sail = mesh("WindmillBladeSail", new THREE.BoxGeometry(0.78, 3.25, 0.08), 0xd8cba5)
-    sail.position.set(0.42, 2.55, 0)
+    const spar = mesh("WindmillBladeSpar", new THREE.BoxGeometry(0.18, 6.5, 0.18), 0x4a3022)
+    spar.position.y = 3.25
+    const sail = mesh("WindmillBladeSail", new THREE.BoxGeometry(1.05, 4.4, 0.08), 0xd8cba5)
+    sail.position.set(0.55, 3.45, 0)
     arm.add(spar, sail)
     rotor.add(arm)
   }
-  const axle = mesh("WindmillAxle", new THREE.CylinderGeometry(0.27, 0.27, 0.7, 8), 0x3c2b21)
+  const axle = mesh("WindmillAxle", new THREE.CylinderGeometry(0.32, 0.32, 0.85, 8), 0x3c2b21)
   axle.rotation.x = Math.PI / 2
   rotor.add(axle)
   group.add(rotor)

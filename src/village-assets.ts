@@ -385,7 +385,7 @@ export function createVillageWagonShell(source: THREE.Object3D): THREE.Group {
     sherwoodVillageRole: "wagon-shell",
   }
   shell.rotation.y = Math.PI / 2
-  shell.scale.setScalar(0.8)
+  shell.scale.setScalar(1)
   shell.add(cloneVillageModule(catalog, "Prop_Wagon"))
   return shell
 }

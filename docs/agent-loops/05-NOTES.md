@@ -87,3 +87,26 @@ What changed (rows 1-20, 23 + shared footprints):
   hat; three huts on the ground, disjoint, clear of trees; board visible. `hub.png` shows Robin
   dwarfed by the farm. (Hero is occluded behind the foreground cottage in the hub-camp debug frame.)
 - C5 partial — composer/collision/settlement/village/landmark suites green (composer floor note above).
+
+## Stage B — props
+
+Landed. `npx tsc -b` clean; `npx vitest run` = 112 files / 905 tests green.
+
+- Row 21 windmill (`world-landmarks.ts` createWindmill): base 4.8→6.6 tall (r 3.3-3.9), roof 2.05→2.9,
+  door 0.9x1.75→1.18x2.7, window 0.72→1.0, spars 4.8→6.5, sails 0.78x3.25→1.05x4.4 (total ~9.5).
+- Row 22 fences (addFence): posts 0.16x1.15→0.2x1.5 (y+0.575→+0.75), rails 0.12 at 0.42/0.85 →
+  0.14 at 0.55/1.10. `world-landmarks.test.ts` drape offset updated 0.575→0.75.
+- Row 27 fallback dressing stone (`forest-dressing.ts`): Dodeca 0.28→0.85, scale (1,0.48,0.82)→(1,0.6,0.8).
+- Row 29 fallback tree (`main.ts` createFallbackTree): all dims x2.12 (s = scale*2.12); occluder 1.2→2.5.
+- Row 30 campfire (`campfire-visuals.ts`): `hearth.scale.setScalar(1.25)`, flame lobe baseY +0.08.
+- Row 31 tax cart (`main.ts` createCart): proceduralShell, cage, coins x1.25.
+- Row 32 wagon shell (`village-assets.ts`): scale 0.8→1.0 (+ test rename/number).
+- Rows 33/34/35 crates (`main.ts`): bow-cache 1.4x0.62x0.85→1.65x0.8x1.0; supplies 1.05x0.62x0.72→
+  1.3x0.8x0.9; upgrade granary 0.65x0.55x0.65 pitch 0.75→0.85x0.72x0.85 pitch 0.95.
+- Row 36 medieval props (`main.ts` rebuildMedievalProps): `MEDIEVAL_PROP_SCALE = 1.3`; well `side`
+  2.85→2.55 (`world-prop-layout.ts`).
+- Optional wheat x1.3 skipped (out of budget, not required).
+
+Criterion 3 (campfire ~0.8 hero, fence rails at hip) confirmed in `hub.png`: campfire ring clearly
+larger, fence posts substantial. Criterion 4 props/cart are mission-only geometry (not framable in the
+hub); changes are numeric + gated.

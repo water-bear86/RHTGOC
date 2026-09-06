@@ -943,21 +943,24 @@ function addLighting(): void {
 }
 
 function createFallbackTree(x: number, z: number, scale = 1): THREE.Group {
+  // Hero-scale the fallback tree so it matches the authored catalog trees
+  // (every authored dimension is ~2.12x its old 1u=1m size).
+  const s = scale * 2.12
   const tree = new THREE.Group()
   tree.position.set(x, 0, z)
-  const trunk = mesh(new THREE.CylinderGeometry(0.22 * scale, 0.34 * scale, 2.4 * scale, 7), palette.trunk)
-  trunk.position.y = 1.2 * scale
+  const trunk = mesh(new THREE.CylinderGeometry(0.22 * s, 0.34 * s, 2.4 * s, 7), palette.trunk)
+  trunk.position.y = 1.2 * s
   tree.add(trunk)
 
-  const crownA = mesh(new THREE.ConeGeometry(1.25 * scale, 2.8 * scale, 7), palette.leaf)
-  crownA.position.y = 3 * scale
+  const crownA = mesh(new THREE.ConeGeometry(1.25 * s, 2.8 * s, 7), palette.leaf)
+  crownA.position.y = 3 * s
   crownA.rotation.y = x * 0.15
-  const crownB = mesh(new THREE.ConeGeometry(0.92 * scale, 2.2 * scale, 7), palette.leafLight)
-  crownB.position.set(0.35 * scale, 3.8 * scale, 0.12 * scale)
+  const crownB = mesh(new THREE.ConeGeometry(0.92 * s, 2.2 * s, 7), palette.leafLight)
+  crownB.position.set(0.35 * s, 3.8 * s, 0.12 * s)
   crownB.rotation.y = z * 0.12
   tree.add(crownA, crownB)
   scene.add(tree)
-  cameraOccluders.push({ view: tree, radius: 1.2 * scale, maxDistance: 42 })
+  cameraOccluders.push({ view: tree, radius: 2.5 * scale, maxDistance: 42 })
   return tree
 }
 
@@ -1164,12 +1167,12 @@ function rebuildBowCaches(layout: RegionalMissionLayout): void {
   for (const [index, position] of layout.bowCachePositions.entries()) {
     const cache = new THREE.Group()
     cache.userData.sherwoodOwnedGeometry = true
-    const crate = mesh(new THREE.BoxGeometry(1.4, 0.62, 0.85), 0x6d4b2c)
-    crate.position.y = 0.32
-    const band = mesh(new THREE.BoxGeometry(1.48, 0.1, 0.92), 0xd1a94b)
-    band.position.y = 0.5
+    const crate = mesh(new THREE.BoxGeometry(1.65, 0.8, 1), 0x6d4b2c)
+    crate.position.y = 0.4
+    const band = mesh(new THREE.BoxGeometry(1.75, 0.12, 1.08), 0xd1a94b)
+    band.position.y = 0.64
     const { bow } = createArcheryEquipment(index % 2 === 0 ? "longbow" : "shortbow", 0.72)
-    bow.position.set(0, 0.9, 0)
+    bow.position.set(0, 1.08, 0)
     bow.rotation.set(Math.PI / 2, 0, Math.PI / 2)
     cache.add(crate, band, bow)
     cache.position.set(position.x, sherwoodHeightAt(position.x, position.z), position.z)
@@ -1265,6 +1268,8 @@ function attachNatureDressing(): void {
   }).catch(() => showToast("Textured forest dressing could not be loaded; using the lightweight fallback"))
 }
 
+const MEDIEVAL_PROP_SCALE = 1.3
+
 function rebuildMedievalProps(): void {
   for (const prop of medievalPropViews.splice(0)) scene.remove(prop)
   if (!medievalPropsCatalogSource || !composedWorld) return
@@ -1272,6 +1277,7 @@ function rebuildMedievalProps(): void {
     const source = medievalPropsCatalogSource.getObjectByName(placement.name)
     if (!source) continue
     const prop = source.clone(true)
+    prop.scale.setScalar(MEDIEVAL_PROP_SCALE)
     prop.position.set(
       placement.position.x,
       sherwoodHeightAt(placement.position.x, placement.position.z),
@@ -1420,17 +1426,20 @@ function createCart(): THREE.Group {
       proceduralShell.add(wheel)
     }
   }
+  proceduralShell.scale.setScalar(1.25)
   proceduralWagonShellView = proceduralShell
   cart.add(proceduralShell)
   for (let i = 0; i < 5; i += 1) {
     const coin = mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.08, 12), palette.gold)
-    coin.position.set(-0.6 + i * 0.3, 1.45 + (i % 2) * 0.1, 0)
+    coin.position.set((-0.6 + i * 0.3) * 1.25, (1.45 + (i % 2) * 0.1) * 1.25, 0)
+    coin.scale.setScalar(1.25)
     coin.rotation.x = Math.PI / 2
     coin.userData.coin = true
     cart.add(coin)
   }
   const cage = new THREE.Group()
   cage.userData.prison = true
+  cage.scale.setScalar(1.25)
   const cageRoof = mesh(new THREE.BoxGeometry(2.25, 0.12, 1.45), 0x3f3428)
   cageRoof.position.y = 2.75
   cage.add(cageRoof)
@@ -2977,13 +2986,13 @@ function syncTrapViews(traps: MissionTrap[]): void {
 function createPreparationView(preparation: MissionPreparation): THREE.Group {
   const group = new THREE.Group()
   if (preparation.type === "supplies") {
-    const crate = mesh(new THREE.BoxGeometry(1.05, 0.62, 0.72), 0x6d4b2c)
-    crate.position.y = 0.34
-    const band = mesh(new THREE.BoxGeometry(1.12, 0.12, 0.78), 0xd1a94b)
-    band.position.y = 0.52
+    const crate = mesh(new THREE.BoxGeometry(1.3, 0.8, 0.9), 0x6d4b2c)
+    crate.position.y = 0.4
+    const band = mesh(new THREE.BoxGeometry(1.4, 0.12, 0.98), 0xd1a94b)
+    band.position.y = 0.65
     const arrows = mesh(new THREE.CylinderGeometry(0.11, 0.15, 0.86, 8), 0x315f37)
     arrows.rotation.z = Math.PI / 2
-    arrows.position.set(0, 0.84, 0)
+    arrows.position.set(0, 1, 0)
     group.add(crate, band, arrows)
   } else if (preparation.type === "intelligence") {
     const stand = mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.35, 6), 0x4f3522)
@@ -3712,8 +3721,8 @@ function applyVillageState(village: VillageState): void {
     const view = new THREE.Group()
     if (choice === "granary") {
       for (let index = 0; index < 4; index += 1) {
-        const crate = mesh(new THREE.BoxGeometry(0.65, 0.55, 0.65), 0xa87a43)
-        crate.position.set((index % 2) * 0.75, 0.28, Math.floor(index / 2) * 0.75)
+        const crate = mesh(new THREE.BoxGeometry(0.85, 0.72, 0.85), 0xa87a43)
+        crate.position.set((index % 2) * 0.95, 0.36, Math.floor(index / 2) * 0.95)
         view.add(crate)
       }
       view.userData.campOffset = { x: 2.4, z: 0 }

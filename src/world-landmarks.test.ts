@@ -63,7 +63,7 @@ describe("Sherwood landmarks", () => {
     expect(fencePosts).toHaveLength(9)
     for (const post of fencePosts) {
       const world = post.getWorldPosition(new THREE.Vector3())
-      expect(world.y - 0.575).toBeCloseTo(sherwoodHeightAt(world.x, world.z), 5)
+      expect(world.y - 0.75).toBeCloseTo(sherwoodHeightAt(world.x, world.z), 5)
     }
 
     const soil = landmarks.group.getObjectByName("FarmFieldSoil") as THREE.Mesh

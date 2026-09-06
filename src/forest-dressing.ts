@@ -289,9 +289,9 @@ export function createForestDressing(options: DressingOptions = {}): ForestDress
   shrub.translate(0, 0.34, 0)
   const flower = new THREE.OctahedronGeometry(0.12, 0)
   flower.translate(0, 0.42, 0)
-  const stone = new THREE.DodecahedronGeometry(0.28, 0)
-  stone.scale(1, 0.48, 0.82)
-  stone.translate(0, 0.13, 0)
+  const stone = new THREE.DodecahedronGeometry(0.85, 0)
+  stone.scale(1, 0.6, 0.8)
+  stone.translate(0, 0.5, 0)
 
   group.add(
     instanced("ForestGrassInstances", grassBlade, 0x496d35, grass),
