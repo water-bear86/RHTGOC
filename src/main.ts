@@ -430,7 +430,7 @@ scroll?.setOutlawName(playerNameInput.value)
 function applyRoughBorders(): void {
   roughBorderAll(".intro-card", { roughness: 1.8, bowing: 1.2, strokeWidth: 2.4, inset: 8, radius: 20, double: true })
   roughBorderAll(".objective, .status span, .heat, .party-hud, .wallet-dock, .prompt, .region-map", { roughness: 2.3, bowing: 1.7, strokeWidth: 1.7, inset: 3, radius: 16 })
-  roughBorderAll(".entry-primary, .entry-public, .intro button:not(.entry-help), #wallet-sign-in", { roughness: 2.1, bowing: 1.5, strokeWidth: 2, inset: 4, radius: 16 })
+  roughBorderAll(".entry-primary, .entry-public, .intro button, #wallet-sign-in", { roughness: 2.1, bowing: 1.5, strokeWidth: 2, inset: 4, radius: 16 })
 }
 requestAnimationFrame(applyRoughBorders)
 const roughlyBorderedPanels = new WeakSet<HTMLElement>()

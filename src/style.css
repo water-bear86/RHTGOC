@@ -1047,3 +1047,16 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
   border-radius: 0 !important; box-shadow: none !important;
   filter: drop-shadow(0 4px 6px #0007); transform: rotate(-6deg) !important;
 }
+
+/* Fix: elements with a RoughJS sketched border must not ALSO show their own
+   CSS border/bevel — that doubles the outline. The sketch is the only edge;
+   the fill (gradient/paper) stays. */
+.intro-card, .panel, .hub-panel, .public-hub-panel, .chat-drawer,
+.btn-paper, .intro button, .entry-primary, .entry-public, #wallet-sign-in, .wallet-dock button,
+.panel-actions button, .vote-choices button, .board-filters select,
+.objective, .status span, .heat, .party-hud, .wallet-dock, .prompt, .toast, .region-map, .quick-chat {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+/* keep the ghost help button truly borderless (no sketch, no box) */
+.entry-help { background: transparent !important; }
