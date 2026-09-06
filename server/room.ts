@@ -37,6 +37,8 @@ interface ConnectedPlayer extends RoomPlayer {
   captureFor: number
   captured: boolean
   rescueCount: number
+  guardsStunned: number
+  exploredCells: Set<number>
   transferCount: number
   lastPingTick: number
   totalTransferred: number
@@ -209,6 +211,8 @@ export class Room {
       captureFor: 0,
       captured: false,
       rescueCount: 0,
+      guardsStunned: 0,
+      exploredCells: new Set<number>(),
       transferCount: 0,
       lastPingTick: -20,
       totalTransferred: 0,

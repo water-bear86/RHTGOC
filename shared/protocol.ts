@@ -249,7 +249,19 @@ export interface MissionPreparation {
   position: { x: number; z: number }
 }
 
+/** Authoritative per-player outcome for one mission run, used for Scroll
+ *  recording. Raw counts (never the normalized mastery percentages). */
+export interface MissionPlayerOutcome {
+  rescues: number
+  captures: number
+  /** Global region-grid cell indices (0-24) this player personally entered. */
+  regionCells: number[]
+}
+
 export interface MissionSnapshot {
+  /** Stable per-run id; deed ids derive from it so a second completion of the
+   *  same mission definition does not collide with the first. */
+  instanceId: string
   missionId: string
   missionVersion: string
   contentHash: string
@@ -257,6 +269,8 @@ export interface MissionSnapshot {
   seed: number
   layout: RegionalMissionLayout
   exploredCellIndices: number[]
+  /** Per-player authoritative outcome, keyed by player id. */
+  playerOutcomes: Record<string, MissionPlayerOutcome>
   status: "active" | "succeeded" | "failed"
   phase: "scout" | "ambush" | "robbery" | "pursuit" | "escape" | "extraction"
   entryRoute: "forest" | "river" | null
@@ -323,6 +337,8 @@ export interface MissionResult {
   thresholds: { S: 9000; A: 7500; B: 6000; C: 0 }
   communityCoin: number
   personalRenown: number
+  /** Authoritative team clean-escape: no damage taken and no capture. */
+  cleanEscape: boolean
 }
 
 export interface RedistributionVote {

@@ -65,7 +65,7 @@ function run(overrides: Partial<VerifiedRun> = {}): VerifiedRun {
     breakdown: { speed: 90, stealth: 80, precision: 88, survival: 76, rescues: 40, generosity: 70 },
     thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
     communityCoin: 1_400,
-    personalRenown: 300,
+    personalRenown: 300, cleanEscape: false,
   }
   return {
     missionId: "mission-abc",

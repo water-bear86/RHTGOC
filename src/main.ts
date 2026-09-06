@@ -3650,8 +3650,11 @@ function recordMissionOnScroll(mission: MissionSnapshot): void {
   if (!scroll || !mission.result || mission.status !== "succeeded") return
   const at = Date.now()
   const partySize = Math.max(1, Math.min(4, currentRoomPlayers.length || 1))
+  // Deed ids are scoped to this run instance, so completing the same mission
+  // definition again records fresh deeds instead of colliding with the first.
+  const run = mission.instanceId
   scroll.record({
-    id: `mission:${mission.missionId}`,
+    id: `mission:${run}`,
     kind: "mission-completed",
     at,
     missionId: mission.missionId,
@@ -3660,18 +3663,27 @@ function recordMissionOnScroll(mission: MissionSnapshot): void {
     partySize,
   })
   if (mission.result.communityCoin > 0) {
-    scroll.record({ id: `coin:${mission.missionId}`, kind: "coin-returned", at, amount: mission.result.communityCoin })
+    scroll.record({ id: `coin:${run}`, kind: "coin-returned", at, amount: mission.result.communityCoin })
   }
-  const rescued = mission.result.breakdown.rescues
-  if (rescued > 0) {
-    scroll.record({ id: `rescue:${mission.missionId}`, kind: "ally-rescued", at, amount: rescued })
+  // Authoritative per-player raw counts from the server — never the normalized
+  // mastery percentages, and never another player's contribution.
+  const selfId = multiplayer.playerId
+  const outcome = (selfId ? mission.playerOutcomes[selfId] : undefined) ?? { rescues: 0, captures: 0, regionCells: [] }
+  if (outcome.rescues > 0) {
+    scroll.record({ id: `rescue:${run}`, kind: "ally-rescued", at, amount: outcome.rescues })
   }
-  if (mission.heat <= 0) {
-    scroll.record({ id: `unseen:${mission.missionId}`, kind: "clean-escape", at })
+  if (outcome.captures > 0) {
+    scroll.record({ id: `capture:${run}`, kind: "guard-captured", at, amount: outcome.captures })
   }
-  const explored = mission.exploredCellIndices.length
-  if (explored > 0) {
-    scroll.record({ id: `regions:${mission.missionId}`, kind: "region-explored", at, amount: explored })
+  if (mission.result.cleanEscape) {
+    scroll.record({ id: `unseen:${run}`, kind: "clean-escape", at })
+  }
+  // One deed per global region cell with a stable id, so a region walked in an
+  // earlier run is not counted again toward Cartographer (permanent idempotency
+  // dedupes across runs; the per-player cell set prevents crediting a teammate's
+  // exploration).
+  for (const cell of outcome.regionCells) {
+    scroll.record({ id: `region:${cell}`, kind: "region-explored", at, amount: 1 })
   }
 }
 

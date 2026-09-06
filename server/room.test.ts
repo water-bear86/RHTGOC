@@ -127,7 +127,7 @@ describe("Merry Band room", () => {
       breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 80, generosity: 80 },
       thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
       communityCoin: 660,
-      personalRenown: 4000,
+      personalRenown: 4000, cleanEscape: false,
     }
     mission.vote = { deadlineTick: 300, counts: { granary: 2, infirmary: 0, watchtower: 0 }, votes: {}, resolved: true, winner: "granary", allocatedCoin: 660 }
     mission.village.granary = 1
@@ -175,7 +175,7 @@ describe("Merry Band room", () => {
       breakdown: { speed: 40, stealth: 50, precision: 70, survival: 60, rescues: 25, generosity: 0 },
       thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
       communityCoin: 100,
-      personalRenown: 2100,
+      personalRenown: 2100, cleanEscape: false,
     }
     expect(room.returnToHub(leader.id)).toBe(true)
     expect(room.lastResult).toEqual({ score: 4200, grade: "C", status: "failed", rescuedCaptives: 1, totalCaptives: 3 })
@@ -344,7 +344,7 @@ describe("Merry Band room", () => {
       breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 80, generosity: 80 },
       thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
       communityCoin: 660,
-      personalRenown: 4000,
+      personalRenown: 4000, cleanEscape: false,
     }
     const verifiedRuns = room.claimVerifiedRuns()
     expect(verifiedRuns).toEqual(expect.arrayContaining([
@@ -367,7 +367,7 @@ describe("Merry Band room", () => {
     room.mission!.status = "succeeded"
     room.mission!.result = {
       score: 8_000, grade: "A", breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 80, generosity: 80 },
-      thresholds: { S: 9_000, A: 7_500, B: 6_000, C: 0 }, communityCoin: 660, personalRenown: 4_000,
+      thresholds: { S: 9_000, A: 7_500, B: 6_000, C: 0 }, communityCoin: 660, personalRenown: 4_000, cleanEscape: false,
     }
     expect(room.claimVerifiedRuns()).toEqual([])
     season.phase = "archived"
@@ -385,7 +385,7 @@ describe("Merry Band room", () => {
     room.mission!.status = "succeeded"
     room.mission!.result = {
       score: 8_000, grade: "A", breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 80, generosity: 80 },
-      thresholds: { S: 9_000, A: 7_500, B: 6_000, C: 0 }, communityCoin: 660, personalRenown: 4_000,
+      thresholds: { S: 9_000, A: 7_500, B: 6_000, C: 0 }, communityCoin: 660, personalRenown: 4_000, cleanEscape: false,
     }
     room.mission!.vote = { deadlineTick: 300, counts: { granary: 2, infirmary: 0, watchtower: 0 }, votes: {}, resolved: true, winner: "granary", allocatedCoin: 660 }
     expect(room.claimBandMission()).toMatchObject({ bandId: persistedBand.state.id, actorUserId: persistedBand.actorUserId, status: "succeeded", allocationChoice: "granary", allocationCoin: 660 })
@@ -428,7 +428,7 @@ describe("Merry Band room", () => {
     room.mission!.delivered = 660
     room.mission!.result = {
       score: 8_000, grade: "A", breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 80, generosity: 80 },
-      thresholds: { S: 9_000, A: 7_500, B: 6_000, C: 0 }, communityCoin: 660, personalRenown: 4_000,
+      thresholds: { S: 9_000, A: 7_500, B: 6_000, C: 0 }, communityCoin: 660, personalRenown: 4_000, cleanEscape: false,
     }
     room.mission!.vote = { deadlineTick: 300, counts: { granary: 2, infirmary: 0, watchtower: 0 }, votes: {}, resolved: false, winner: null, allocatedCoin: 660 }
     expect(room.claimSeasonOutcome(1_000)).toBeNull()
@@ -678,7 +678,7 @@ describe("Merry Band room", () => {
       score: 3200, grade: "C",
       breakdown: { speed: 30, stealth: 40, precision: 60, survival: 20, rescues: 0, generosity: 0 },
       thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
-      communityCoin: 0, personalRenown: 1600,
+      communityCoin: 0, personalRenown: 1600, cleanEscape: false,
     }
     room.update(0.05, now + 1)
     const offer = structuredClone(room.rescueOffer!)
@@ -706,7 +706,7 @@ describe("Merry Band room", () => {
       score: 8000, grade: "A",
       breakdown: { speed: 80, stealth: 80, precision: 80, survival: 80, rescues: 75, generosity: 0 },
       thresholds: { S: 9000, A: 7500, B: 6000, C: 0 },
-      communityCoin: 300, personalRenown: 4000,
+      communityCoin: 300, personalRenown: 4000, cleanEscape: false,
     }
     room.update(0.05, now + 7)
     expect(room.rescueOffer).toMatchObject({ status: "completed", rewardSettled: true, recoveredValue: 300, attempts: 1 })
