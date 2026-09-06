@@ -822,7 +822,10 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
 
 .scroll-illumination { position: absolute; z-index: 0; inset: 0; pointer-events: none; }
 .scroll-illumination svg { width: 100%; height: 100%; display: block; }
-.scroll-panel > *:not(.scroll-illumination) { position: relative; z-index: 1; }
+/* Lift content above the illumination without clobbering the close button's
+   own absolute positioning, which .panel > button relies on. */
+.scroll-panel > *:not(.scroll-illumination):not(button) { position: relative; z-index: 1; }
+.scroll-panel > button { z-index: 2; }
 
 .scroll-head { margin-bottom: 20px; }
 .scroll-head h2 { margin: 8px 0 12px; }
@@ -868,6 +871,8 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
 .scroll-chronicle-empty { color: var(--ink-3); font-size: 13px; font-style: italic; border: 0; }
 
 .scroll-actions { margin-top: 24px; }
+/* The import picker is opened from the button; it is never shown itself. */
+.scroll-actions input[type="file"] { display: none; }
 .scroll-note { margin: 14px 0 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }
 
 @media (max-width: 720px) {

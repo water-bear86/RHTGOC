@@ -45,6 +45,12 @@ describe("identity block", () => {
     expect(view.identity.find((line) => line.label === "Scroll")?.value).toBe("Not minted")
   })
 
+  it("does not show a token id while the wallet is unbound", () => {
+    const orphaned: ScrollRecord = { ...emptyScrollRecord(), wallet: null, scrollTokenId: "128" }
+    const view = buildScrollView(orphaned, sync(), NOW)
+    expect(view.identity.find((line) => line.label === "Scroll")?.value).toBe("Not minted")
+  })
+
   it("abbreviates the wallet rather than showing it whole", () => {
     const wallet = "0x1234567890abcdef1234567890abcdef12345678"
     const record: ScrollRecord = { ...emptyScrollRecord(), wallet }

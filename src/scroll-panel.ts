@@ -93,7 +93,9 @@ export function buildScrollView(record: ScrollRecord, sync: ScrollSyncState, now
   const identity: ScrollStatLine[] = [
     { label: "Outlaw", value: record.outlawName },
     { label: "Wallet", value: record.wallet ? shortAddress(record.wallet) : "Not bound" },
-    { label: "Scroll", value: record.scrollTokenId ? `#${record.scrollTokenId}` : "Not minted" },
+    // A token id without a bound wallet is meaningless to the player, and
+    // reading "#128" beside "Not bound" is just confusing.
+    { label: "Scroll", value: record.wallet && record.scrollTokenId ? `#${record.scrollTokenId}` : "Not minted" },
   ]
   if (sync.anchor) {
     identity.push(
