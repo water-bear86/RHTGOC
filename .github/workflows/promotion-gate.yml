@@ -126,13 +126,16 @@ jobs:
           set -euo pipefail
           results=()
           for job in test-suite production-build asset-validation mission-validation migration-ledger; do
-            outcome="${{ needs.test-suite.result }}"
             case "$job" in
               test-suite) outcome="${{ needs.test-suite.result }}" ;;
               production-build) outcome="${{ needs.production-build.result }}" ;;
               asset-validation) outcome="${{ needs.asset-validation.result }}" ;;
               mission-validation) outcome="${{ needs.mission-validation.result }}" ;;
               migration-ledger) outcome="${{ needs.migration-ledger.result }}" ;;
+              # A job added to the matrix without a matching arm here must fail
+              # loudly, not silently inherit whatever $outcome was left over
+              # from the previous iteration.
+              *) echo "::error::No outcome mapping for job '$job'"; exit 1 ;;
             esac
             results+=("$job=$outcome")
           done

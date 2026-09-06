@@ -26,7 +26,12 @@ env:
 jobs:
   deploy:
     name: Verify and deploy production
-    if: github.ref == 'refs/heads/main'
+    # push is already branch-filtered to main above; this guard exists for
+    # workflow_dispatch, which carries no such filter. Without it, a manual
+    # dispatch from any other branch previously hit the old job-level
+    # `if: github.ref == 'refs/heads/main'`, which skips the whole job —
+    # reported as a neutral/green check with nothing having run, which reads
+    # as a successful no-op deploy rather than the mistake it is.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     environment:
@@ -39,6 +44,12 @@ jobs:
       VITE_ROBINHOOD_CHAIN: ${{ vars.VITE_ROBINHOOD_CHAIN }}
 
     steps:
+      - name: Refuse a manual dispatch off main
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Manual dispatch must target main (got ${{ github.ref }}). Production deploys only ever run from main."
+          exit 1
+
       - name: Check out the release commit
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

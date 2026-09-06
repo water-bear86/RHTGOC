@@ -1,5 +1,5 @@
 import { createServer } from "node:http"
-import { randomInt, randomUUID } from "node:crypto"
+import { randomInt, randomUUID, timingSafeEqual } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { extname, join, normalize } from "node:path"
 import { WebSocket, WebSocketServer } from "ws"
@@ -345,8 +345,21 @@ function bearerToken(request: import("node:http").IncomingMessage): string | und
   return authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined
 }
 
+/** Constant-time equality for secrets. String !== leaks timing on the first differing byte. */
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const bufferA = Buffer.from(a)
+  const bufferB = Buffer.from(b)
+  if (bufferA.length !== bufferB.length) {
+    // Still do a comparison of equal cost so a length mismatch alone doesn't
+    // return early with a different timing profile than a length match.
+    timingSafeEqual(bufferA, bufferA)
+    return false
+  }
+  return timingSafeEqual(bufferA, bufferB)
+}
+
 function operatorAuthorized(request: import("node:http").IncomingMessage): boolean {
-  return Boolean(opsAdminSecret && request.headers.authorization === `Bearer ${opsAdminSecret}`)
+  return Boolean(opsAdminSecret && request.headers.authorization && timingSafeStringEqual(request.headers.authorization, `Bearer ${opsAdminSecret}`))
 }
 
 interface SupabaseIdentity {
@@ -1243,7 +1256,20 @@ function settleRoomOutcomes(code: string, room: Room): boolean {
   return seasonChanged
 }
 
-const sockets = new WebSocketServer({ server: httpServer, path: "/rooms", maxPayload: 32 * 1_024 })
+const sockets = new WebSocketServer({
+  server: httpServer,
+  path: "/rooms",
+  maxPayload: 32 * 1_024,
+  // Browsers always send Origin on a WebSocket handshake; only reject when one
+  // is present and does not match. A missing Origin means a non-browser
+  // client — curl, a native app, the operator smoke-test scripts under
+  // tools/ — which cross-site scripting cannot forge, so it is not the thing
+  // this check defends against. Every message still needs its own explicit
+  // auth token regardless: this only narrows who can open the socket.
+  verifyClient: publicOrigin
+    ? (info: { origin?: string }) => !info.origin || info.origin.replace(/\/$/, "") === publicOrigin
+    : undefined,
+})
 sockets.on("connection", (socket) => {
   telemetry.increment("connections_total")
   if (activeConnections >= maxConnections) {
