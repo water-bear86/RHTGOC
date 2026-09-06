@@ -984,3 +984,46 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
   mask: url(/assets/ui/comigo/Scroll_Tied.svg) no-repeat center / contain;
   background: var(--wax);
 }
+
+/* ── The old arms of Nottingham as the emblem stamp (CC0/public domain) ── */
+:root { --crest: url(/assets/ui/crest/nottingham.svg); }
+
+/* HUD brand coin: the crest embossed in ink on the gilt disc. */
+.brand-mark { position: relative; color: transparent !important; font-size: 0 !important; }
+.brand-mark::before {
+  content: ""; position: absolute; inset: 13%;
+  -webkit-mask: var(--crest) no-repeat center / contain; mask: var(--crest) no-repeat center / contain;
+  background: #3a2c18;
+}
+/* Intro wax seal: keep the wax disc, stamp the crest into it in cream. */
+.intro-card::after { content: "" !important; }
+.intro-card::before {
+  display: block !important; content: "" !important; position: absolute;
+  top: 22px; right: 26px; width: 52px; height: 52px; inset: auto 26px auto auto;
+  border: 0 !important; outline: 0 !important; box-shadow: none !important;
+  -webkit-mask: var(--crest) no-repeat center / 74%; mask: var(--crest) no-repeat center / 74%;
+  background: #f7f0d4e6; transform: rotate(-8deg); z-index: 2; pointer-events: none;
+}
+
+/* ── HUD glyphs → CoMiGo hand-drawn icons (CC0) ── */
+.help-button, .leaderboard-button, .safety-button, .settings-button, .chat-button {
+  color: transparent !important; font-size: 0 !important;
+}
+.help-button::after, .leaderboard-button::after, .safety-button::after, .settings-button::after, .chat-button::after {
+  content: ""; position: absolute; inset: 24%;
+  -webkit-mask: var(--ico) no-repeat center / contain; mask: var(--ico) no-repeat center / contain;
+  background: var(--ico-ink, var(--ink)); pointer-events: none;
+}
+.help-button       { --ico: url(/assets/ui/comigo/Book_Open.svg); }
+.leaderboard-button{ --ico: url(/assets/ui/comigo/Flag.svg); --ico-ink: var(--gilt-3); }
+.safety-button     { --ico: url(/assets/ui/comigo/Shield.svg); --ico-ink: var(--lincoln); }
+.settings-button   { --ico: url(/assets/ui/comigo/Compass.svg); }
+.chat-button       { --ico: url(/assets/ui/comigo/Feather.svg); --ico-ink: var(--cream); }
+
+/* arrows stat → a hand-drawn bow */
+.status .arrow { color: transparent !important; font-size: 0 !important; position: relative; width: 20px; height: 20px; display: inline-block; }
+.status .arrow::before {
+  content: ""; position: absolute; inset: 0;
+  -webkit-mask: url(/assets/ui/comigo/Bow.svg) no-repeat center / contain; mask: url(/assets/ui/comigo/Bow.svg) no-repeat center / contain;
+  background: var(--wax);
+}

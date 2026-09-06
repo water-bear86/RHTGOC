@@ -1,4 +1,4 @@
-# Sherwood, the game (on robinhood chain) — game plan
+# Sherwood Rebellion — game plan
 
 ## North star
 
