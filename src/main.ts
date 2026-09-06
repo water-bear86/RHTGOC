@@ -987,7 +987,10 @@ function createFallbackTree(x: number, z: number, scale = 1): THREE.Group {
   const s = scale * 2.12
   const tree = new THREE.Group()
   tree.position.set(x, 0, z)
-  const trunk = mesh(new THREE.CylinderGeometry(0.22 * s, 0.34 * s, 2.4 * s, 7), palette.trunk)
+  // Trunk radii stay at the un-hero-scaled size so the rendered trunk matches
+  // the authoritative SHERWOOD_TREE_OBSTACLES footprint (0.34 * scale); only
+  // the height and canopy are hero-scaled, which do not affect XZ collision.
+  const trunk = mesh(new THREE.CylinderGeometry(0.22 * scale, 0.34 * scale, 2.4 * s, 7), palette.trunk)
   trunk.position.y = 1.2 * s
   tree.add(trunk)
 
@@ -2273,6 +2276,15 @@ function enterHub(online: boolean): void {
   roomSessionActive = online
   if (!online) roomConnected = false
   if (!online) currentMissionSlug = PEOPLES_PURSE_MISSION.slug
+  if (!online) {
+    // Solo entry must carry the chosen outlaw name onto the Scroll too; only
+    // the quick-play path did this before, so a solo player's scroll and save
+    // kept the previous stored name until a reload.
+    const soloName = playerNameInput.value.trim().slice(0, 20) || "Greenhood"
+    playerNameInput.value = soloName
+    localStorage.setItem("sherwood-rebellion:player-name", soloName)
+    scroll?.setOutlawName(soloName)
+  }
   running = true
   ended = false
   resetMissionRuntimeState()

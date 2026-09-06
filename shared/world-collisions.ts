@@ -63,7 +63,7 @@ export function createSherwoodMissionRockColliders(layout: RegionalMissionLayout
   const forestRocks = createSherwoodMissionForestRockLayout(layout).map((rock, index) => ({
     id: `sherwood-forest-rock-${index}`,
     center: { x: rock.x, z: rock.z },
-    halfExtents: { x: rock.scaleX * 0.34, z: rock.scaleZ * 0.34 },
+    halfExtents: { x: rock.scaleX * 0.7, z: rock.scaleZ * 0.56 },
     rotation: rock.rotation,
   }))
   const standingStones = createSherwoodStandingStoneLayout(layout, world).stones.map((stone, index) => ({
