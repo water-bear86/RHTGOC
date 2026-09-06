@@ -48,7 +48,7 @@ function configuredAppKit(): ReturnType<typeof createAppKit> {
     enableInjected: false,
     enableCoinbase: false,
     metadata: {
-      name: "Robin Hood: The Game (On Chain)",
+      name: "Sherwood, the game (on robinhood chain)",
       description: "Enter Sherwood with your Robinhood Wallet",
       url: location.origin,
       icons: [`${location.origin}/favicon.ico`],
@@ -221,7 +221,7 @@ async function createWalletSession(): Promise<Session> {
   const connected = await connectedRobinhoodWallet()
   const { data, error } = await supabase.auth.signInWithWeb3({
     chain: "ethereum",
-    statement: "Sign in to Robin Hood: The Game (On Chain). This request does not authorize a transaction.",
+    statement: "Sign in to Sherwood, the game (on robinhood chain). This request does not authorize a transaction.",
     wallet: {
       address: connected.address,
       request: (args) => connected.provider.request(args),

@@ -1,10 +1,10 @@
-# Robin Hood: The Game (On Chain) · RHTGOC
+# Sherwood, the game (on robinhood chain)
 
 A true-3D cooperative browser game built around the Robin Hood fantasy: form a Merry Band, rob the Sheriff, survive the pursuit, rescue allies, and redistribute the haul.
 
 ## Permanent playtest
 
-**[Play Robin Hood: The Game (On Chain)](https://sherwood-rebellion.16h6bw5cfk6jc.ca-central-1.cs.amazonlightsail.com/)**
+**[Play Sherwood, the game (on robinhood chain)](https://sherwood-rebellion.16h6bw5cfk6jc.ca-central-1.cs.amazonlightsail.com/)**
 
 The same AWS Lightsail HTTPS origin serves the 3D client, health endpoint, and Merry Band WebSocket rooms.
 

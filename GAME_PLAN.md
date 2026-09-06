@@ -1,4 +1,4 @@
-# Robin Hood: The Game (On Chain) · RHTGOC — game plan
+# Sherwood, the game (on robinhood chain) — game plan
 
 ## North star
 

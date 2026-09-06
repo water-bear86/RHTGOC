@@ -287,14 +287,15 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 /* round HUD buttons: paper tokens; chat is a wax seal */
-.help-button, .leaderboard-button, .safety-button, .settings-button, .social-button, .chat-button { pointer-events: auto; position: absolute; bottom: 28px; width: 38px; height: 38px; display: grid; place-items: center; color: var(--ink); background: radial-gradient(circle at 40% 35%, #f4ead0, var(--paper-2) 70%, var(--paper-3)); border: 1px solid var(--paper-edge); border-radius: 50%; box-shadow: 0 4px 12px #0007, inset 0 0 0 1px #fff8; cursor: pointer; font-size: 15px; transition: transform .15s; }
-.help-button:hover, .leaderboard-button:hover, .safety-button:hover, .settings-button:hover, .social-button:hover, .chat-button:hover { transform: translateY(-2px); }
+.help-button, .leaderboard-button, .scroll-button, .safety-button, .settings-button, .social-button, .chat-button { pointer-events: auto; position: absolute; bottom: 28px; width: 38px; height: 38px; display: grid; place-items: center; color: var(--ink); background: radial-gradient(circle at 40% 35%, #f4ead0, var(--paper-2) 70%, var(--paper-3)); border: 1px solid var(--paper-edge); border-radius: 50%; box-shadow: 0 4px 12px #0007, inset 0 0 0 1px #fff8; cursor: pointer; font-size: 15px; transition: transform .15s; }
+.help-button:hover, .leaderboard-button:hover, .scroll-button:hover, .safety-button:hover, .settings-button:hover, .social-button:hover, .chat-button:hover { transform: translateY(-2px); }
 .help-button { right: 28px; }
 .leaderboard-button { right: 76px; color: var(--gilt-3); }
-.safety-button { right: 124px; color: var(--lincoln); }
-.settings-button { right: 172px; }
-.social-button { right: 220px; color: var(--wax); }
-.chat-button { right: 268px; color: var(--cream); background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 65%, #5e170f); border: 1px solid #5e170f; box-shadow: 0 4px 12px #0007, inset 0 0 0 3px #ffffff22; font-weight: 900; }
+.scroll-button { right: 124px; color: var(--wax); }
+.safety-button { right: 172px; color: var(--lincoln); }
+.settings-button { right: 220px; }
+.social-button { right: 268px; color: var(--wax); }
+.chat-button { right: 316px; color: var(--cream); background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 65%, #5e170f); border: 1px solid #5e170f; box-shadow: 0 4px 12px #0007, inset 0 0 0 3px #ffffff22; font-weight: 900; }
 .chat-button.hidden { display: none; }
 .chat-button > b { position: absolute; right: -5px; top: -7px; min-width: 19px; height: 19px; padding: 0 5px; display: grid; place-items: center; color: var(--ink); background: var(--gilt-2); border: 2px solid var(--ink); border-radius: 10px; font: 700 8px Cinzel, serif; }
 .chat-button > b.hidden { display: none; }
@@ -355,7 +356,7 @@ input, select { font-family: "Crimson Pro", Georgia, serif; }
 .intro.closed { opacity: 0; visibility: hidden; pointer-events: none; }
 .intro-card { position: relative; width: min(700px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: clamp(26px, 4vh, 40px) clamp(26px, 4vw, 46px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ink-3) transparent; }
 /* wax seal in the corner of the proclamation */
-.intro-card::after { content: "RH"; position: absolute; top: 22px; right: 26px; width: 52px; height: 52px; display: grid; place-items: center; color: #f7f0d4cc; background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 60%, #5e170f); border-radius: 50%; box-shadow: 0 3px 8px #0006, inset 0 0 0 4px #ffffff1f, inset 0 0 0 5px #5e170f66; font: 900 13px Cinzel, serif; letter-spacing: .05em; transform: rotate(-12deg); pointer-events: none; }
+.intro-card::after { content: "SH"; position: absolute; top: 22px; right: 26px; width: 52px; height: 52px; display: grid; place-items: center; color: #f7f0d4cc; background: radial-gradient(circle at 35% 30%, var(--wax-2), var(--wax) 60%, #5e170f); border-radius: 50%; box-shadow: 0 3px 8px #0006, inset 0 0 0 4px #ffffff1f, inset 0 0 0 5px #5e170f66; font: 900 13px Cinzel, serif; letter-spacing: .05em; transform: rotate(-12deg); pointer-events: none; }
 .eyebrow { font-size: 11px; letter-spacing: .24em; }
 h1 { margin: 12px 0 16px; color: var(--ink); font: 700 clamp(34px, min(5vw, 6vh), 54px)/.98 Cinzel, serif; letter-spacing: -.02em; }
 h1 em { color: var(--lincoln); font-style: normal; }
@@ -744,10 +745,11 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
   .prompt { bottom: 18px; max-width: 72vw; text-align: center; }
   .help-button { right: 14px; bottom: 18px; }
   .leaderboard-button { right: 60px; bottom: 18px; }
-  .safety-button { right: 106px; bottom: 18px; }
-  .settings-button { right: 152px; bottom: 18px; }
-  .social-button { right: 198px; bottom: 18px; }
-  .chat-button { right: 244px; bottom: 18px; }
+  .scroll-button { right: 106px; bottom: 18px; }
+  .safety-button { right: 152px; bottom: 18px; }
+  .settings-button { right: 198px; bottom: 18px; }
+  .social-button { right: 244px; bottom: 18px; }
+  .chat-button { right: 290px; bottom: 18px; }
   .chat-peek { left: 14px; bottom: 160px; width: calc(100vw - 28px); transform: none; }
   .quick-chat { bottom: 72px; }
   .chat-drawer { top: auto; right: 0; bottom: 0; width: 100%; height: min(70dvh, 620px); clip-path: none; filter: none; border-inline: 0; border-bottom: 0; }
@@ -800,3 +802,79 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
 .finery-actions button.finery-equipped { color: var(--ink-3); background: transparent; box-shadow: none; }
 .finery-actions button:disabled { opacity: .45; cursor: default; }
 .finery-note { display: block; margin-top: 16px; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+
+/* ── The Scroll of Deeds ───────────────────────────────────────────── */
+/* A tall parchment document. The illumination is procedural and purely
+   decorative; every fact it hints at is also present as real text. */
+
+.scroll-panel {
+  z-index: 40;
+  right: 50%;
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: clamp(26px, 4vh, 40px) clamp(30px, 4vw, 52px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-3) transparent;
+  transform: translate(50%, -50%);
+}
+.scroll-panel.hidden { transform: translate(calc(50% + 20px), -50%); }
+
+.scroll-illumination { position: absolute; z-index: 0; inset: 0; pointer-events: none; }
+.scroll-illumination svg { width: 100%; height: 100%; display: block; }
+.scroll-panel > *:not(.scroll-illumination) { position: relative; z-index: 1; }
+
+.scroll-head { margin-bottom: 20px; }
+.scroll-head h2 { margin: 8px 0 12px; }
+.scroll-head h2 b { font-weight: inherit; }
+.scroll-level { display: flex; align-items: baseline; gap: 12px; margin: 0 0 8px; flex-wrap: wrap; }
+.scroll-level b { color: var(--ink); font: 700 16px Cinzel, serif; letter-spacing: .04em; }
+.scroll-level small { color: var(--ink-2); font-size: 12px; }
+.scroll-level-rule { height: 3px; overflow: hidden; background: var(--ink-rule); }
+.scroll-level-rule i { display: block; width: 0; height: 100%; background: var(--gilt); transition: width .3s ease; }
+
+.scroll-seal-row { display: flex; align-items: center; gap: 18px; margin: 22px 0 26px; padding: 16px 18px; background: #fbf5e644; border: var(--paper-rule); }
+.scroll-seal { flex: 0 0 auto; width: 62px; height: 62px; }
+.scroll-seal svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 2px 4px #0004); }
+.scroll-status { display: block; color: var(--ink); font: 700 13px Cinzel, serif; letter-spacing: .08em; text-transform: uppercase; }
+.scroll-status[data-status="sealed"] { color: var(--wax); }
+.scroll-status[data-status="diverged"] { color: #6b2f6b; }
+.scroll-status[data-status="unbound"], .scroll-status[data-status="unsealed"] { color: var(--ink-2); }
+.scroll-status-help { margin: 6px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+
+.scroll-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 32px; }
+.scroll-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 22px 0 10px; padding-bottom: 6px; color: var(--ink); border-bottom: var(--paper-rule); font: 700 10px Cinzel, serif; letter-spacing: var(--label-track); text-transform: uppercase; }
+.scroll-heading b { color: var(--ink-2); font-weight: 700; }
+
+.scroll-lines { display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; margin: 0; }
+.scroll-lines dt { margin: 0; color: var(--ink-2); font-size: 12px; }
+.scroll-lines dd { margin: 0; color: var(--ink); font: 700 13px Cinzel, serif; text-align: right; font-variant-numeric: tabular-nums; }
+
+.scroll-deeds { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 24px; margin: 0; padding: 0; list-style: none; }
+.scroll-deed { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; opacity: .55; }
+.scroll-deed.earned { opacity: 1; }
+.scroll-deed b { color: var(--ink); font: 700 13px Cinzel, serif; }
+.scroll-deed em { color: var(--ink-2); font: 700 9px Cinzel, serif; letter-spacing: .08em; font-style: normal; text-transform: uppercase; }
+.scroll-deed.earned em { color: var(--wax); }
+.scroll-deed small { grid-column: 1 / -1; color: var(--ink-2); font-size: 11.5px; line-height: 1.4; }
+.scroll-deed-rule { grid-column: 1 / -1; height: 2px; margin-top: 4px; overflow: hidden; background: var(--ink-rule); }
+.scroll-deed-rule i { display: block; height: 100%; background: var(--moss); }
+.scroll-deed.earned .scroll-deed-rule i { background: var(--gilt); }
+
+.scroll-chronicle { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.scroll-chronicle li { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding-bottom: 6px; border-bottom: 1px dotted var(--ink-rule); }
+.scroll-chronicle span { color: var(--ink-2); font-size: 13px; line-height: 1.45; }
+.scroll-chronicle time { flex: 0 0 auto; color: var(--ink-3); font: 700 9px Cinzel, serif; letter-spacing: .06em; text-transform: uppercase; }
+.scroll-chronicle-empty { color: var(--ink-3); font-size: 13px; font-style: italic; border: 0; }
+
+.scroll-actions { margin-top: 24px; }
+.scroll-note { margin: 14px 0 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }
+
+@media (max-width: 720px) {
+  .scroll-panel { padding: 22px 20px 26px; }
+  .scroll-seal-row { gap: 12px; padding: 12px; }
+  .scroll-seal { width: 48px; height: 48px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll-level-rule i { transition: none; }
+}

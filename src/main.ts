@@ -127,6 +127,7 @@ import { completeTutorialPlan, loadTutorialProgress, saveTutorialProgress } from
 import type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "../shared/chat"
 import { ChatState, truncateChatInput } from "./chat-state"
 import { BOW_TOTAL_SECONDS, BOW_TOTAL_TICKS, hasBowMovement, type BowActionSnapshot } from "../shared/archery"
+import { createScrollController } from "./scroll-controller"
 
 const container = document.querySelector<HTMLDivElement>("#game")!
 const hud = document.querySelector<HTMLElement>("#hud")!
@@ -163,6 +164,9 @@ const signatureKeyElement = document.querySelector<HTMLElement>(".signature-stat
 const leaderboardButton = document.querySelector<HTMLButtonElement>("#leaderboard-button")!
 const leaderboardPanel = document.querySelector<HTMLDivElement>("#leaderboard-panel")!
 const closeLeaderboard = document.querySelector<HTMLButtonElement>("#close-leaderboard")!
+const scrollButton = document.querySelector<HTMLButtonElement>("#scroll-button")!
+const scrollPanel = document.querySelector<HTMLDivElement>("#scroll-panel")!
+const closeScroll = document.querySelector<HTMLButtonElement>("#close-scroll")!
 const leaderboardList = document.querySelector<HTMLOListElement>("#leaderboard-list")!
 const leaderboardState = document.querySelector<HTMLElement>("#leaderboard-state")!
 const boardKind = document.querySelector<HTMLSelectElement>("#board-kind")!
@@ -405,6 +409,14 @@ const unsubscribePresentationEvents = presentationEvents.subscribe((event) => {
   toastTimer = event.lifetimeSeconds ?? (event.priority === "critical" ? 4 : event.priority === "important" ? 3 : 2.4)
   if (event.cue) audioDirector.playCue(event.cue)
 })
+// The Scroll of Deeds: the player's record and their save file. Entirely
+// optional to the running game — if the panel is missing this is null and
+// every call below is a no-op.
+const scroll = createScrollController({
+  notify: (message) => presentationEvents.publish({ message, channel: "reward", priority: "important", dedupeKey: "scroll-deed" }),
+})
+scroll?.setOutlawName(playerNameInput.value)
+
 let ended = false
 let lastPlayerPosition = { ...state.player.position }
 const movementSoundState = createMovementSoundState()
@@ -2244,7 +2256,7 @@ function startSoloMission(): void {
 }
 
 const controllerActions = GAME_ACTIONS.filter((action) => !action.startsWith("move")) as Array<keyof InputSettings["controller"]>
-const panelElements = [helpPanel, leaderboardPanel, resultsPanel, safetyPanel, settingsPanel, socialPanel, vanityPanel, tutorialPanel, fieldMapPanel]
+const panelElements = [helpPanel, leaderboardPanel, scrollPanel, resultsPanel, safetyPanel, settingsPanel, socialPanel, vanityPanel, tutorialPanel, fieldMapPanel]
 const controllerButtonLabels = ["A / Cross", "B / Circle", "X / Square", "Y / Triangle", "LB / L1", "RB / R1", "LT / L2", "RT / R2", "View / Share", "Menu / Options", "Left stick", "Right stick", "D-pad up", "D-pad down", "D-pad left", "D-pad right"]
 const pointerActionLabels: Record<PointerAction, string> = {
   move: "Move to ground",
@@ -3386,6 +3398,7 @@ async function refreshAccessPanel(): Promise<void> {
     accessState = { ...accessState, gateEnabled: false, authenticated: Boolean(session), entitled: true, payment: null }
     const address = session ? walletAddress(session) : null
     walletState.textContent = address ? shortWalletAddress(address) : session ? "CONNECTED" : "NOT CONNECTED"
+    scroll?.setWallet(address ?? null)
     walletSignIn.classList.toggle("hidden", Boolean(session))
     walletSignOut.classList.toggle("hidden", !session)
     startButton.disabled = false
@@ -3539,8 +3552,45 @@ function createPingView(ping: WorldPing): THREE.Group {
   return group
 }
 
+/**
+ * Write a finished mission onto the player's scroll.
+ *
+ * Everything here comes from the server's own mission snapshot, never from
+ * local counters, and every deed id is derived from the mission id so that
+ * re-rendering the results panel cannot double-count.
+ */
+function recordMissionOnScroll(mission: MissionSnapshot): void {
+  if (!scroll || !mission.result || mission.status !== "succeeded") return
+  const at = Date.now()
+  const partySize = Math.max(1, Math.min(4, currentRoomPlayers.length || 1))
+  scroll.record({
+    id: `mission:${mission.missionId}`,
+    kind: "mission-completed",
+    at,
+    missionId: mission.missionId,
+    grade: mission.result.grade,
+    score: mission.result.score,
+    partySize,
+  })
+  if (mission.result.communityCoin > 0) {
+    scroll.record({ id: `coin:${mission.missionId}`, kind: "coin-returned", at, amount: mission.result.communityCoin })
+  }
+  const rescued = mission.result.breakdown.rescues
+  if (rescued > 0) {
+    scroll.record({ id: `rescue:${mission.missionId}`, kind: "ally-rescued", at, amount: rescued })
+  }
+  if (mission.heat <= 0) {
+    scroll.record({ id: `unseen:${mission.missionId}`, kind: "clean-escape", at })
+  }
+  const explored = mission.exploredCellIndices.length
+  if (explored > 0) {
+    scroll.record({ id: `regions:${mission.missionId}`, kind: "region-explored", at, amount: explored })
+  }
+}
+
 function renderMissionResolution(mission: MissionSnapshot): void {
   if (!mission.result) return
+  recordMissionOnScroll(mission)
   if (resultsPanel.classList.contains("hidden")) openPanel(resultsPanel)
   resultGrade.textContent = mission.result.grade
   resultScore.textContent = mission.result.score.toLocaleString()
@@ -5186,6 +5236,7 @@ joinPublicHubButton.addEventListener("click", () => void (async () => {
     const displayName = playerNameInput.value.trim().slice(0, 20) || "Greenhood"
     playerNameInput.value = displayName
     localStorage.setItem("sherwood-rebellion:player-name", displayName)
+    scroll?.setOutlawName(displayName)
     joinPublicHubButton.textContent = "ENTERING QUICK PLAY…"
     entryAccessNote.textContent = "ENTERING QUICK PLAY…"
     multiplayer.joinPublicHub(displayName, selectedCharacter)
@@ -5433,6 +5484,11 @@ if (new URLSearchParams(location.search).get("debug") === "webgl") {
 }
 leaderboardButton.addEventListener("click", () => void openLeaderboard())
 closeLeaderboard.addEventListener("click", () => closePanel(leaderboardPanel))
+scrollButton.addEventListener("click", () => {
+  openPanel(scrollPanel, scrollButton)
+  scroll?.open()
+})
+closeScroll.addEventListener("click", () => closePanel(scrollPanel))
 for (const filter of [boardKind, boardCharacter, boardParty, boardScope, boardMission, boardSeason]) filter.addEventListener("change", () => void openLeaderboard())
 closeResults.addEventListener("click", () => closePanel(resultsPanel))
 voteButtons.forEach((button) => button.addEventListener("click", () => multiplayer.vote(button.dataset.vote as VoteChoice)))
