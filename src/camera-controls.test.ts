@@ -52,17 +52,17 @@ describe("camera controls", () => {
     }
   })
 
-  it("silhouettes a character when cover sits between the camera and their body", () => {
+  it("silhouettes a character when nearby cover crosses the sightline", () => {
     const base = {
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
       radius: 0.8,
     }
-    expect(characterCoveredByScenery({ ...base, occluder: { x: 0.3, z: 1.0 } })).toBe(true)
-    expect(characterCoveredByScenery({ ...base, occluder: { x: 0.3, z: 1.6 } })).toBe(false)
+    expect(characterCoveredByScenery({ ...base, occluder: { x: 0.3, z: 0.4 } })).toBe(true)
+    expect(characterCoveredByScenery({ ...base, occluder: { x: 1.0, z: 1.0 } })).toBe(false)
   })
 
-  it("keeps the character readable when a crown crosses the corridor further ahead", () => {
+  it("does not silhouette when a distant wide crown only clips the sightline", () => {
     expect(characterCoveredByScenery({
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
@@ -104,13 +104,12 @@ describe("camera controls", () => {
     })).toBe(true)
   })
 
-  it("moves the measured body point toward the camera as body depth grows", () => {
+  it("does not silhouette when the occluder disc is offset laterally past its radius", () => {
     expect(characterCoveredByScenery({
       camera: { x: 0, z: 10 },
       focus: { x: 0, z: 0 },
-      occluder: { x: 0, z: 1.2 },
+      occluder: { x: 0.9, z: 1.2 },
       radius: 0.8,
-      bodyDepth: 0.2,
     })).toBe(false)
   })
 
@@ -121,5 +120,31 @@ describe("camera controls", () => {
       occluder: { x: 2, z: 2 },
       radius: 4,
     })).toBe(false)
+  })
+
+  it("does not silhouette when the 3D sightline passes above the occluder", () => {
+    expect(characterCoveredByScenery({
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      occluder: { x: 0, z: 5 },
+      radius: 1.5,
+      cameraHeight: 14.5,
+      focusHeight: 0.9,
+      occluderBaseHeight: 0,
+      occluderHeight: 5,
+    })).toBe(false)
+  })
+
+  it("silhouettes when the 3D sightline passes through the occluder's vertical extent", () => {
+    expect(characterCoveredByScenery({
+      camera: { x: 0, z: 10 },
+      focus: { x: 0, z: 0 },
+      occluder: { x: 0, z: 0.8 },
+      radius: 1.5,
+      cameraHeight: 14.5,
+      focusHeight: 0.9,
+      occluderBaseHeight: 0,
+      occluderHeight: 5,
+    })).toBe(true)
   })
 })
