@@ -96,8 +96,12 @@ export interface ScrollChronicleEntry {
 }
 
 export const CHRONICLE_LIMIT = 60
-/** Deed ids retained for idempotency. Older deeds cannot be replayed. */
-export const SEALED_DEED_LIMIT = 400
+/**
+ * Every accepted deed id is retained permanently, so replaying any historical
+ * deed id stays a no-op for the life of the record. Idempotency is a
+ * correctness guarantee and must not be traded away to bound this array; the
+ * set only grows with genuinely new deeds, since duplicates never fold in.
+ */
 
 /* ------------------------------------------------------------------ *
  * Levels
@@ -397,7 +401,7 @@ export function applyScrollDeed(record: ScrollRecord, deed: ScrollDeed): ScrollR
     fineries: [...fineries].sort(),
     stats,
     chronicle: chronicle.slice(-CHRONICLE_LIMIT),
-    sealedDeeds: sealedDeeds.slice(-SEALED_DEED_LIMIT).sort(),
+    sealedDeeds: sealedDeeds.sort(),
     updatedAt: Math.max(record.updatedAt, deed.at),
   }
   next.achievements = deriveAchievements(next)

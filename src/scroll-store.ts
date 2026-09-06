@@ -38,8 +38,23 @@ import {
 export const SCROLL_STORAGE_KEY = "sherwood:scroll-record"
 export const SCROLL_QUEUE_STORAGE_KEY = "sherwood:scroll-queue"
 export const SCROLL_EXPORT_KIND = "sherwood-scroll-save"
-/** Deeds waiting on the service. Beyond this the oldest are dropped. */
+/** Advisory soft cap for UI display of the pending-deed count. The queue
+ *  itself is never truncated — see saveScrollQueue. */
 export const SCROLL_QUEUE_LIMIT = 200
+/**
+ * Upper bound on sealed-deed ids kept from an untrusted record on parse. This
+ * only guards against a pathologically large input; the record keeps every
+ * accepted deed id for permanent idempotency (see shared/scroll-record), so
+ * this is deliberately generous rather than a rolling window.
+ */
+export const SEALED_DEED_PARSE_LIMIT = 100_000
+
+/** Per-wallet storage keys: a wallet's record and queue never bleed into
+ *  another identity sharing the same browser. Guests use the bare key. */
+function scopedKey(base: string, wallet: string | null): string {
+  const normalized = normalizeWallet(wallet)
+  return normalized ? `${base}:${normalized}` : base
+}
 
 export interface ScrollStorageLike {
   getItem(key: string): string | null
@@ -140,7 +155,7 @@ export function parseScrollRecord(value: unknown): ScrollRecord | null {
     scrollTokenId: typeof raw.scrollTokenId === "string" && /^[0-9]{1,78}$/.test(raw.scrollTokenId) ? raw.scrollTokenId : null,
     experience: finiteInt(raw.experience),
     fineries: stringArray(raw.fineries, 64),
-    sealedDeeds: stringArray(raw.sealedDeeds, 400),
+    sealedDeeds: stringArray(raw.sealedDeeds, SEALED_DEED_PARSE_LIMIT),
     stats: {
       matches: finiteInt(rawStats.matches),
       captures: finiteInt(rawStats.captures),
@@ -196,9 +211,9 @@ export function parseScrollDeed(value: unknown): ScrollDeed | null {
  * Storage
  * ------------------------------------------------------------------ */
 
-export function loadScrollRecord(storage: ScrollStorageLike): ScrollRecord {
+export function loadScrollRecord(storage: ScrollStorageLike, wallet: string | null = null): ScrollRecord {
   try {
-    const raw = storage.getItem(SCROLL_STORAGE_KEY)
+    const raw = storage.getItem(scopedKey(SCROLL_STORAGE_KEY, wallet))
     if (!raw) return emptyScrollRecord()
     return parseScrollRecord(JSON.parse(raw)) ?? emptyScrollRecord()
   } catch {
@@ -206,18 +221,18 @@ export function loadScrollRecord(storage: ScrollStorageLike): ScrollRecord {
   }
 }
 
-export function saveScrollRecord(storage: ScrollStorageLike, record: ScrollRecord): boolean {
+export function saveScrollRecord(storage: ScrollStorageLike, record: ScrollRecord, wallet: string | null = record.wallet): boolean {
   try {
-    storage.setItem(SCROLL_STORAGE_KEY, JSON.stringify(record))
+    storage.setItem(scopedKey(SCROLL_STORAGE_KEY, wallet), JSON.stringify(record))
     return true
   } catch {
     return false
   }
 }
 
-export function loadScrollQueue(storage: ScrollStorageLike): ScrollDeed[] {
+export function loadScrollQueue(storage: ScrollStorageLike, wallet: string | null = null): ScrollDeed[] {
   try {
-    const raw = storage.getItem(SCROLL_QUEUE_STORAGE_KEY)
+    const raw = storage.getItem(scopedKey(SCROLL_QUEUE_STORAGE_KEY, wallet))
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
@@ -226,15 +241,18 @@ export function loadScrollQueue(storage: ScrollStorageLike): ScrollDeed[] {
       const deed = parseScrollDeed(entry)
       if (deed) deeds.push(deed)
     }
-    return deeds.slice(-SCROLL_QUEUE_LIMIT)
+    return deeds
   } catch {
     return []
   }
 }
 
-export function saveScrollQueue(storage: ScrollStorageLike, deeds: readonly ScrollDeed[]): boolean {
+export function saveScrollQueue(storage: ScrollStorageLike, deeds: readonly ScrollDeed[], wallet: string | null = null): boolean {
   try {
-    storage.setItem(SCROLL_QUEUE_STORAGE_KEY, JSON.stringify(deeds.slice(-SCROLL_QUEUE_LIMIT)))
+    // Persist every unsent deed. Dropping the oldest to bound the array would
+    // permanently lose progression the service has not yet re-derived, since
+    // the folded record is not trusted as authoritative on reconciliation.
+    storage.setItem(scopedKey(SCROLL_QUEUE_STORAGE_KEY, wallet), JSON.stringify(deeds))
     return true
   } catch {
     return false
@@ -286,9 +304,19 @@ export function importScrollFile(text: string): ScrollImportResult | null {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
   const file = parsed as Record<string, unknown>
   if (file.kind !== SCROLL_EXPORT_KIND) return null
-  const record = parseScrollRecord(file.record)
-  if (!record) return null
-  return { record, intact: file.canonical === canonicalScrollPayload(record) }
+  const parsedRecord = parseScrollRecord(file.record)
+  if (!parsedRecord) return null
+  const intact = file.canonical === canonicalScrollPayload(parsedRecord)
+  if (!intact) {
+    // The file was edited: its own canonical payload does not match the record
+    // it carries. Install identity only — never the claimed experience, stats,
+    // fineries, or sealed deeds — so tampering cannot grant levels or
+    // achievements even provisionally, before the service re-derives them.
+    const neutral = emptyScrollRecord(parsedRecord.outlawName)
+    neutral.wallet = parsedRecord.wallet
+    return { record: neutral, intact: false }
+  }
+  return { record: parsedRecord, intact: true }
 }
 
 /* ------------------------------------------------------------------ *

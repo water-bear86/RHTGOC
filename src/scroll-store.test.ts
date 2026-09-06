@@ -121,16 +121,23 @@ describe("export and import", () => {
     expect(imported?.record.outlawName).toBe("Much")
   })
 
-  it("flags a tampered file but still imports it safely", () => {
-    const record = applyScrollDeed(emptyScrollRecord(), deed({ id: "m1", kind: "mission-completed", grade: "D", score: 900 }))
+  it("neutralizes a tampered file: identity only, no claimed progression", () => {
+    const record = applyScrollDeed(emptyScrollRecord("Marian"), deed({ id: "m1", kind: "mission-completed", grade: "D", score: 900 }))
     const file = JSON.parse(exportScrollFile(record)) as { record: ScrollRecord }
     file.record.experience = 5_000_000
     file.record.achievements = ["cartographer"]
+    file.record.stats.captures = 999
     const imported = importScrollFile(JSON.stringify({ ...file, kind: "sherwood-scroll-save", schemaVersion: SCROLL_SCHEMA_VERSION }))
     expect(imported).not.toBeNull()
     expect(imported?.intact).toBe(false)
-    // Experience survives (it is a stat), but the unearned achievement does not.
-    expect(imported?.record.achievements).not.toContain("cartographer")
+    // A broken seal installs no claimed values — not the experience, level,
+    // achievements, stats, or sealed deeds — only the identity.
+    expect(imported?.record.outlawName).toBe("Marian")
+    expect(imported?.record.experience).toBe(0)
+    expect(imported?.record.level).toBe(1)
+    expect(imported?.record.achievements).toEqual([])
+    expect(imported?.record.stats.captures).toBe(0)
+    expect(imported?.record.sealedDeeds).toEqual([])
   })
 
   it("rejects files that are not scroll saves", () => {
@@ -149,13 +156,24 @@ describe("offline deed queue", () => {
     expect(loadScrollQueue(storage)).toEqual([])
   })
 
-  it("caps the queue at the limit, keeping the newest", () => {
+  it("preserves every unsent deed across a save/load round trip", () => {
     const storage = new MemoryStorage()
     const deeds = Array.from({ length: SCROLL_QUEUE_LIMIT + 25 }, (_, i) => deed({ id: `d${i}`, kind: "clean-escape", at: i }))
     saveScrollQueue(storage, deeds)
     const loaded = loadScrollQueue(storage)
-    expect(loaded).toHaveLength(SCROLL_QUEUE_LIMIT)
+    // The queue must never drop unsent deeds; losing them would permanently
+    // forfeit progression the service has not yet re-derived.
+    expect(loaded).toHaveLength(deeds.length)
+    expect(loaded.at(0)?.id).toBe("d0")
     expect(loaded.at(-1)?.id).toBe(`d${SCROLL_QUEUE_LIMIT + 24}`)
+  })
+
+  it("keeps a wallet's queue separate from a guest's in the same browser", () => {
+    const storage = new MemoryStorage()
+    saveScrollQueue(storage, [deed({ id: "guest", kind: "clean-escape", at: 1 })])
+    saveScrollQueue(storage, [deed({ id: "walleted", kind: "clean-escape", at: 2 })], "0x000000000000000000000000000000000000dEaD")
+    expect(loadScrollQueue(storage).map((d) => d.id)).toEqual(["guest"])
+    expect(loadScrollQueue(storage, "0x000000000000000000000000000000000000dead").map((d) => d.id)).toEqual(["walleted"])
   })
 
   it("parses only well-formed deeds", () => {

@@ -103,8 +103,40 @@ export function createScrollController(options: ScrollControllerOptions = {}): S
   }
 
   function persist(): void {
-    saveScrollRecord(storage, record)
-    saveScrollQueue(storage, queue)
+    saveScrollRecord(storage, record, record.wallet)
+    saveScrollQueue(storage, queue, record.wallet)
+  }
+
+  /** A record with no folded progression — safe to seed with a chosen name. */
+  function isFreshRecord(candidate: ScrollRecord): boolean {
+    return candidate.experience === 0 && candidate.sealedDeeds.length === 0 && candidate.updatedAt === 0
+  }
+
+  /**
+   * Pull the authoritative record for a wallet and let it win, re-folding only
+   * the local deeds the service has not yet seen. Guarded by identity so a late
+   * response for a wallet we have since switched away from is ignored.
+   */
+  function reconcileWithBackend(wallet: string | null): void {
+    if (!backend || !wallet) return
+    const target = backend
+    void target
+      .fetchRecord(wallet)
+      .then((authoritative) => {
+        if (record.wallet !== wallet) return
+        if (authoritative) {
+          const reconciled = reconcileScrollRecord(record, authoritative, queue)
+          record = reconciled.record
+          queue = reconciled.stillQueued
+          persist()
+          refreshStateRoot()
+          render()
+        }
+        flush()
+      })
+      .catch(() => {
+        flush()
+      })
   }
 
   function render(): void {
@@ -112,10 +144,15 @@ export function createScrollController(options: ScrollControllerOptions = {}): S
     renderScrollPanel(panelParts, record, sync())
   }
 
-  /** Recompute the state root off the critical path, then re-render. */
+  /** Recompute the state root off the critical path, then re-render. Each call
+   *  claims a generation so a slower digest for an older record cannot land
+   *  after a newer one and momentarily show the Scroll as diverged. */
+  let stateRootGeneration = 0
   function refreshStateRoot(): void {
+    const generation = ++stateRootGeneration
     void scrollStateRoot(record)
       .then((root) => {
+        if (generation !== stateRootGeneration) return
         stateRoot = root
         render()
       })
@@ -152,6 +189,10 @@ export function createScrollController(options: ScrollControllerOptions = {}): S
       })
       .finally(() => {
         syncing = false
+        // Deeds recorded while this submission was in flight are still queued.
+        // Chain another flush only after a clean result, so a persistent
+        // failure retries on the next deed/panel-open rather than hot-looping.
+        if (queue.length > 0 && lastError === null) flush()
       })
   }
 
@@ -173,14 +214,24 @@ export function createScrollController(options: ScrollControllerOptions = {}): S
     setWallet(wallet) {
       const normalized = normalizeWallet(wallet)
       if (normalized === record.wallet) return
-      record = { ...record, wallet: normalized }
-      if (!normalized) {
-        anchor = null
-        syncedAt = null
-      }
+      // Persist the identity we are leaving under its own key, then load the
+      // incoming identity's own local record and queue — one wallet's Scroll
+      // and pending deeds must never be shown or submitted under another.
+      persist()
+      const carriedName = record.outlawName
+      record = { ...loadScrollRecord(storage, normalized), wallet: normalized }
+      queue = loadScrollQueue(storage, normalized)
+      anchor = null
+      stateRoot = null
+      syncedAt = null
+      lastError = null
+      // A brand-new identity keeps the outlaw name just chosen at the entry.
+      if (isFreshRecord(record)) record = { ...record, outlawName: carriedName }
       persist()
       refreshStateRoot()
       render()
+      // Load the authoritative record before trusting or submitting anything.
+      reconcileWithBackend(normalized)
       flush()
     },
     setOutlawName(name) {
@@ -192,6 +243,7 @@ export function createScrollController(options: ScrollControllerOptions = {}): S
     },
     attachBackend(next) {
       backend = next
+      reconcileWithBackend(record.wallet)
       flush()
     },
     refresh: render,
@@ -241,8 +293,13 @@ export function createScrollController(options: ScrollControllerOptions = {}): S
           if (note) note.textContent = "That file is not a Sherwood scroll."
           return
         }
+        // Keep deeds still awaiting the service that the imported record has not
+        // already sealed: the export is only the folded record, not the queue,
+        // and the service does not trust that aggregate — so dropping them would
+        // lose that pending progress for good.
+        const importedSealed = new Set(imported.record.sealedDeeds)
         record = imported.record
-        queue = []
+        queue = queue.filter((pending) => !importedSealed.has(pending.id))
         persist()
         refreshStateRoot()
         render()
