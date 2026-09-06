@@ -149,7 +149,9 @@ describe("protocol compatibility window", () => {
 
   it("rejects versions outside the window", () => {
     expect(isSupportedProtocolVersion(PROTOCOL_VERSION + 1)).toBe(false)
-    expect(isSupportedProtocolVersion(PROTOCOL_VERSION - 1)).toBe(false)
+    // The oldest supported version minus one is always outside the window.
+    const oldest = Math.min(...SUPPORTED_PROTOCOL_VERSIONS)
+    expect(isSupportedProtocolVersion(oldest - 1)).toBe(false)
   })
 
   it("rejects anything that is not a number", () => {
