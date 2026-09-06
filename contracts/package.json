@@ -1,0 +1,15 @@
+{
+  "name": "@robinhood-game/scroll-contracts",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "forge build",
+    "format": "forge fmt --check",
+    "test": "forge test",
+    "test:gas": "forge test --gas-report"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "5.4.0"
+  }
+}
