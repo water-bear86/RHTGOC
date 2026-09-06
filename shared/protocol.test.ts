@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "./protocol"
+import { isSupportedProtocolVersion, parseClientMessage, PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS, type ServerMessage } from "./protocol"
 
 const handshake = { version: PROTOCOL_VERSION, buildId: "test-build", productAnalytics: true } as const
 
@@ -138,5 +138,37 @@ describe("Merry Band protocol", () => {
     expect(parseClientMessage({ type: "client_diagnostic", code: "webgl_context_lost", fingerprint: "a".repeat(64), renderProfile: "degraded", browserFamily: "safari", browserMajor: 19 })).not.toBeNull()
     expect(parseClientMessage({ type: "client_diagnostic", code: "freeform_error", message: "raw stack", renderProfile: "standard", browserFamily: "chromium" })).toBeNull()
     expect(parseClientMessage({ type: "client_diagnostic", code: "uncaught_error", fingerprint: "not-a-hash", renderProfile: "standard", browserFamily: "other" })).toBeNull()
+  })
+})
+
+describe("protocol compatibility window", () => {
+  it("always accepts the current version", () => {
+    expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(PROTOCOL_VERSION)
+    expect(isSupportedProtocolVersion(PROTOCOL_VERSION)).toBe(true)
+  })
+
+  it("rejects versions outside the window", () => {
+    expect(isSupportedProtocolVersion(PROTOCOL_VERSION + 1)).toBe(false)
+    expect(isSupportedProtocolVersion(PROTOCOL_VERSION - 1)).toBe(false)
+  })
+
+  it("rejects anything that is not a number", () => {
+    for (const value of [undefined, null, "20", {}, [], Number.NaN]) {
+      expect(isSupportedProtocolVersion(value)).toBe(false)
+    }
+  })
+
+  it("parses a handshake at every supported version, and no other", () => {
+    for (const version of SUPPORTED_PROTOCOL_VERSIONS) {
+      const message = { type: "create_room", version, buildId: "test-build", productAnalytics: true, displayName: "Oakheart", characterId: "marian" }
+      expect(parseClientMessage(message)).not.toBeNull()
+    }
+    const unsupported = { type: "create_room", version: PROTOCOL_VERSION + 1, buildId: "test-build", productAnalytics: true, displayName: "Oakheart", characterId: "marian" }
+    expect(parseClientMessage(unsupported)).toBeNull()
+  })
+
+  it("rejects a non-integer version", () => {
+    const message = { type: "create_room", version: 20.5, buildId: "test-build", productAnalytics: true, displayName: "Oakheart", characterId: "marian" }
+    expect(parseClientMessage(message)).toBeNull()
   })
 })

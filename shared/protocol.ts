@@ -11,6 +11,21 @@ export type { ChatChannel, ChatErrorCode, ChatMessage, ChatReportReason } from "
 export type { BowActionPhase, BowActionSnapshot } from "./archery"
 
 export const PROTOCOL_VERSION = protocolVersion.version
+
+/**
+ * Protocol versions this build still accepts from a client.
+ *
+ * Keeping this a set rather than an exact match is what makes a protocol bump
+ * survivable in production: for an additive change, ship the new version and
+ * leave the previous one in this list, and already-connected players finish
+ * their mission instead of all being kicked at once. Drop a version from the
+ * list only for a genuinely breaking change, and expect the cutover.
+ */
+export const SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [PROTOCOL_VERSION]
+
+export function isSupportedProtocolVersion(value: unknown): boolean {
+  return typeof value === "number" && SUPPORTED_PROTOCOL_VERSIONS.includes(value)
+}
 export const MAX_ROOM_PLAYERS = 4
 export const RECONNECT_GRACE_MS = 30_000
 
@@ -42,7 +57,7 @@ export const BrowserFamilySchema = z.enum(["chromium", "firefox", "safari", "oth
 export type BrowserFamily = z.infer<typeof BrowserFamilySchema>
 
 const ClientHandshakeSchema = {
-  version: z.literal(PROTOCOL_VERSION),
+  version: z.number().int().refine(isSupportedProtocolVersion, { message: "Unsupported protocol version" }),
   buildId: BuildIdSchema,
   productAnalytics: z.boolean(),
 } as const

@@ -32,6 +32,8 @@ describe("regional map baker", () => {
     expect(new Set(selected.map(({ fingerprint }) => fingerprint)).size).toBe(3)
   })
 
+  // Bakes two full portfolios; can exceed the 5s default under
+  // full-suite parallelism, and this test gates every deploy.
   it("builds a reproducible manifest and visual contact sheet", () => {
     const options = { candidateCount: 4, portfolioSize: 3, seedNamespace: "regional-map-baker-test" }
     const first = bakeRegionalMapPortfolio(PEOPLES_PURSE_MISSION, options)
@@ -55,5 +57,5 @@ describe("regional map baker", () => {
     expect(first.contactSheetSvg).toContain("<svg")
     expect(first.contactSheetSvg).toContain("The People&apos;s Purse")
     expect(first.contactSheetSvg).toContain(first.manifest.manifestHash)
-  })
+  }, 30_000)
 })

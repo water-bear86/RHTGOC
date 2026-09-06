@@ -3,7 +3,7 @@ import { randomInt, randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { extname, join, normalize } from "node:path"
 import { WebSocket, WebSocketServer } from "ws"
-import { PROTOCOL_VERSION, parseClientMessage, type CharacterId, type ClientDiagnosticCode, type ServerMessage } from "../shared/protocol"
+import { PROTOCOL_VERSION, isSupportedProtocolVersion, parseClientMessage, type CharacterId, type ClientDiagnosticCode, type ServerMessage } from "../shared/protocol"
 import { Room, type ContributionTransition, type RescueOfferTransition } from "./room"
 import { createBandStoreFromEnv, type CompletedBandMission, type PersistentBandRecord } from "./band-store"
 import { createLeaderboardStoreFromEnv, terminalLeaderboardFailure, type VerifiedRun } from "./leaderboard-store"
@@ -77,6 +77,13 @@ interface QuickPlayReservation {
 const quickPlayReservations = new Map<string, QuickPlayReservation>()
 const quickPlayRooms = new Map<string, { expectedPlayers: number; joinedPlayerIds: Set<string>; expiresAt: number }>()
 let activeConnections = 0
+/**
+ * Capacity ceilings for this single node. Without them one socket can hold
+ * unbounded rooms open and starve every real player; both are sized from the
+ * container's memory and are deliberately enforced, not merely observed.
+ */
+const maxRooms = Math.max(1, Number(process.env.MAX_ROOMS ?? 500))
+const maxConnections = Math.max(1, Number(process.env.MAX_CONNECTIONS ?? 2_000))
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 const pendingRescueTransitions = new Map<string, { transition: RescueOfferTransition; attempts: number; nextAttemptAt: number }>()
 let rescuePersistenceFlushing = false
@@ -348,25 +355,57 @@ interface SupabaseIdentity {
   walletAddress: string | null
 }
 
-async function verifySupabaseIdentity(accessToken: string | undefined): Promise<SupabaseIdentity | null> {
-  if (!accessToken || !supabaseUrl || !supabasePublishableKey) return null
+/**
+ * The three genuinely different outcomes of checking a token.
+ *
+ * "rejected" means Supabase told us the token is not valid. "unavailable"
+ * means we could not ask — a timeout, a network error, or a 5xx. Callers must
+ * treat those differently: a rejected token is the player's problem, but an
+ * unreachable auth service is ours, and must never make the game unplayable.
+ */
+type SupabaseVerification =
+  | { outcome: "verified"; identity: SupabaseIdentity }
+  | { outcome: "rejected" }
+  | { outcome: "unavailable" }
+
+async function verifySupabaseVerification(accessToken: string | undefined): Promise<SupabaseVerification> {
+  if (!accessToken || !supabaseUrl || !supabasePublishableKey) return { outcome: "rejected" }
+  let response: Response
   try {
-    const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    response = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { apikey: supabasePublishableKey, Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(5_000),
     })
-    if (!response.ok) return null
+  } catch {
+    telemetry.increment("auth_verify_unavailable_total")
+    return { outcome: "unavailable" }
+  }
+  if (response.status >= 500 || response.status === 429) {
+    telemetry.increment("auth_verify_unavailable_total")
+    return { outcome: "unavailable" }
+  }
+  if (!response.ok) return { outcome: "rejected" }
+  try {
     const value = await response.json() as { id?: unknown; app_metadata?: unknown; identities?: unknown }
-    if (typeof value.id !== "string" || !value.id.match(/^[0-9a-f-]{36}$/)) return null
+    if (typeof value.id !== "string" || !value.id.match(/^[0-9a-f-]{36}$/)) return { outcome: "rejected" }
     const appMetadata = value.app_metadata && typeof value.app_metadata === "object" ? value.app_metadata as Record<string, unknown> : {}
     return {
-      id: value.id,
-      sherwoodOperator: appMetadata.sherwood_operator === true,
-      walletAddress: walletAddressFromIdentities(value.identities),
+      outcome: "verified",
+      identity: {
+        id: value.id,
+        sherwoodOperator: appMetadata.sherwood_operator === true,
+        walletAddress: walletAddressFromIdentities(value.identities),
+      },
     }
   } catch {
-    return null
+    telemetry.increment("auth_verify_unavailable_total")
+    return { outcome: "unavailable" }
   }
+}
+
+async function verifySupabaseIdentity(accessToken: string | undefined): Promise<SupabaseIdentity | null> {
+  const verification = await verifySupabaseVerification(accessToken)
+  return verification.outcome === "verified" ? verification.identity : null
 }
 
 async function verifySupabaseUser(accessToken: string | undefined): Promise<string | null> {
@@ -1207,6 +1246,11 @@ function settleRoomOutcomes(code: string, room: Room): boolean {
 const sockets = new WebSocketServer({ server: httpServer, path: "/rooms", maxPayload: 32 * 1_024 })
 sockets.on("connection", (socket) => {
   telemetry.increment("connections_total")
+  if (activeConnections >= maxConnections) {
+    telemetry.increment("connection_capacity_rejected_total")
+    socket.close(1013, "Server at capacity")
+    return
+  }
   activeConnections += 1
   telemetry.gauge("active_connections", activeConnections)
   let joinedRoom: Room | null = null
@@ -1228,7 +1272,7 @@ sockets.on("connection", (socket) => {
     const initial = value && typeof value === "object" ? value as Record<string, unknown> : null
     const initialType = initial?.type
     const isHandshake = initialType === "create_room" || initialType === "join_room" || initialType === "join_public_hub"
-    if (isHandshake && initial?.version !== PROTOCOL_VERSION) {
+    if (isHandshake && !isSupportedProtocolVersion(initial?.version)) {
       telemetry.increment("protocol_version_mismatch_total")
       send(socket, { type: "error", code: "VERSION_MISMATCH", message: "A newer Sherwood build is ready. Refreshing…", buildId })
       return
@@ -1246,6 +1290,19 @@ sockets.on("connection", (socket) => {
           send(socket, { type: "error", code: "FORBIDDEN", message: "This server is draining for an update. Try again in a moment." })
           return
         }
+        if (message.type === "create_room" && rooms.size >= maxRooms) {
+          telemetry.increment("room_capacity_rejected_total")
+          send(socket, { type: "error", code: "FORBIDDEN", message: "Sherwood is full. Try again in a moment." })
+          return
+        }
+        // Leaving the previous room is what stops one socket from holding an
+        // unbounded number of rooms open: a room whose players are all still
+        // marked connected is never pruned, so it would tick forever.
+        if (joinedRoom && playerId) {
+          joinedRoom.disconnect(playerId)
+          joinedRoom = null
+          playerId = null
+        }
         productAnalyticsConsent = message.productAnalytics
         if (hubParticipantId) {
           publicHub.leave(hubParticipantId)
@@ -1258,8 +1315,13 @@ sockets.on("connection", (socket) => {
           send(socket, { type: "error", code: "FORBIDDEN", message: "That quick-play seat expired. Find a new group." })
           return
         }
-        const verifiedAuthUserId = await verifySupabaseUser(message.accessToken)
-        if (message.accessToken && supabaseUrl && supabasePublishableKey && !verifiedAuthUserId && !quickPlayReservation) {
+        const verification = await verifySupabaseVerification(message.accessToken)
+        const verifiedAuthUserId = verification.outcome === "verified" ? verification.identity.id : null
+        // Only a definite rejection locks the player out. If Supabase itself is
+        // unreachable we let them in as a guest — playable, but with no
+        // progression persistence — rather than making the game unusable for
+        // everyone who happens to be signed in.
+        if (verification.outcome === "rejected" && message.accessToken && supabaseUrl && supabasePublishableKey && !quickPlayReservation) {
           send(socket, { type: "error", code: "FORBIDDEN", message: "Your Sherwood sign-in expired. Sign in again or continue as a guest." })
           return
         }
@@ -1856,9 +1918,23 @@ function beginDrain(signal: NodeJS.Signals): void {
   sockets.close()
   const now = Date.now()
   for (const batch of gameplayAnalytics?.flushAll(now) ?? []) enqueueGameplayAnalytics(batch)
+  // Flush every durable queue, not just analytics. These hold verified
+  // leaderboard runs and band progression; dropping them on a deploy loses
+  // real player progress with no dead-letter record.
   let analyticsFlushComplete = gameplayAnalyticsStore === null
-  void flushGameplayAnalytics(Date.now()).finally(() => {
-    analyticsFlushComplete = true
+  let queueFlushComplete = false
+  void Promise.allSettled([
+    flushGameplayAnalytics(Date.now()).finally(() => {
+      analyticsFlushComplete = true
+    }),
+    flushVerifiedRuns(Date.now()),
+    flushBandMissions(Date.now()),
+    flushSeasonTransitions(Date.now()),
+    flushContributionTransitions(Date.now()),
+    flushRescueTransitions(Date.now()),
+    flushRecentPlayers(Date.now()),
+  ]).finally(() => {
+    queueFlushComplete = true
   })
 
   let finished = false
@@ -1871,7 +1947,7 @@ function beginDrain(signal: NodeJS.Signals): void {
     setTimeout(() => process.exit(0), 1_000).unref()
   }
   const check = setInterval(() => {
-    if (activeConnections === 0 && analyticsFlushComplete) finish()
+    if (activeConnections === 0 && analyticsFlushComplete && queueFlushComplete) finish()
   }, 250)
   check.unref()
   const deadline = setTimeout(() => {
