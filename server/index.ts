@@ -10,6 +10,7 @@ import { createLeaderboardStoreFromEnv, terminalLeaderboardFailure, type Verifie
 import { createScrollEvidenceIssuer } from "./scroll-evidence"
 import { createRankedLeaderboardStoreFromEnv, isLeaderboardKind } from "./ranked-leaderboard-store"
 import { LeaderboardCache } from "./leaderboard-cache"
+import { isModerationAction, isModerationReasonCode, sanitizeLeaderboardLogContext } from "./leaderboard-policy"
 import { structuredLog, Telemetry } from "./telemetry"
 import { getMissionDefinition } from "../shared/mission-catalog"
 import type { SheriffRotation } from "../shared/sheriff-rotation"
@@ -1038,6 +1039,66 @@ const httpServer = createServer(async (request, response) => {
       json(response, 200, result)
     } catch (error) {
       json(response, 409, { error: error instanceof Error ? error.message : "Recover failed" })
+    }
+    return
+  }
+  if (pathname === "/admin/leaderboard/moderate/entry" && request.method === "POST") {
+    if (!opsAdminSecret || !leaderboardStore) {
+      json(response, 503, { error: "Leaderboard moderation is not configured" })
+      return
+    }
+    if (!operatorAuthorized(request)) {
+      json(response, 401, { error: "Unauthorized" })
+      return
+    }
+    try {
+      const body = await readJsonBody(request) as { entryId?: unknown; action?: unknown; reasonCode?: unknown; actor?: unknown; note?: unknown }
+      const entryId = typeof body.entryId === "string" ? body.entryId : ""
+      const action = typeof body.action === "string" ? body.action : ""
+      const reasonCode = typeof body.reasonCode === "string" ? body.reasonCode : ""
+      const actor = typeof body.actor === "string" ? body.actor : ""
+      const note = typeof body.note === "string" ? body.note : undefined
+      if (!/^[0-9a-f-]{36}$/.test(entryId) || !isModerationAction(action) || !isModerationReasonCode(reasonCode)) {
+        json(response, 400, { error: "Invalid moderation request" })
+        return
+      }
+      const result = await leaderboardStore.moderateEntry({ entryId, action, reasonCode, actor, note })
+      leaderboardCache.invalidateAll()
+      telemetry.increment("leaderboard_moderation_total")
+      structuredLog("leaderboard_moderation", sanitizeLeaderboardLogContext({ entryId, action, reasonCode, changed: result.changed }) as Record<string, string | number | boolean | null>)
+      json(response, 200, result)
+    } catch (error) {
+      json(response, 409, { error: error instanceof Error ? error.message : "Moderation failed" })
+    }
+    return
+  }
+  if (pathname === "/admin/leaderboard/moderate/player" && request.method === "POST") {
+    if (!opsAdminSecret || !leaderboardStore) {
+      json(response, 503, { error: "Leaderboard moderation is not configured" })
+      return
+    }
+    if (!operatorAuthorized(request)) {
+      json(response, 401, { error: "Unauthorized" })
+      return
+    }
+    try {
+      const body = await readJsonBody(request) as { playerId?: unknown; action?: unknown; reasonCode?: unknown; actor?: unknown; note?: unknown }
+      const playerId = typeof body.playerId === "string" ? body.playerId : ""
+      const action = typeof body.action === "string" ? body.action : ""
+      const reasonCode = typeof body.reasonCode === "string" ? body.reasonCode : ""
+      const actor = typeof body.actor === "string" ? body.actor : ""
+      const note = typeof body.note === "string" ? body.note : undefined
+      if (!/^[0-9a-f-]{36}$/.test(playerId) || !isModerationAction(action) || !isModerationReasonCode(reasonCode)) {
+        json(response, 400, { error: "Invalid moderation request" })
+        return
+      }
+      const result = await leaderboardStore.moderatePlayer({ playerId, action, reasonCode, actor, note })
+      leaderboardCache.invalidateAll()
+      telemetry.increment("leaderboard_moderation_total")
+      structuredLog("leaderboard_moderation", sanitizeLeaderboardLogContext({ playerRefHash: playerId, action, reasonCode, changedEntries: result.changedEntries }) as Record<string, string | number | boolean | null>)
+      json(response, 200, result)
+    } catch (error) {
+      json(response, 409, { error: error instanceof Error ? error.message : "Moderation failed" })
     }
     return
   }

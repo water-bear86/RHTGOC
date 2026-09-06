@@ -12,7 +12,8 @@ import type { LeaderboardKind } from "./leaderboard-store"
 
 export interface RankableEntry {
   id: string
-  playerId?: string
+  /** May be null: `player_id` is `on delete set null` for deleted accounts. */
+  playerId?: string | null
   score: number
   missionSeconds: number
   delivered: number

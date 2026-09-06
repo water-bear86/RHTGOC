@@ -55,7 +55,35 @@ An approved run is inserted as `verified=true` and `suspicious=true`, preserving
 
 Before approval, compare the quarantined payload with the authoritative mission trace, mission version/content hash, party composition, start and elapsed times, and score thresholds. Reject when the server trace cannot independently establish the result.
 
-## Release drill
+## Privacy projection and block masking
+
+Public leaderboard output is projected through an explicit field allowlist (`PUBLIC_LEADERBOARD_ENTRY_FIELDS` in `server/leaderboard-policy.ts`). Account IDs, emails, wallet addresses, verification UUIDs, score breakdowns, suspicion flags, friend codes, IPs, and platform identifiers never leave the trust boundary.
+
+Block relationships are resolved from `public.player_blocks` (undirected). A block between the viewer and an entry's player **masks the entry's identity in place** — the row is never removed. The masked label is `Hooded Outlaw`, identical for both block masking and moderator identity-hiding, so the two causes are outwardly indistinguishable.
+
+Because masking happens strictly **after** ranking and pagination, every count, rank, tie flag, position, and `has_next` value is byte-identical for every viewer. Neither side of a block (nor anyone else) can detect a block from counts, errors, or pagination differences. This is the critical privacy property: the numeric frame of the board is viewer-independent.
+
+Deleted accounts (`player_id` is `on delete set null`) never match a block pair, never match the viewer's self row, and keep their season pseudonym.
+
+### Moderation hooks
+
+Moderation actions are authorization-checked at the HTTP layer (`/admin/leaderboard/moderate/entry` and `/admin/leaderboard/moderate/player`, operator-secret-gated) and execute through `service_role`-only RPCs:
+
+| Action | Effect | Scope |
+| --- | --- | --- |
+| `hide-entry` | Removes the row for **every** viewer (uniform) | entry or player |
+| `restore-entry` | Restores a hidden row | entry or player |
+| `hide-identity` | Masks the identity for every viewer with `Hooded Outlaw` | entry or player |
+| `restore-identity` | Restores the identity | entry or player |
+| `annotate` | No state change; appends an audit row with a note | entry only |
+
+Reason codes: `offensive-name`, `harassment`, `impersonation`, `cheating-review`, `legal-removal`, `other`.
+
+Every action appends an immutable row to `public.leaderboard_moderation_log` with `entry_id` or `player_ref` (plain UUIDs, no FK, so audit history survives account/entry deletion), `actor`, `action`, `reason_code`, optional `note`, and a `changed` flag. The table is append-only (update/delete raises `IMMUTABLE_LEADERBOARD_RECORD`).
+
+`moderate_leaderboard_player` tolerates missing or banned accounts: the UPDATE affects zero rows, the action is still logged, and no error is raised.
+
+### Release drill
 
 Run `tools/leaderboard-lifecycle-drill.sql` before releasing a lifecycle change. It executes as `service_role` inside a transaction and rolls everything back. The drill proves finale and post-archive drain writes, three quarantine paths, reviewer attribution, strict replay conflicts, pending-review finalization gates, all five board definitions and stable ordering, immutable history, browser-role denial, and exact replay after finalization.
 
