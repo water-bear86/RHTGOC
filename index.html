@@ -9,6 +9,18 @@
   </head>
   <body>
     <div id="game"></div>
+    <svg class="paper-filters" aria-hidden="true" focusable="false" width="0" height="0" style="position:absolute;pointer-events:none">
+      <defs>
+        <!-- Frays a clipped edge into torn paper fibres. Low displacement so
+             content stays legible; the roughness lands on the deckle edge. -->
+        <filter id="paper-fray" x="-6%" y="-6%" width="112%" height="112%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.014 0.032" numOctaves="3" seed="7" result="coarse"/>
+          <feDisplacementMap in="SourceGraphic" in2="coarse" scale="4" xChannelSelector="R" yChannelSelector="G" result="rough"/>
+          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="11" result="fibre"/>
+          <feDisplacementMap in="rough" in2="fibre" scale="1.5" xChannelSelector="R" yChannelSelector="G"/>
+        </filter>
+      </defs>
+    </svg>
     <div class="wallet-dock" aria-label="Optional Robinhood Wallet">
       <span><i>RH</i> OPTIONAL WALLET</span>
       <b id="wallet-state">NOT CONNECTED</b>

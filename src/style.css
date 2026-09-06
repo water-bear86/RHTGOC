@@ -41,14 +41,25 @@
 
   /* CSS-only paper surface: fibre grain + soft vignette + foxing */
   --paper-grain:
-    repeating-linear-gradient(0deg, transparent 0 2px, #6b512b08 2px 3px),
-    repeating-linear-gradient(90deg, transparent 0 3px, #6b512b06 3px 4px),
-    radial-gradient(60% 40% at 18% 82%, #b8955a2a, transparent 70%),
-    radial-gradient(45% 35% at 84% 12%, #b8955a22, transparent 70%);
-  --paper-surface: radial-gradient(120% 90% at 50% 38%, #f4ead0 0%, var(--paper) 45%, var(--paper-2) 78%, var(--paper-3) 100%);
-  --paper-shadow: 0 18px 44px #06100b73, 0 2px 0 #fff6, inset 0 0 0 1px #fff8, inset 0 0 28px #a8823f3d;
+    /* fibres */
+    repeating-linear-gradient(0deg, transparent 0 2px, #6b512b0c 2px 3px),
+    repeating-linear-gradient(90deg, transparent 0 3px, #6b512b09 3px 4px),
+    /* tea stains & foxing, scattered and uneven */
+    radial-gradient(38% 30% at 16% 84%, #9c6b2e33, transparent 68%),
+    radial-gradient(30% 24% at 82% 16%, #9c6b2e2b, transparent 70%),
+    radial-gradient(14% 12% at 68% 74%, #7d4f1f30, transparent 72%),
+    radial-gradient(9% 9% at 30% 30%, #7d4f1f2a, transparent 74%),
+    radial-gradient(7% 7% at 88% 62%, #6b451c33, transparent 76%),
+    radial-gradient(5% 6% at 12% 46%, #6b451c2e, transparent 78%),
+    /* edge burn: darkened, aged perimeter */
+    radial-gradient(120% 120% at 50% 50%, transparent 58%, #8a5f2828 82%, #5c3d1a3a 100%);
+  --paper-surface:
+    radial-gradient(135% 100% at 42% 30%, #f5ecd4 0%, var(--paper) 40%, var(--paper-2) 74%, var(--paper-3) 100%);
+  --paper-shadow: 0 16px 40px #06100b7a, inset 0 0 0 1px #ffffff55, inset 0 0 34px #a8823f45, inset 0 0 90px #7a521f14;
   --paper-rule: 1px solid var(--ink-rule);
-  --deckle: polygon(0 4px, 4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px));
+  /* Hand-torn deckle silhouette (generated), roughened further by #paper-fray. */
+  --deckle: polygon(0.00% 1.35%, 4.55% 1.22%, 9.09% 2.98%, 13.64% 1.56%, 18.18% 0.00%, 22.73% 0.53%, 27.27% 0.06%, 31.82% 0.97%, 36.36% 1.31%, 40.91% 1.35%, 45.45% 1.58%, 50.00% 0.14%, 54.55% 0.63%, 59.09% 0.38%, 63.64% 1.55%, 68.18% 1.25%, 72.73% 4.05%, 77.27% 0.14%, 81.82% 3.01%, 86.36% 1.49%, 90.91% 1.49%, 95.45% 0.87%, 100.00% 1.51%, 99.83% 4.55%, 98.67% 9.09%, 98.41% 13.64%, 99.48% 18.18%, 99.66% 22.73%, 99.62% 27.27%, 99.70% 31.82%, 96.17% 36.36%, 99.86% 40.91%, 99.09% 45.45%, 99.02% 50.00%, 97.82% 54.55%, 99.31% 59.09%, 96.39% 63.64%, 99.21% 68.18%, 98.82% 72.73%, 99.56% 77.27%, 98.62% 81.82%, 99.62% 86.36%, 99.96% 90.91%, 99.05% 95.45%, 99.12% 100.00%, 95.45% 97.85%, 90.91% 98.74%, 86.36% 98.93%, 81.82% 99.64%, 77.27% 97.86%, 72.73% 99.09%, 68.18% 99.10%, 63.64% 99.77%, 59.09% 98.04%, 54.55% 98.98%, 50.00% 99.15%, 45.45% 99.65%, 40.91% 98.86%, 36.36% 99.87%, 31.82% 98.81%, 27.27% 98.86%, 22.73% 99.10%, 18.18% 98.93%, 13.64% 98.42%, 9.09% 99.72%, 4.55% 99.63%, 0.00% 97.24%, 1.13% 95.45%, 2.15% 90.91%, 1.32% 86.36%, 1.41% 81.82%, 0.20% 77.27%, 1.62% 72.73%, 1.05% 68.18%, 1.18% 63.64%, 0.93% 59.09%, 1.03% 54.55%, 1.19% 50.00%, 2.81% 45.45%, 0.49% 40.91%, 2.25% 36.36%, 1.36% 31.82%, 0.11% 27.27%, 1.75% 22.73%, 0.09% 18.18%, 1.36% 13.64%, 1.55% 9.09%, 1.34% 4.55%);
+  --deckle-chip: polygon(0.00% 1.37%, 8.33% 0.39%, 16.67% 1.13%, 25.00% 1.73%, 33.33% 0.06%, 41.67% 0.09%, 50.00% 2.51%, 58.33% 0.31%, 66.67% 0.15%, 75.00% 2.08%, 83.33% 1.04%, 91.67% 1.72%, 100.00% 2.89%, 95.78% 8.33%, 99.63% 16.67%, 95.87% 25.00%, 99.29% 33.33%, 98.32% 41.67%, 98.47% 50.00%, 97.63% 58.33%, 98.96% 66.67%, 99.96% 75.00%, 98.81% 83.33%, 98.84% 91.67%, 98.50% 100.00%, 91.67% 99.87%, 83.33% 98.72%, 75.00% 96.29%, 66.67% 98.84%, 58.33% 95.71%, 50.00% 98.68%, 41.67% 99.38%, 33.33% 98.83%, 25.00% 97.84%, 16.67% 98.06%, 8.33% 98.47%, 0.00% 99.83%, 1.23% 91.67%, 1.79% 83.33%, 4.19% 75.00%, 1.20% 66.67%, 2.02% 58.33%, 0.64% 50.00%, 2.52% 41.67%, 0.34% 33.33%, 0.61% 25.00%, 0.16% 16.67%, 2.79% 8.33%);
 
   --label-size: 10px;
   --label-track: .16em;
@@ -71,10 +82,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   border: 1px solid var(--paper-edge);
   box-shadow: var(--paper-shadow);
 }
-.intro-card, .panel, .hub-panel, .public-hub-panel, .chat-drawer { clip-path: var(--deckle); box-shadow: none; filter: drop-shadow(0 22px 40px #06100b8c); }
+/* HUD parchment scraps: torn silhouette, but no per-frame displacement filter. */
+.objective, .status span, .heat, .party-hud, .region-map, .prompt, .toast, .quick-chat, .objective-pointer, .wallet-dock {
+  clip-path: var(--deckle-chip);
+}
+.intro-card, .panel, .hub-panel, .public-hub-panel, .chat-drawer {
+  clip-path: var(--deckle);
+  box-shadow: none;
+  filter: url(#paper-fray) drop-shadow(0 20px 34px #06100b8c);
+}
 /* double ink rule drawn inside the sheet */
 .intro-card::before, .panel::before, .hub-panel::before, .public-hub-panel::before, .chat-drawer::before {
-  content: ""; position: absolute; inset: 7px; pointer-events: none; border: var(--paper-rule); outline: 1px solid #2b21171a; outline-offset: 2px;
+  content: ""; position: absolute; inset: 9px 8px 8px 9px; pointer-events: none;
+  border: 1px solid #2b211733; border-radius: 2px;
+  outline: 1px solid #2b211714; outline-offset: 3px;
+  box-shadow: inset 0 0 0 1px #ffffff30;
 }
 
 /* ---- shared typography ---- */
