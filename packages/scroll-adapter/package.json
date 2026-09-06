@@ -1,0 +1,33 @@
+{
+  "name": "@robinhood-game/scroll-adapter",
+  "version": "0.1.0",
+  "description": "Offline-first Soulbound Scroll adapter for Sherwood, the game (on robinhood chain)",
+  "type": "module",
+  "private": false,
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@robinhood-game/scroll-state-core": "file:../../aws/state-core"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2",
+    "vitest": "3.2.7"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "UNLICENSED"
+}
