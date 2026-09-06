@@ -150,12 +150,6 @@ if (entryGate) {
     document.querySelector<HTMLElement>(".intro-card")?.focus()
   }
   entryGate.addEventListener("click", enterSherwood)
-  entryGate.addEventListener("keydown", (event: KeyboardEvent) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault()
-      enterSherwood()
-    }
-  })
 }
 const introCard = document.querySelector<HTMLElement>(".intro-card")!
 const introEyebrow = document.querySelector<HTMLElement>("#intro-eyebrow")!

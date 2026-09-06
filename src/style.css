@@ -1107,54 +1107,50 @@ label, dt, .quick-chat label, .chat-message header b, .maker-mark + *,
 }
 
 /* ------------------------------------------------------------------ *
- * Entry gate — the carved medallion you click to step into Sherwood.
- * The oak, the arrow through it, the fallen crown. Sits above everything
- * until dismissed; the site is already mounted behind it.
+ * Entry gate — the welcome video. Sits above everything until dismissed;
+ * the site is already mounted behind it.
  * ------------------------------------------------------------------ */
 #entry-gate {
   position: fixed; inset: 0; z-index: 9999;
-  display: grid; place-items: center;
-  background: radial-gradient(circle at 50% 36%, #23190d 0%, #160f08 55%, #0b0704 100%);
-  cursor: pointer;
-  transition: opacity .8s ease, visibility .8s ease;
+  background: #000;
+  transition: opacity .9s ease, visibility .9s ease;
 }
 #entry-gate.dismissed { opacity: 0; visibility: hidden; pointer-events: none; }
+
+/* The animated AVIF fills the frame. */
+.entry-video {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover; display: block;
+}
+
+/* Black curtain fades in when the 10-second clip ends. */
+.entry-curtain {
+  position: absolute; inset: 0;
+  background: #000; opacity: 0; pointer-events: none;
+  animation: entry-blackout 1.8s ease 10s forwards;
+}
+
+/* "Enter Sherwood" rises in just after the curtain lands. */
 .entry-gate-inner {
-  display: grid; justify-items: center; gap: 22px;
-  padding: 24px; text-align: center;
-  animation: entry-rise .9s ease both;
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  opacity: 0;
+  animation: entry-rise 1s ease 11.5s both;
 }
-/* The medallion image lays over a gilt disc, so a missing file still reads
-   as an intentional seal rather than a broken image. border-radius clips the
-   source image's square white corners to the carved rim. */
-.entry-medallion {
-  width: min(46vmin, 340px); aspect-ratio: 1; border-radius: 50%;
-  background:
-    url(/assets/ui/brand/sherwood-medallion.png) center / cover no-repeat,
-    radial-gradient(circle at 38% 30%, #d8b25a 0%, #a9832f 40%, #6f4f14 70%, #241706 100%);
-  box-shadow: 0 24px 60px #000a, 0 2px 0 #0006, inset 0 0 0 2px #0000004d;
-  transition: transform .3s ease, filter .3s ease, box-shadow .3s ease;
-}
-#entry-gate:hover .entry-medallion,
-#entry-gate:focus-visible .entry-medallion {
-  transform: scale(1.035) rotate(-1deg);
-  filter: brightness(1.06);
-  box-shadow: 0 30px 74px #000c, 0 0 46px #caa14e40, inset 0 0 0 2px #0000004d;
-}
-.entry-gate-label {
-  margin: 0; color: #eadfbf;
+.entry-gate-link {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: #eadfbf;
   font: 400 clamp(40px, 7.5vmin, 70px) var(--display);
-  letter-spacing: .01em; text-shadow: 0 2px 12px #000b;
+  letter-spacing: .01em; text-shadow: 0 2px 16px #000e;
+  transition: color .2s, text-shadow .2s;
 }
-.entry-gate-hint {
-  margin: 0; color: #b79a5f; text-transform: uppercase;
-  font: 700 12px "Cursive Option", cursive; letter-spacing: .34em;
-  animation: entry-hint 2.6s ease-in-out infinite;
-}
-#entry-gate:focus-visible { outline: none; }
-@keyframes entry-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
-@keyframes entry-hint { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+.entry-gate-link:hover { color: #fff; text-shadow: 0 2px 32px #000, 0 0 40px #caa14e80; }
+.entry-gate-link:focus-visible { outline: 2px solid #caa14e; outline-offset: 8px; }
+
+@keyframes entry-blackout { to { opacity: 1; } }
+@keyframes entry-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .entry-gate-inner, .entry-gate-hint { animation: none; }
-  #entry-gate, .entry-medallion { transition: opacity .2s ease; }
+  .entry-curtain { animation: none; opacity: 1; }
+  .entry-gate-inner { animation: none; opacity: 1; }
 }
